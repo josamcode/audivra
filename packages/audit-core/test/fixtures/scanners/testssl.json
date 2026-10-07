@@ -1,0 +1,422 @@
+[
+ {
+  "id": "SSLv2",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "not offered"
+ },
+ {
+  "id": "SSLv3",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "not offered"
+ },
+ {
+  "id": "TLS1",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "offered (deprecated)"
+ },
+ {
+  "id": "TLS1_1",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "offered (deprecated)"
+ },
+ {
+  "id": "TLS1_2",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "offered"
+ },
+ {
+  "id": "TLS1_3",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "offered with final"
+ },
+ {
+  "id": "cipher-tls1_xc013",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   xc013   ECDHE-RSA-AES128-SHA              ECDH 256   AES         128      TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_x2f",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   x2f     AES128-SHA                        RSA        AES         128      TLS_RSA_WITH_AES_128_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_xc014",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   xc014   ECDHE-RSA-AES256-SHA              ECDH 256   AES         256      TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_x35",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   x35     AES256-SHA                        RSA        AES         256      TLS_RSA_WITH_AES_256_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_x0a",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "MEDIUM",
+  "finding": "TLSv1   x0a     DES-CBC3-SHA                      RSA        3DES        168      TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+ },
+ {
+  "id": "cipher_order",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "server -- TLS 1.3 client determined"
+ },
+ {
+  "id": "cert_signatureAlgorithm <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "SHA256 with RSA"
+ },
+ {
+  "id": "cert_keySize <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "RSA 2048 bits (exponent is 65537)"
+ },
+ {
+  "id": "cert_keyUsage <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "HIGH",
+  "finding": "Certificate incorrectly used for key encipherment: 'Digital Signature'"
+ },
+ {
+  "id": "cert_commonName <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "example.com"
+ },
+ {
+  "id": "cert_commonName_wo_SNI <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "request w/o SNI didn't succeed"
+ },
+ {
+  "id": "cert_chain_of_trust <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "passed."
+ },
+ {
+  "id": "cert_expirationStatus <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "79 >= 60 days"
+ },
+ {
+  "id": "cert_notAfter <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "2026-12-25 22:56"
+ },
+ {
+  "id": "DNS_CAArecord <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "--"
+ },
+ {
+  "id": "cert_signatureAlgorithm <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "ECDSA with SHA256"
+ },
+ {
+  "id": "cert_keySize <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "EC 256 bits (curve P-256)"
+ },
+ {
+  "id": "cert_keyUsage <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "Digital Signature"
+ },
+ {
+  "id": "cert_commonName <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "example.com"
+ },
+ {
+  "id": "cert_commonName_wo_SNI <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "request w/o SNI didn't succeed, usual for EC certificates"
+ },
+ {
+  "id": "cert_chain_of_trust <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "passed."
+ },
+ {
+  "id": "cert_expirationStatus <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "79 >= 60 days"
+ },
+ {
+  "id": "cert_notAfter <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "2026-12-25 22:56"
+ },
+ {
+  "id": "DNS_CAArecord <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "--"
+ },
+ {
+  "id": "SSLv2",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "not offered"
+ },
+ {
+  "id": "SSLv3",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "not offered"
+ },
+ {
+  "id": "TLS1",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "offered (deprecated)"
+ },
+ {
+  "id": "TLS1_1",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "offered (deprecated)"
+ },
+ {
+  "id": "TLS1_2",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "offered"
+ },
+ {
+  "id": "TLS1_3",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "offered with final"
+ },
+ {
+  "id": "cipher-tls1_xc013",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   xc013   ECDHE-RSA-AES128-SHA              ECDH 256   AES         128      TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_x2f",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   x2f     AES128-SHA                        RSA        AES         128      TLS_RSA_WITH_AES_128_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_xc014",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   xc014   ECDHE-RSA-AES256-SHA              ECDH 256   AES         256      TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_x35",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "TLSv1   x35     AES256-SHA                        RSA        AES         256      TLS_RSA_WITH_AES_256_CBC_SHA"
+ },
+ {
+  "id": "cipher-tls1_x0a",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "MEDIUM",
+  "finding": "TLSv1   x0a     DES-CBC3-SHA                      RSA        3DES        168      TLS_RSA_WITH_3DES_EDE_CBC_SHA"
+ },
+ {
+  "id": "cipher_order",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "server -- TLS 1.3 client determined"
+ },
+ {
+  "id": "cert_signatureAlgorithm <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "SHA256 with RSA"
+ },
+ {
+  "id": "cert_keySize <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "RSA 2048 bits (exponent is 65537)"
+ },
+ {
+  "id": "cert_keyUsage <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "HIGH",
+  "finding": "Certificate incorrectly used for key encipherment: 'Digital Signature'"
+ },
+ {
+  "id": "cert_commonName <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "example.com"
+ },
+ {
+  "id": "cert_commonName_wo_SNI <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "request w/o SNI didn't succeed"
+ },
+ {
+  "id": "cert_chain_of_trust <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "passed."
+ },
+ {
+  "id": "cert_expirationStatus <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "79 >= 60 days"
+ },
+ {
+  "id": "cert_notAfter <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "2026-12-25 22:56"
+ },
+ {
+  "id": "DNS_CAArecord <hostCert#1>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "--"
+ },
+ {
+  "id": "cert_signatureAlgorithm <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "ECDSA with SHA256"
+ },
+ {
+  "id": "cert_keySize <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "EC 256 bits (curve P-256)"
+ },
+ {
+  "id": "cert_keyUsage <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "Digital Signature"
+ },
+ {
+  "id": "cert_commonName <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "example.com"
+ },
+ {
+  "id": "cert_commonName_wo_SNI <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "INFO",
+  "finding": "request w/o SNI didn't succeed, usual for EC certificates"
+ },
+ {
+  "id": "cert_chain_of_trust <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "passed."
+ },
+ {
+  "id": "cert_expirationStatus <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "79 >= 60 days"
+ },
+ {
+  "id": "cert_notAfter <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "OK",
+  "finding": "2026-12-25 22:56"
+ },
+ {
+  "id": "DNS_CAArecord <hostCert#2>",
+  "ip": "192.0.2.1/443",
+  "port": "443",
+  "severity": "LOW",
+  "finding": "--"
+ }
+]

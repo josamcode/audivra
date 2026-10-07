@@ -5,8 +5,9 @@ import type { RobotsFacts, SitemapFacts } from './discovery.ts'
 import type { FetchResult, TlsInfo } from './http.ts'
 import type { LighthouseSummary } from './lighthouse.ts'
 import type { LinkCheckSummary } from './links.ts'
+import type { HttpxSummary, KatanaSummary, Pa11ySummary, TestsslSummary, ZapSummary } from './scanners.ts'
 import type { LocalizationFacts, SeoFacts } from './seo.ts'
-import type { SignalHit } from './signals.ts'
+import type { SignalHit, TrackingEvent } from './signals.ts'
 
 export interface BaselineData {
   url: string
@@ -27,7 +28,18 @@ export interface BaselineData {
   browser: BrowserPageReport[]
   lighthouse: LighthouseSummary | null
   tracking: (SignalHit & { pages: string[] })[]
+  /** Tracking events observed on page load (no interactions are performed by the baseline). */
+  trackingEvents: TrackingEvent[]
   technologies: SignalHit[]
+  scanners: {
+    zap: ZapSummary | null
+    testssl: TestsslSummary | null
+    httpx: HttpxSummary | null
+    katana: KatanaSummary | null
+    pa11y: Pa11ySummary[]
+  }
+  /** Same-site URLs found only by Katana (not by the crawler or sitemaps). */
+  extraDiscovered: number
   /** Evidence refs of the main baseline evidence items, by topic. */
   refs: Record<string, string>
 }
@@ -49,7 +61,7 @@ export function buildBaselineStats(
   }
   const lh = data.lighthouse
   return {
-    pagesDiscovered: data.crawl?.discoveredUrls ?? 0,
+    pagesDiscovered: (data.crawl?.discoveredUrls ?? 0) + data.extraDiscovered,
     pagesCrawled: data.crawl?.pages.length ?? 0,
     pagesInspectedInBrowser: data.browser.length,
     brokenLinks: data.links?.broken.length ?? 0,
@@ -176,6 +188,14 @@ export function buildBaselineSummary(data: BaselineData, stats: BaselineStats): 
     lines.push(
       `- Possible direction mismatches: ${list(l.directionMismatches.map((d) => `${pathOf(d.url)} (lang=${d.lang}, dir=${d.dir}, arabic=${d.arabicCharRatio})`))}`,
     )
+    if (l.hreflangIssues.length)
+      lines.push(`- hreflang issues: ${list(l.hreflangIssues.map((i) => `${pathOf(i.url)} ${i.kind}: ${i.detail}`), 6)}`)
+    if (l.mixedLanguage.length)
+      lines.push(`- Mostly Latin-script UI on RTL pages: ${list(l.mixedLanguage.map((m) => `${pathOf(m.url)} ${m.area} (${Math.round(m.latinShare * 100)}% Latin)`), 6)}`)
+    if (l.untranslatedMetadata.length)
+      lines.push(`- Same ${list(l.untranslatedMetadata.map((u) => `${u.field} on ${u.urls.map(pathOf).join(' & ')}`), 4)} across languages`)
+    if (l.missingPairs.length)
+      lines.push(`- Locale pages without a counterpart in the crawl sample (verify, the crawl is bounded): ${list(l.missingPairs.map((m) => `/${m.present.join(',')}${m.path} → no /${m.missing}`), 6)}`)
   }
   if (data.lighthouse) {
     const lh = data.lighthouse
@@ -266,7 +286,10 @@ export function buildBaselineSummary(data: BaselineData, stats: BaselineStats): 
     }
   }
   lines.push(`## Tracking (${r.tracking ?? 'n/a'})`)
-  lines.push(`- Detected on load: ${list(data.tracking.map((t) => t.name))}`)
+  lines.push(`- Detected on load (tag/pixel present): ${list(data.tracking.map((t) => t.name))}`)
+  lines.push(
+    `- Events observed on load: ${list(data.trackingEvents.map((e) => `${e.event} (${e.tool})`), 12)} — the baseline performs no interactions, so conversion events (clicks, form submits) were NOT tested.`,
+  )
   lines.push(`## Technology hints (${r.technologies ?? 'n/a'})`)
   lines.push(
     `- ${list(
@@ -285,6 +308,30 @@ export function buildBaselineSummary(data: BaselineData, stats: BaselineStats): 
       )}`,
     )
     lines.push(`- Inconclusive external (bot protection/timeouts): ${data.links.blocked.length}`)
+  }
+  const sc = data.scanners
+  if (sc.httpx) {
+    lines.push(`## httpx fingerprint (${r.httpx ?? 'n/a'})`)
+    lines.push(`- ${sc.httpx.statusCode ?? '?'} · server ${sc.httpx.webserver ?? 'n/a'} · CDN ${sc.httpx.cdn ?? 'none'} · technologies: ${list(sc.httpx.technologies, 15)}`)
+  }
+  if (sc.katana) {
+    lines.push(`## Katana discovery (${r.katana ?? 'n/a'})`)
+    lines.push(`- ${sc.katana.endpoints} endpoints seen; ${sc.katana.pageUrls.length} confirmed HTML pages; ${data.extraDiscovered} not found by the crawler or sitemaps (see tools/katana.jsonl)${sc.katana.blocked ? `; ${sc.katana.blocked} requests refused (403/429/503) — bot protection likely, discovery incomplete` : ''}`)
+  }
+  if (sc.pa11y.length) {
+    lines.push(`## Pa11y / HTML_CodeSniffer (${r.pa11y ?? 'n/a'})`)
+    for (const p of sc.pa11y) lines.push(`- ${pathOf(p.url)}: ${p.errors} errors — ${list(p.byCode.map((c) => `${c.code.split('.').slice(-2).join('.')} ×${c.count}`), 6)}`)
+  }
+  if (sc.zap) {
+    lines.push(`## OWASP ZAP baseline — passive (${r.zap ?? 'n/a'})`)
+    lines.push(`- Alerts: ${sc.zap.riskCounts.high} high, ${sc.zap.riskCounts.medium} medium, ${sc.zap.riskCounts.low} low, ${sc.zap.riskCounts.informational} informational`)
+    for (const a of sc.zap.alerts.filter((x) => x.risk !== 'informational').slice(0, 12)) lines.push(`- [${a.risk}] ${a.name} (${a.count} instance${a.count === 1 ? '' : 's'})`)
+  }
+  if (sc.testssl) {
+    lines.push(`## testssl.sh (${r.testssl ?? 'n/a'})`)
+    lines.push(`- Protocols offered: ${list(sc.testssl.protocols.filter((p) => p.offered).map((p) => p.name))}; not offered: ${list(sc.testssl.protocols.filter((p) => p.offered === false).map((p) => p.name))}`)
+    lines.push(`- Certificate: ${sc.testssl.certificate.expirationStatus ?? 'n/a'}; chain of trust: ${sc.testssl.certificate.chainOfTrust ?? 'n/a'}`)
+    if (sc.testssl.issues.length) lines.push(`- Flagged: ${list(sc.testssl.issues.map((i) => `[${i.severity}] ${i.id}: ${i.finding.slice(0, 80)}`), 8)}`)
   }
   if (stats.skippedCapabilities.length) {
     lines.push('## Skipped capabilities')

@@ -1,4 +1,4 @@
-import type { PageFacts } from './crawl.ts'
+import { normalizePageUrl, type PageFacts } from './crawl.ts'
 
 export interface SeoFacts {
   pagesAnalyzed: number
@@ -85,6 +85,95 @@ export interface LocalizationFacts {
   directionMismatches: { url: string; lang: string | null; dir: string | null; arabicCharRatio: number }[]
   missingLang: string[]
   localePathPrefixes: string[]
+  /** hreflang problems between crawled pages (targets that were not crawled are not judged). */
+  hreflangIssues: { url: string; kind: 'not-reciprocal' | 'language-mismatch' | 'invalid-code' | 'no-self-reference'; detail: string }[]
+  /** Locale-prefixed paths (e.g. /en/about) whose counterpart in another locale was not seen in the crawl sample. */
+  missingPairs: { path: string; present: string[]; missing: string }[]
+  /** Pages in different languages that share an identical title or description (likely untranslated). */
+  untranslatedMetadata: { field: 'title' | 'description'; value: string; urls: string[] }[]
+  /** Right-to-left (Arabic) pages whose navigation or buttons are mostly in Latin script. */
+  mixedLanguage: { url: string; area: 'navigation' | 'controls'; latinShare: number }[]
+}
+
+const HREFLANG_CODE = /^(x-default|[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?)$/i
+const urlKey = (url: string) => url.replace(/#.*$/, '').replace(/\/+$/, '')
+
+function hreflangIssues(html: PageFacts[]): LocalizationFacts['hreflangIssues'] {
+  const byUrl = new Map(html.map((p) => [urlKey(p.finalUrl), p]))
+  const issues: LocalizationFacts['hreflangIssues'] = []
+  for (const page of html) {
+    if (!page.hreflang.length) continue
+    const own = urlKey(page.finalUrl)
+    let selfReference = false
+    for (const alt of page.hreflang) {
+      if (!HREFLANG_CODE.test(alt.lang)) issues.push({ url: page.finalUrl, kind: 'invalid-code', detail: `hreflang="${alt.lang}" is not a valid language/region code` })
+      const target = normalizePageUrl(alt.href, page.finalUrl)
+      if (!target) continue
+      if (urlKey(target) === own) {
+        selfReference = true
+        continue
+      }
+      const other = byUrl.get(urlKey(target))
+      if (!other) continue
+      const back = other.hreflang.map((a) => normalizePageUrl(a.href, other.finalUrl)).filter((u): u is string => !!u).map(urlKey)
+      if (!back.includes(own)) issues.push({ url: page.finalUrl, kind: 'not-reciprocal', detail: `hreflang="${alt.lang}" → ${target}, which does not link back` })
+      const primary = alt.lang.toLowerCase().split('-')[0]!
+      if (alt.lang.toLowerCase() !== 'x-default' && other.lang && !other.lang.toLowerCase().startsWith(primary)) {
+        issues.push({ url: page.finalUrl, kind: 'language-mismatch', detail: `hreflang="${alt.lang}" → ${target}, which declares lang="${other.lang}"` })
+      }
+    }
+    if (!selfReference) issues.push({ url: page.finalUrl, kind: 'no-self-reference', detail: 'The hreflang set does not include the page itself' })
+  }
+  return issues.slice(0, 40)
+}
+
+function missingPairs(html: PageFacts[], prefixes: Set<string>): LocalizationFacts['missingPairs'] {
+  if (prefixes.size < 2) return []
+  const locales = new Map<string, Set<string>>()
+  for (const page of html) {
+    let segments: string[]
+    try {
+      segments = new URL(page.finalUrl).pathname.split('/').filter(Boolean)
+    } catch {
+      continue
+    }
+    const locale = segments[0]?.toLowerCase()
+    if (!locale || !prefixes.has(locale)) continue
+    const rest = `/${segments.slice(1).join('/')}`
+    locales.set(rest, (locales.get(rest) ?? new Set()).add(locale))
+  }
+  const result: LocalizationFacts['missingPairs'] = []
+  for (const [path, present] of locales) {
+    for (const locale of prefixes) if (!present.has(locale)) result.push({ path, present: [...present], missing: locale })
+  }
+  return result.slice(0, 20)
+}
+
+function untranslatedMetadata(html: PageFacts[]): LocalizationFacts['untranslatedMetadata'] {
+  const result: LocalizationFacts['untranslatedMetadata'] = []
+  for (const field of ['title', 'description'] as const) {
+    const groups = new Map<string, PageFacts[]>()
+    for (const page of html) {
+      const value = page[field]?.trim()
+      if (value) groups.set(value, [...(groups.get(value) ?? []), page])
+    }
+    for (const [value, pages] of groups) {
+      const languages = new Set(pages.map((p) => (p.lang ?? '').toLowerCase().split('-')[0]).filter(Boolean))
+      if (languages.size >= 2) result.push({ field, value: value.slice(0, 160), urls: pages.map((p) => p.finalUrl).slice(0, 6) })
+    }
+  }
+  return result.slice(0, 20)
+}
+
+function mixedLanguage(html: PageFacts[]): LocalizationFacts['mixedLanguage'] {
+  const result: LocalizationFacts['mixedLanguage'] = []
+  for (const page of html) {
+    const rtl = /^(ar|fa|he|ur)\b/i.test(page.lang ?? '') || page.arabicCharRatio >= 0.4
+    if (!rtl) continue
+    if ((page.navLatinRatio ?? 0) >= 0.6) result.push({ url: page.finalUrl, area: 'navigation', latinShare: page.navLatinRatio! })
+    if ((page.controlsLatinRatio ?? 0) >= 0.6) result.push({ url: page.finalUrl, area: 'controls', latinShare: page.controlsLatinRatio! })
+  }
+  return result.slice(0, 30)
 }
 
 export function analyzeLocalization(pages: PageFacts[]): LocalizationFacts {
@@ -118,6 +207,10 @@ export function analyzeLocalization(pages: PageFacts[]): LocalizationFacts {
       .map((p) => ({ url: p.finalUrl, lang: p.lang, dir: p.dir, arabicCharRatio: p.arabicCharRatio })),
     missingLang: html.filter((p) => !p.lang).map((p) => p.finalUrl),
     localePathPrefixes: [...prefixes],
+    hreflangIssues: hreflangIssues(html),
+    missingPairs: missingPairs(html, prefixes),
+    untranslatedMetadata: untranslatedMetadata(html),
+    mixedLanguage: mixedLanguage(html),
   }
 }
 

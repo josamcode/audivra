@@ -79,6 +79,8 @@ function page(overrides: Partial<PageFacts>): PageFacts {
     forms: 0,
     wordCount: 100,
     arabicCharRatio: 0,
+    navLatinRatio: null,
+    controlsLatinRatio: null,
     structuredDataTypes: [],
     scripts: 0,
     stylesheets: 0,

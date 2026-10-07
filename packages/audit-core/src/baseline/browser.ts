@@ -4,7 +4,7 @@ import { AxeBuilder } from '@axe-core/playwright'
 import { chromium, devices, type Browser, type BrowserContext, type Page } from 'playwright'
 import type { Workspace } from '../workspace.ts'
 import { urlSlug } from '../workspace.ts'
-import { detectTechnologies, detectTracking, extractTrackingIds, type SignalHit } from './signals.ts'
+import { detectTechnologies, detectTracking, extractTrackingEvents, extractTrackingIds, type SignalHit, type TrackingEvent } from './signals.ts'
 
 export interface ConsoleEntry {
   type: string
@@ -72,6 +72,8 @@ export interface BrowserPageReport {
   error: string | null
   tracking: SignalHit[]
   trackingIds: string[]
+  /** Events actually sent by tracking requests during page load (e.g. GA4 page_view). */
+  trackingEvents: TrackingEvent[]
   dataLayerEvents: string[]
   technologies: SignalHit[]
   localization: {
@@ -463,6 +465,7 @@ export async function inspectPage(
     error: null,
     tracking: [],
     trackingIds: [],
+    trackingEvents: [],
     dataLayerEvents: [],
     technologies: [],
     localization: null,
@@ -524,6 +527,7 @@ export async function inspectPage(
   const requestUrls = [...collect.requestUrls]
   report.tracking = detectTracking(requestUrls, [...collect.globals])
   report.trackingIds = extractTrackingIds(requestUrls)
+  report.trackingEvents = extractTrackingEvents(requestUrls)
   await ws.writeJson(`network/${slug}-requests.json`, requestUrls)
   return report
 }

@@ -90,6 +90,50 @@ export function detectTracking(requestUrls: string[], globals: string[]): Signal
 }
 
 /** Extracts measurement IDs (GA4 G-, GTM-, AW-, Meta pixel IDs) seen in request URLs. */
+export interface TrackingEvent {
+  tool: string
+  event: string
+  /** Request URL the event was read from (truncated). */
+  url: string
+}
+
+/**
+ * Events visible in tracking requests: GA4 `collect?en=…`, Meta Pixel `tr?ev=…`, Google Ads conversion
+ * hits. Presence of a tag is not the same as an event being sent; this lists what was actually sent.
+ */
+export function extractTrackingEvents(requestUrls: string[]): TrackingEvent[] {
+  const seen = new Set<string>()
+  const events: TrackingEvent[] = []
+  const add = (tool: string, event: string, url: string) => {
+    const key = `${tool}|${event}`
+    if (seen.has(key)) return
+    seen.add(key)
+    events.push({ tool, event, url: url.slice(0, 300) })
+  }
+  for (const url of requestUrls) {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      continue
+    }
+    const host = parsed.hostname
+    const params = parsed.searchParams
+    if (/(^|\.)google-analytics\.com$|(^|\.)analytics\.google\.com$/.test(host) && /\/g\/collect/.test(parsed.pathname)) {
+      const en = params.get('en')
+      if (en) add('Google Analytics 4', en, url)
+    } else if (/(^|\.)facebook\.com$/.test(host) && /^\/tr\/?$/.test(parsed.pathname)) {
+      const ev = params.get('ev')
+      if (ev) add('Meta Pixel', ev, url)
+    } else if (/googleadservices\.com$|googleads\.g\.doubleclick\.net$/.test(host) && /\/pagead\/(conversion|viewthroughconversion)\//.test(parsed.pathname)) {
+      add('Google Ads', /viewthrough/.test(parsed.pathname) ? 'remarketing' : 'conversion', url)
+    } else if (/(^|\.)analytics\.tiktok\.com$/.test(host) && /\/api\/v2\/pixel/.test(parsed.pathname)) {
+      add('TikTok Pixel', params.get('event') ?? 'pixel request', url)
+    }
+  }
+  return events
+}
+
 export function extractTrackingIds(requestUrls: string[]): string[] {
   const ids = new Set<string>()
   for (const url of requestUrls) {

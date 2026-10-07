@@ -34,6 +34,10 @@ export interface PageFacts {
   forms: number
   wordCount: number
   arabicCharRatio: number
+  /** Share of Latin letters in navigation/header link text (null when there is too little text). */
+  navLatinRatio: number | null
+  /** Share of Latin letters in buttons and call-to-action controls (null when there is too little text). */
+  controlsLatinRatio: number | null
   structuredDataTypes: string[]
   scripts: number
   stylesheets: number
@@ -47,6 +51,14 @@ export interface ExtractedLink {
 
 const SKIP_EXTENSIONS =
   /\.(pdf|jpe?g|png|gif|webp|avif|svg|ico|zip|rar|gz|mp4|mp3|webm|mov|avi|docx?|xlsx?|pptx?|css|js|json|xml|txt|woff2?|ttf|eot)$/i
+
+/** Share of Latin-script letters among all letters, or null when there are fewer than 6 letters. */
+export function latinShare(text: string): number | null {
+  const letters = text.replace(/[^\p{L}]/gu, '')
+  if (letters.length < 6) return null
+  const latin = text.replace(/[^\p{Script=Latin}]/gu, '')
+  return Math.round((latin.length / letters.length) * 100) / 100
+}
 
 export function normalizePageUrl(raw: string, base: string): string | null {
   try {
@@ -137,6 +149,11 @@ export function extractPageFacts(
     }
   })
 
+  const navText = $('nav a, header a').map((_, el) => $(el).text()).get().join(' ')
+  const controlsText = $('button, [role="button"], input[type="submit"], input[type="button"], a[class*="btn"], a[class*="button"], [class*="cta"]')
+    .map((_, el) => $(el).text() || $(el).attr('value') || '')
+    .get()
+    .join(' ')
   $('script, style, noscript, template').remove()
   const bodyText = $('body').text().replace(/\s+/g, ' ').trim()
   const letters = bodyText.replace(/[^\p{L}]/gu, '')
@@ -172,6 +189,8 @@ export function extractPageFacts(
       forms: $('form').length,
       wordCount: bodyText ? bodyText.split(' ').length : 0,
       arabicCharRatio: letters.length ? Math.round((arabic.length / letters.length) * 100) / 100 : 0,
+      navLatinRatio: latinShare(navText),
+      controlsLatinRatio: latinShare(controlsText),
       structuredDataTypes: [...structured],
       scripts: $('script[src]').length,
       stylesheets: $('link[rel="stylesheet"]').length,
@@ -306,4 +325,23 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawlResult> {
   )
   const discovered = new Set([...seen, ...options.sitemapUrls.filter((u) => sameSite(u, options.startUrl))])
   return { pages, linkSources, discoveredUrls: discovered.size }
+}
+
+export interface LinkGraphData {
+  pages: { url: string; depth: number; title: string | null }[]
+  edges: { from: string; to: string }[]
+}
+
+/** Page-to-page links found by the crawl (input for the site-structure visual). Pure. */
+export function buildLinkGraph(result: Pick<CrawlResult, 'pages' | 'linkSources'>, maxEdges = 4000): LinkGraphData {
+  const pages = result.pages.map((p) => ({ url: p.finalUrl, depth: p.depth, title: p.title }))
+  const edges: LinkGraphData['edges'] = []
+  for (const [href, info] of result.linkSources) {
+    if (info.kind !== 'page') continue
+    for (const source of info.sources) {
+      if (edges.length >= maxEdges) return { pages, edges }
+      if (source !== href) edges.push({ from: source, to: href })
+    }
+  }
+  return { pages, edges }
 }

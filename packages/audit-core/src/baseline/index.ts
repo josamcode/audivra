@@ -1,16 +1,22 @@
+import { getConfig } from '@audivra/config'
 import type { BaselineStats, EvidenceItem, SystemStatus } from '@audivra/contracts'
 import { upsertPages } from '@audivra/database'
 import { chromiumExecutable, isToolReady } from '@audivra/tool-runtime'
 import type { AuditContext } from '../context.ts'
 import { inspectPage, launchBrowser, type BrowserPageReport } from './browser.ts'
-import { crawlSite, type CrawlResult } from './crawl.ts'
+import { buildLinkGraph, crawlSite, type CrawlResult } from './crawl.ts'
 import { fetchRobots, fetchSitemaps, type RobotsFacts, type SitemapFacts } from './discovery.ts'
 import { fetchUrl, getTlsInfo, securityHeaderFacts, type FetchResult, type TlsInfo } from './http.ts'
 import { runLighthouse, type LighthouseSummary } from './lighthouse.ts'
 import { checkLinks, type LinkCheckSummary } from './links.ts'
 import { buildBaselineStats, buildBaselineSummary, type BaselineData } from './report.ts'
+import { runHttpx, runKatana, runPa11y, runTestssl, runZapBaseline } from './scanners.ts'
 import { analyzeLocalization, analyzeSeo, choosePagesForBrowser } from './seo.ts'
-import type { SignalHit } from './signals.ts'
+import type { SignalHit, TrackingEvent } from './signals.ts'
+
+/** Optional scanners the baseline may run (each also needs its tool to be ready). */
+export const BASELINE_SCANNERS = ['httpx', 'katana', 'pa11y', 'zap', 'testssl'] as const
+export type BaselineScanner = (typeof BASELINE_SCANNERS)[number]
 
 export class RequiredCapabilityError extends Error {
   constructor(message: string) {
@@ -25,6 +31,8 @@ export interface BaselineOptions {
   maxLinkChecks: number
   browserPages: number
   tools: SystemStatus
+  /** Enabled optional scanners (default: all). Disabled ones are recorded as skipped with the reason. */
+  scanners?: readonly string[]
 }
 
 export interface BaselineResult {
@@ -68,8 +76,33 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
     browser: [],
     lighthouse: null,
     tracking: [],
+    trackingEvents: [],
     technologies: [],
+    scanners: { zap: null, testssl: null, httpx: null, katana: null, pa11y: [] },
+    extraDiscovered: 0,
     refs: {},
+  }
+  const enabled = new Set(
+    options.scanners ??
+      getConfig()
+        .BASELINE_SCANNERS.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+  )
+  /** Whether an optional scanner should run; records a skip with the reason when it should not. */
+  const scannerReady = async (id: BaselineScanner, purpose: string): Promise<boolean> => {
+    if (!enabled.has(id)) {
+      await ctx.skippedTool(id, purpose, 'Disabled by configuration (BASELINE_SCANNERS)')
+      return false
+    }
+    const status = options.tools.tools.find((t) => t.id === id)
+    if (status?.state !== 'ready') {
+      const reason = status?.detail ?? 'not installed'
+      skipped.push({ capability: purpose, reason: `${id} unavailable: ${reason}` })
+      await ctx.skippedTool(id, purpose, `unavailable: ${reason}`)
+      return false
+    }
+    return true
   }
 
   await ctx.event('baseline.started', `Baseline inspection of ${options.url}`)
@@ -139,6 +172,30 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
 
   // 2. TLS, robots and sitemap in parallel.
   const host = new URL(finalUrl).hostname
+  const httpxWork = (async () => {
+    if (!(await scannerReady('httpx', 'Technology fingerprint (httpx)'))) return
+    const run = await ctx.toolRun('httpx', 'Technology fingerprint (Wappalyzer rules)', finalUrl, async () => {
+      const { summary, command } = await runHttpx(finalUrl, { auditId: ctx.auditId, signal: ctx.signal })
+      await ctx.ws.writeJson('tools/httpx.json', summary)
+      return { result: summary, command, artifacts: ['tools/httpx.json'], summary: { technologies: summary.technologies.length } }
+    })
+    if (!run) return
+    data.scanners.httpx = run.result
+    data.refs.httpx = (
+      await add({
+        type: 'tool-result',
+        title: `httpx fingerprint: ${run.result.technologies.length ? run.result.technologies.slice(0, 6).join(', ') : 'no technologies matched'}`,
+        summary: `Wappalyzer-rule fingerprint of ${run.result.url}: status ${run.result.statusCode ?? 'n/a'}, server ${run.result.webserver ?? 'n/a'}, CDN ${run.result.cdn ?? 'none'}. Technologies: ${run.result.technologies.join(', ') || 'none'}.`,
+        url: finalUrl,
+        artifactPath: 'tools/httpx.json',
+        toolRunId: run.toolRunId,
+        metadata: { kind: 'httpx', ...run.result },
+      })
+    ).ref
+  })().catch((error: unknown) => {
+    // Handled here because other baseline steps are awaited before this promise is joined.
+    if (!ctx.signal.aborted) ctx.log.warn({ err: error }, 'httpx step failed')
+  })
   const [tls, discovery] = await Promise.all([
     finalUrl.startsWith('https:')
       ? ctx.toolRun('tls', 'Passive TLS handshake and certificate check', origin, async () => {
@@ -213,6 +270,7 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
   if (crawl) {
     const result: CrawlResult = crawl.result
     data.crawl = result
+    await ctx.ws.writeJson('baseline/link-graph.json', buildLinkGraph(result))
     await upsertPages(
       ctx.db,
       ctx.auditId,
@@ -275,10 +333,17 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
       await add({
         type: 'dom-observation',
         title: `Language & direction signals: ${localization.languages.join(', ') || 'no lang attribute'}`,
-        summary: `${localization.languages.length} language value(s); hreflang on ${localization.hreflangPages} page(s); ${localization.directionMismatches.length} possible direction mismatch(es); locale path prefixes: ${localization.localePathPrefixes.join(', ') || 'none'}.`,
+        summary: [
+          `${localization.languages.length} language value(s); hreflang on ${localization.hreflangPages} page(s); ${localization.directionMismatches.length} possible direction mismatch(es); locale path prefixes: ${localization.localePathPrefixes.join(', ') || 'none'}.`,
+          localization.hreflangIssues.length ? `hreflang issues: ${localization.hreflangIssues.length} (${[...new Set(localization.hreflangIssues.map((i) => i.kind))].join(', ')}).` : '',
+          localization.mixedLanguage.length ? `Mostly Latin-script ${[...new Set(localization.mixedLanguage.map((m) => m.area))].join(' and ')} on ${new Set(localization.mixedLanguage.map((m) => m.url)).size} RTL page(s).` : '',
+          localization.untranslatedMetadata.length ? `${localization.untranslatedMetadata.length} title/description value(s) shared across languages.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
         url: finalUrl,
         artifactPath: 'baseline/localization.json',
-        metadata: { ...localization, pages: localization.pages.slice(0, 40) },
+        metadata: { kind: 'localization', ...localization, pages: localization.pages.slice(0, 40) },
       })
     ).ref
   }
@@ -362,6 +427,132 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
     } finally {
       await browser.close().catch(() => undefined)
     }
+    // Second accessibility engine (HTML_CodeSniffer) on the start page and one more key page, after the
+    // browser inspection so it does not compete with the timing measurements.
+    if (data.browser.length && (await scannerReady('pa11y', 'Accessibility checks (Pa11y / HTML_CodeSniffer)'))) {
+      for (const [index, url] of browserPages.slice(0, 2).entries()) {
+        const run = await ctx.toolRun('pa11y', `Pa11y (WCAG 2 AA, HTML_CodeSniffer) on ${path(url)}`, url, async () => {
+          const { summary, command } = await runPa11y(ctx.ws, url, { auditId: ctx.auditId, signal: ctx.signal, name: index === 0 ? 'start' : `page-${index}` })
+          return { result: summary, command, artifacts: [summary.reportJson], summary: { errors: summary.errors } }
+        })
+        if (!run) continue
+        const s = run.result
+        data.scanners.pa11y.push(s)
+        const ref = (
+          await add({
+            type: 'tool-result',
+            title: `Pa11y (HTML_CodeSniffer): ${s.errors} WCAG 2 AA error${s.errors === 1 ? '' : 's'} on ${path(url)}`,
+            summary: s.errors
+              ? s.byCode
+                  .slice(0, 6)
+                  .map((c) => `${c.code.split('.').slice(-2).join('.')} ×${c.count}: ${c.message.slice(0, 90)}`)
+                  .join(' | ')
+              : 'No WCAG 2 AA errors reported by HTML_CodeSniffer (automated checks cover only part of WCAG).',
+            url,
+            artifactPath: s.reportJson,
+            toolRunId: run.toolRunId,
+            metadata: { kind: 'pa11y', errors: s.errors, warnings: s.warnings, byCode: s.byCode, issues: s.issues.slice(0, 30) },
+          })
+        ).ref
+        data.refs.pa11y ??= ref
+      }
+    }
+  })()
+  // Passive security scan (spider + passive rules, forms never submitted). Runs alongside the browser work.
+  const zapWork = (async () => {
+    if (!(await scannerReady('zap', 'Passive security scan (OWASP ZAP baseline)'))) return
+    const run = await ctx.toolRun('zap', 'OWASP ZAP baseline: 1-minute spider + passive rules (no active scan)', finalUrl, async () => {
+      const { summary, command } = await runZapBaseline(ctx.ws, finalUrl, { auditId: ctx.auditId, signal: ctx.signal })
+      return { result: summary, command, artifacts: [summary.reportJson, ...(summary.reportHtml ? [summary.reportHtml] : [])], summary: { ...summary.riskCounts } }
+    })
+    if (!run) return
+    const z = run.result
+    data.scanners.zap = z
+    const notable = z.alerts.filter((a) => a.risk !== 'informational')
+    data.refs.zap = (
+      await add({
+        type: 'tool-result',
+        title: `ZAP baseline (passive): ${z.riskCounts.high} high, ${z.riskCounts.medium} medium, ${z.riskCounts.low} low alert types`,
+        summary: notable.length
+          ? notable
+              .slice(0, 8)
+              .map((a) => `[${a.risk}] ${a.name} (${a.count})`)
+              .join(' | ')
+          : 'No low-or-higher passive alerts. Passive rules only: no active scanning or attack payloads were used.',
+        url: finalUrl,
+        artifactPath: z.reportHtml ?? z.reportJson,
+        toolRunId: run.toolRunId,
+        metadata: { kind: 'zap', riskCounts: z.riskCounts, alerts: z.alerts.slice(0, 40), reportJson: z.reportJson },
+      })
+    ).ref
+  })()
+  // Deep TLS inspection for HTTPS targets: protocols, certificate, cipher preference (no vulnerability probes).
+  const testsslWork = (async () => {
+    if (!finalUrl.startsWith('https:')) return
+    if (!(await scannerReady('testssl', 'Deep TLS inspection (testssl.sh)'))) return
+    const target = new URL(finalUrl)
+    const run = await ctx.toolRun('testssl', 'testssl.sh: protocols, certificate and cipher preference', origin, async () => {
+      const { summary, command } = await runTestssl(ctx.ws, target.hostname, { auditId: ctx.auditId, signal: ctx.signal, port: target.port ? Number(target.port) : 443 })
+      return { result: summary, command, artifacts: [summary.reportJson], summary: { issues: summary.issues.length } }
+    })
+    if (!run) return
+    const t = run.result
+    data.scanners.testssl = t
+    const offered = t.protocols.filter((p) => p.offered).map((p) => p.name)
+    data.refs.testssl = (
+      await add({
+        type: 'tls-result',
+        title: `testssl.sh: ${offered.join(', ') || 'no protocols detected'} offered; ${t.issues.length} flagged item${t.issues.length === 1 ? '' : 's'}`,
+        summary: [
+          `Protocols offered: ${offered.join(', ') || 'none'}.`,
+          `Certificate: ${t.certificate.expirationStatus ?? 'n/a'} (valid until ${t.certificate.notAfter ?? 'n/a'}); chain of trust: ${t.certificate.chainOfTrust ?? 'n/a'}.`,
+          t.negotiated.protocol ? `Negotiated ${t.negotiated.protocol} / ${t.negotiated.cipher ?? 'n/a'}.` : '',
+          t.issues.length ? `Flagged: ${t.issues.slice(0, 5).map((i) => `[${i.severity}] ${i.id}: ${i.finding.slice(0, 80)}`).join(' | ')}` : 'No LOW-or-higher items flagged.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+        url: origin,
+        artifactPath: t.reportJson,
+        toolRunId: run.toolRunId,
+        metadata: { kind: 'testssl', protocols: t.protocols, certificate: t.certificate, negotiated: t.negotiated, issues: t.issues, severityCounts: t.severityCounts },
+      })
+    ).ref
+  })()
+  // Extra discovery (JavaScript-referenced URLs) beyond the crawler; bounded and rate-limited.
+  const katanaWork = (async () => {
+    if (!(await scannerReady('katana', 'Extra URL discovery (Katana)'))) return
+    const run = await ctx.toolRun('katana', 'Katana discovery (depth 2, JS parsing, 45 s, 2 req/s)', finalUrl, async () => {
+      const { summary, command } = await runKatana(ctx.ws, finalUrl, { auditId: ctx.auditId, signal: ctx.signal })
+      return { result: summary, command, artifacts: [summary.outputFile], summary: { endpoints: summary.endpoints, pages: summary.pageUrls.length, blocked: summary.blocked } }
+    })
+    if (!run) return
+    const k = run.result
+    data.scanners.katana = k
+    const known = new Set([
+      ...(data.crawl?.pages.map((p) => p.finalUrl) ?? []),
+      ...(data.crawl ? [...data.crawl.linkSources.keys()] : []),
+      ...(data.sitemaps?.urls ?? []),
+    ])
+    const fresh = k.pageUrls.filter((u) => !known.has(u))
+    data.extraDiscovered = fresh.length
+    if (fresh.length) {
+      await upsertPages(
+        ctx.db,
+        ctx.auditId,
+        fresh.slice(0, 100).map((url) => ({ url, status: null, title: null, depth: 2, source: 'katana' })),
+      )
+    }
+    data.refs.katana = (
+      await add({
+        type: 'tool-result',
+        title: `Katana: ${k.pageUrls.length} HTML page${k.pageUrls.length === 1 ? '' : 's'} confirmed (${fresh.length} not found by the crawler)${k.blocked ? `; ${k.blocked} request(s) blocked` : ''}`,
+        summary: `${k.endpoints} endpoints seen while crawling to depth 2 with JavaScript parsing; only 2xx HTML responses count as pages. New page URLs: ${fresh.slice(0, 8).map(path).join(', ') || 'none'}.${k.blocked ? ` ${k.blocked} request(s) were refused (403/429/503), likely bot protection — discovery is incomplete.` : ''}`,
+        url: finalUrl,
+        artifactPath: k.outputFile,
+        toolRunId: run.toolRunId,
+        metadata: { kind: 'katana', endpoints: k.endpoints, blocked: k.blocked, pageUrls: k.pageUrls.slice(0, 60), newUrls: fresh.slice(0, 60) },
+      })
+    ).ref
   })()
   const linkWork = (async () => {
     if (!data.crawl) return
@@ -417,7 +608,7 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
       ).ref
     }
   })()
-  const settled = await Promise.allSettled([browserWork, linkWork])
+  const settled = await Promise.allSettled([browserWork, linkWork, zapWork, testsslWork, katanaWork, httpxWork])
   for (const outcome of settled) {
     if (outcome.status === 'rejected') {
       if (ctx.signal.aborted) ctx.throwIfCancelled()
@@ -577,6 +768,9 @@ async function recordAggregates(ctx: AuditContext, data: BaselineData, add: AddE
     page.dataLayerEvents.forEach((e) => events.add(e))
   }
   data.tracking = [...tracking.values()]
+  const sent = new Map<string, TrackingEvent>()
+  for (const page of data.browser) for (const e of page.trackingEvents ?? []) sent.set(`${e.tool}|${e.event}`, e)
+  data.trackingEvents = [...sent.values()]
   if (data.browser.length) {
     data.refs.tracking = (
       await add({
@@ -585,13 +779,16 @@ async function recordAggregates(ctx: AuditContext, data: BaselineData, add: AddE
           ? `Tracking detected: ${data.tracking.map((t) => t.name).join(', ')}`
           : `No analytics or ad tracking detected on ${data.browser.length} inspected page(s)`,
         summary: data.tracking.length
-          ? `Observed via network requests/globals on page load (no interactions performed). IDs: ${[...ids].join(', ') || 'none extracted'}. dataLayer events: ${[...events].join(', ') || 'none'}.`
+          ? `Tags present (network requests/globals on page load). IDs: ${[...ids].join(', ') || 'none extracted'}. Events sent on load: ${data.trackingEvents.map((e) => `${e.event} (${e.tool})`).join(', ') || 'none'}. dataLayer events: ${[...events].join(', ') || 'none'}. No interactions were performed, so conversion events (clicks, form submits) were not tested.`
           : 'No requests to known analytics, tag manager, pixel or session-recording endpoints were observed during page load, and no known tracking globals were present. Consent-gated tags would not load without consent.',
         url: data.home?.finalUrl ?? data.url,
         metadata: {
+          kind: 'tracking',
           detected: data.tracking,
           ids: [...ids],
+          eventsSent: data.trackingEvents,
           dataLayerEvents: [...events],
+          conversionEventsTested: false,
           pagesInspected: data.browser.map((b) => b.url),
         },
       })
@@ -601,6 +798,14 @@ async function recordAggregates(ctx: AuditContext, data: BaselineData, add: AddE
   const tech = new Map<string, SignalHit>()
   for (const page of data.browser)
     for (const hit of page.technologies) if (!tech.has(hit.name)) tech.set(hit.name, hit)
+  // httpx (Wappalyzer rules) adds fingerprints the in-browser signatures may miss; names are merged.
+  const known = new Set([...tech.keys()].map((n) => n.toLowerCase()))
+  for (const name of data.scanners.httpx?.technologies ?? []) {
+    const bare = name.split(':')[0]!.trim()
+    if (!bare || known.has(bare.toLowerCase())) continue
+    known.add(bare.toLowerCase())
+    tech.set(bare, { name: bare, category: 'Fingerprint (httpx)', matched: name })
+  }
   data.technologies = [...tech.values()]
   if (data.technologies.length) {
     data.refs.technologies = (
@@ -610,10 +815,9 @@ async function recordAggregates(ctx: AuditContext, data: BaselineData, add: AddE
           .map((t) => t.name)
           .slice(0, 8)
           .join(', ')}`,
-        summary:
-          'Signature-based hints from headers, resource URLs, markup and JS globals. Unverified leads.',
+        summary: `Signature-based hints from headers, resource URLs, markup and JS globals${data.scanners.httpx ? ', merged with httpx (Wappalyzer rules) fingerprints' : ''}. Unverified leads.`,
         url: data.home?.finalUrl ?? data.url,
-        metadata: { hints: data.technologies },
+        metadata: { kind: 'technology', hints: data.technologies },
       })
     ).ref
   }

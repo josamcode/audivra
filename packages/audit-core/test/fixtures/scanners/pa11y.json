@@ -1,0 +1,32 @@
+[
+ {
+  "code": "WCAG2AA.Principle1.Guideline1_1.1_1_1.H37",
+  "type": "error",
+  "typeCode": 1,
+  "message": "Img element missing an alt attribute. Use the alt attribute to specify a short text alternative.",
+  "context": "<img src=\"/img/hero.svg\">",
+  "selector": "html > body > main > section:nth-child(1) > img",
+  "runner": "htmlcs",
+  "runnerExtras": {}
+ },
+ {
+  "code": "WCAG2AA.Principle1.Guideline1_4.1_4_3.G18.Fail",
+  "type": "error",
+  "typeCode": 1,
+  "message": "This element has insufficient contrast at this conformance level. Expected a contrast ratio of at least 4.5:1, but text in this element has a contrast ratio of 3.3:1. Recommendation:  change background to #008933.",
+  "context": "<div class=\"cta\" onclick=\"void 0\">Book on WhatsApp</div>",
+  "selector": "html > body > main > section:nth-child(1) > div",
+  "runner": "htmlcs",
+  "runnerExtras": {}
+ },
+ {
+  "code": "WCAG2AA.Principle1.Guideline1_1.1_1_1.H37",
+  "type": "error",
+  "typeCode": 1,
+  "message": "Img element missing an alt attribute. Use the alt attribute to specify a short text alternative.",
+  "context": "<img src=\"/img/team-photo.jpg\" width=\"400\" height=\"300\">",
+  "selector": "html > body > main > section:nth-child(2) > img",
+  "runner": "htmlcs",
+  "runnerExtras": {}
+ }
+]
