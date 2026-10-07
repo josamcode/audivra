@@ -10,3 +10,4 @@ playwright-report/
 .vite/
 coverage/
 playwright-report-ai/
+.tanstack/
