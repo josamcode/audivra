@@ -1,0 +1,21 @@
+{
+  "name": "@audivra/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev:watch": "tsx watch --clear-screen=false --include \"../../packages/*/src/**/*.ts\" --include \"../../prompts/*.md\" src/main.ts"
+  },
+  "dependencies": {
+    "@audivra/ai-runtime": "workspace:*",
+    "@audivra/audit-core": "workspace:*",
+    "@audivra/config": "workspace:*",
+    "@audivra/contracts": "workspace:*",
+    "@audivra/database": "workspace:*",
+    "@audivra/tool-runtime": "workspace:*",
+    "pg-boss": "^12.37.0"
+  }
+}
