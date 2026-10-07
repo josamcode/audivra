@@ -12,9 +12,9 @@ Audits of the same site are grouped by `siteKey`: the host without `www.`, plus 
   1. **Issue key** — the finalizer gives every finding a stable kebab-case key (`www-certificate-mismatch`) and is shown the previous audit's keys so it reuses them for the same underlying issue. Same key ⇒ same issue, whatever the wording.
   2. **Similarity** for findings without keys (e.g. audits from before keys existed): 0.3 × same category + 0.5 × title-token Jaccard + 0.2 × affected-path Jaccard, threshold 0.55, best pairs first. Two findings with different keys are never matched.
 
-  Matched findings are `unchanged` (same severity), `improved` (lower severity) or `regressed` (higher); unmatched current findings are `new`, unmatched previous ones `resolved`.
+  Matched findings are `unchanged` (same severity — shown as **Still present**), `improved` (lower severity) or `regressed` (higher); unmatched current findings are `new`, unmatched previous ones `resolved` — shown as **Not found again**, because an AI audit not reporting an issue again is usually, but not always, a fix. Audits from before issue keys existed can only be matched by similarity, so a reworded finding may appear as one "not found again" plus one "new".
 - **Metrics** (start-page Lighthouse scores and LCP/CLS/TBT/weight, broken links, console errors, failed requests, axe violations, finding counts) are compared with **noise thresholds** — e.g. 3 points for the performance score, 150 ms for LCP, 20 KB for weight — so lab jitter is reported as unchanged.
-- **Technologies** added/removed, **coverage** per capability before/after.
+- **Technologies** added/removed (names compared without parenthetical detail, so "Next.js (App Router)" equals "Next.js (RSC)"), **coverage** per capability before/after.
 - **Before/after screenshots**: the same page path and viewport captured in both audits (baseline captures preferred).
 
 ## Trends

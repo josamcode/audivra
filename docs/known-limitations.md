@@ -4,7 +4,8 @@ Honest boundaries of the current version.
 
 ## Measurement
 
-- **Lab data only.** Lighthouse and browser timings are lab measurements from this machine and network, not real-user (CrUX/field) data. Comparisons use noise thresholds, but single runs still vary.
+- **Lab data only.** Lighthouse and browser timings are lab measurements from this machine and network, not real-user (CrUX/field) data. Comparisons use noise thresholds, but single runs still vary — and they are affected by other load on the machine (e.g. several audits or test suites running at once).
+- **"Not found again" is not proof of a fix.** Comparisons are between AI audits; an issue the second audit did not report may be fixed or simply not re-examined.
 - **Bounded coverage.** The crawl samples up to `BASELINE_MAX_PAGES` (30) pages and inspects `BASELINE_BROWSER_PAGES` (4) in a real browser; the AI samples by template. Large sites are sampled, not exhaustively audited. "Missing language pair" signals mean "not seen in the sample".
 - **Bot protection.** Sites behind bot protection may block Katana, the ZAP spider or the link checker (reported as blocked/inconclusive, never retried harder). Some tracking tags only load after consent and are invisible without interaction.
 - **Conversion tracking** is verified only where the AI exercised the action with outgoing requests intercepted; the baseline lists tags present and events sent on load, and marks conversion events as not tested.
