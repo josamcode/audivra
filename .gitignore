@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.local-data/
+.tools/
+test-results/
+playwright-report/
+.env
+.env.local
+*.log
+.vite/
+coverage/
+playwright-report-ai/

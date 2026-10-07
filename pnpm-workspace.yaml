@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+  - fixtures/*
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+overrides:
+  '@axe-core/playwright>playwright-core': 1.63.0

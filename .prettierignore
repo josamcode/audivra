@@ -1,0 +1,5 @@
+pnpm-lock.yaml
+.local-data
+.tools
+packages/database/migrations
+apps/web/src/routeTree.gen.ts

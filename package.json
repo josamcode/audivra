@@ -1,0 +1,51 @@
+{
+  "name": "audivra",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first AI website auditing workstation",
+  "type": "module",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "setup": "tsx scripts/setup.ts",
+    "dev": "pnpm --parallel --filter @audivra/server --filter @audivra/worker --filter @audivra/web dev",
+    "build": "pnpm --filter @audivra/web build",
+    "start": "pnpm --parallel --filter @audivra/server --filter @audivra/worker --filter @audivra/web start",
+    "db:migrate": "pnpm --filter @audivra/database migrate",
+    "db:generate": "pnpm --filter @audivra/database generate",
+    "tools": "tsx scripts/tools.ts",
+    "fixture": "pnpm --filter @audivra/fixture-site start",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "test:e2e:ai": "playwright test -c playwright.ai.config.ts"
+  },
+  "devDependencies": {
+    "@audivra/config": "workspace:*",
+    "@audivra/database": "workspace:*",
+    "@audivra/tool-runtime": "workspace:*",
+    "@axe-core/playwright": "4.13.0",
+    "@eslint/js": "^10.0.1",
+    "@playwright/mcp": "0.0.83",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.19.1",
+    "cheerio": "^1.2.0",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "lighthouse": "^13.5.0",
+    "linkinator": "^8.1.0",
+    "playwright": "1.63.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}

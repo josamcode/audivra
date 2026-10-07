@@ -1,0 +1,23 @@
+# Local PostgreSQL for Audivra. Bound to localhost only on a non-default port
+# so it never collides with other local Postgres instances.
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: audivra-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: audivra
+      POSTGRES_PASSWORD: audivra
+      POSTGRES_DB: audivra
+    ports:
+      - '127.0.0.1:5440:5432'
+    volumes:
+      - audivra-db:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U audivra -d audivra']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  audivra-db:
