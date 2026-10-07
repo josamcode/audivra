@@ -171,7 +171,12 @@ export function pairScreenshots(
 }
 
 export function compareTechnologies(current: string[], previous: string[]): AuditComparison['technologies'] {
-  const norm = (s: string) => s.trim().toLowerCase()
+  // "Next.js (App Router, RSC)" and "Next.js (App Router, Turbopack build)" are the same technology.
+  const norm = (s: string) =>
+    s
+      .replace(/\s*\([^)]*\)/g, '')
+      .trim()
+      .toLowerCase()
   const cur = new Map(current.map((t) => [norm(t), t]))
   const prev = new Map(previous.map((t) => [norm(t), t]))
   return {
