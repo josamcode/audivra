@@ -33,8 +33,11 @@ const QUEUE_OPTIONS: Record<QueueName, { expireInSeconds: number; retryLimit: nu
 
 export const HEARTBEAT_SECONDS = 60
 
-export function createBoss(url: string): PgBoss {
-  return new PgBoss({ connectionString: url, schema: 'pgboss' })
+/** Name of the worker's pg-boss instance, so its registry row identifies the audit engine from start-up. */
+export const WORKER_INSTANCE = 'audivra-worker'
+
+export function createBoss(url: string, instanceName?: string): PgBoss {
+  return new PgBoss({ connectionString: url, schema: 'pgboss', instanceName })
 }
 
 export async function ensureQueues(boss: PgBoss): Promise<void> {

@@ -1,5 +1,12 @@
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
-import { siteKeyFor, type AuditDetail, type AuditListItem } from '@audivra/contracts'
+import {
+  siteKeyFor,
+  type AuditDetail,
+  type AuditError,
+  type AuditListItem,
+  type AuditStatus,
+  type SeverityCounts,
+} from '@audivra/contracts'
 import type { Db } from '../client.ts'
 import { newAuditId } from '../ids.ts'
 import { artifacts, audits, findings } from '../schema.ts'
@@ -50,8 +57,26 @@ export async function updateAudit(db: Db, id: string, patch: AuditPatch): Promis
   await db.update(audits).set(patch).where(eq(audits.id, id))
 }
 
+/** Columns needed to list audits: everything except the large JSON documents (summary, baseline, coverage, plan). */
+const briefColumns = {
+  id: audits.id,
+  normalizedUrl: audits.normalizedUrl,
+  domain: audits.domain,
+  siteKey: audits.siteKey,
+  clientName: audits.clientName,
+  status: audits.status,
+  stage: audits.stage,
+  aiEnabled: audits.aiEnabled,
+  benchmark: audits.benchmark,
+  error: audits.error,
+  createdAt: audits.createdAt,
+  startedAt: audits.startedAt,
+  finishedAt: audits.finishedAt,
+}
+type BriefRow = Pick<AuditRow, keyof typeof briefColumns>
+
 function toListItem(
-  row: AuditRow,
+  row: BriefRow,
   counts: { severity: ReturnType<typeof emptySeverityCounts>; total: number } | undefined,
 ): AuditListItem {
   return {
@@ -72,7 +97,7 @@ function toListItem(
 }
 
 export async function listAudits(db: Db, limit = 200): Promise<AuditListItem[]> {
-  const rows = await db.select().from(audits).orderBy(desc(audits.createdAt)).limit(limit)
+  const rows = await db.select(briefColumns).from(audits).orderBy(desc(audits.createdAt)).limit(limit)
   const counts = await findingCounts(
     db,
     rows.map((r) => r.id),
@@ -80,7 +105,102 @@ export async function listAudits(db: Db, limit = 200): Promise<AuditListItem[]> 
   return rows.map((row) => toListItem(row, counts.get(row.id)))
 }
 
+export interface AuditBrief extends AuditListItem {
+  aiEnabled: boolean
+  error: AuditError | null
+}
+
+/** Most recent audits (newest first) with finding counts; benchmark audits only when asked for. */
+export async function listAuditBriefs(
+  db: Db,
+  options: { includeBenchmarks: boolean; limit?: number },
+): Promise<AuditBrief[]> {
+  const rows = await db
+    .select(briefColumns)
+    .from(audits)
+    .where(options.includeBenchmarks ? undefined : eq(audits.benchmark, false))
+    .orderBy(desc(audits.createdAt))
+    .limit(options.limit ?? 200)
+  const counts = await findingCounts(
+    db,
+    rows.map((r) => r.id),
+  )
+  return rows.map((row) => ({ ...toListItem(row, counts.get(row.id)), aiEnabled: row.aiEnabled, error: row.error ?? null }))
+}
+
+export interface AuditGroupStat {
+  siteKey: string
+  benchmark: boolean
+  status: AuditStatus
+  aiEnabled: boolean
+  count: number
+  /** Audits of the group with both a start and a finish time. */
+  timed: number
+  /** Summed wall-clock duration of the timed audits. */
+  durationMs: number
+}
+
+/** Audit counts and durations grouped by site, benchmark flag, status and AI mode: one small aggregate. */
+export async function auditGroupStats(db: Db): Promise<AuditGroupStat[]> {
+  const timed = sql`${audits.startedAt} is not null and ${audits.finishedAt} is not null`
+  return db
+    .select({
+      siteKey: audits.siteKey,
+      benchmark: audits.benchmark,
+      status: audits.status,
+      aiEnabled: audits.aiEnabled,
+      count: sql<number>`count(*)::int`,
+      timed: sql<number>`(count(*) filter (where ${timed}))::int`,
+      durationMs: sql<number>`coalesce(sum(extract(epoch from ${audits.finishedAt} - ${audits.startedAt}) * 1000) filter (where ${timed}), 0)::float8`,
+    })
+    .from(audits)
+    .groupBy(audits.siteKey, audits.benchmark, audits.status, audits.aiEnabled)
+}
+
 const FINISHED = ['completed', 'partial'] as const
+
+/** A completed/partial AI audit with its final finding counts: one point of a site's history. */
+export interface FinishedAiAudit {
+  id: string
+  siteKey: string
+  domain: string
+  benchmark: boolean
+  createdAt: string
+  severityCounts: SeverityCounts
+}
+
+/** Every finished AI audit (oldest first) with severity counts; benchmark audits only when asked for. */
+export async function listFinishedAiAudits(db: Db, options: { includeBenchmarks: boolean }): Promise<FinishedAiAudit[]> {
+  const scope = and(
+    inArray(audits.status, [...FINISHED]),
+    eq(audits.aiEnabled, true),
+    options.includeBenchmarks ? undefined : eq(audits.benchmark, false),
+  )
+  const [rows, counts] = await Promise.all([
+    db
+      .select({ id: audits.id, siteKey: audits.siteKey, domain: audits.domain, benchmark: audits.benchmark, createdAt: audits.createdAt })
+      .from(audits)
+      .where(scope)
+      .orderBy(audits.createdAt),
+    db
+      .select({ auditId: findings.auditId, severity: findings.severity, count: sql<number>`count(*)::int` })
+      .from(findings)
+      .innerJoin(audits, eq(audits.id, findings.auditId))
+      .where(scope)
+      .groupBy(findings.auditId, findings.severity),
+  ])
+  const byAudit = new Map<string, SeverityCounts>()
+  for (const row of counts) {
+    const entry = byAudit.get(row.auditId) ?? emptySeverityCounts()
+    entry[row.severity] += row.count
+    byAudit.set(row.auditId, entry)
+  }
+  return rows.map((row) => ({
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    severityCounts: byAudit.get(row.id) ?? emptySeverityCounts(),
+  }))
+}
 
 /** Completed/partial audits of the same site, oldest first. */
 export async function listSiteAudits(db: Db, siteKey: string): Promise<AuditRow[]> {

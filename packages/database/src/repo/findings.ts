@@ -121,6 +121,44 @@ export async function listFindings(db: Db, auditId: string): Promise<FindingItem
   }))
 }
 
+/** Identity and ranking fields of a final finding: no prose, evidence links or artifacts. */
+export interface FindingSignal {
+  auditId: string
+  ref: string
+  rank: number
+  title: string
+  category: Category
+  severity: Severity
+  type: FindingType
+  verificationStatus: VerificationStatus
+  businessImpactLevel: ImpactLevel
+  effort: EffortLevel
+  issueKey: string | null
+  affectedUrls: string[]
+}
+
+export async function listFindingSignals(db: Db, auditIds: string[]): Promise<FindingSignal[]> {
+  if (auditIds.length === 0) return []
+  return db
+    .select({
+      auditId: findings.auditId,
+      ref: findings.ref,
+      rank: findings.rank,
+      title: findings.title,
+      category: findings.category,
+      severity: findings.severity,
+      type: findings.type,
+      verificationStatus: findings.verificationStatus,
+      businessImpactLevel: findings.businessImpactLevel,
+      effort: findings.effort,
+      issueKey: findings.issueKey,
+      affectedUrls: findings.affectedUrls,
+    })
+    .from(findings)
+    .where(inArray(findings.auditId, auditIds))
+    .orderBy(findings.auditId, asc(findings.rank))
+}
+
 export function emptySeverityCounts(): SeverityCounts {
   return Object.fromEntries(SEVERITIES.map((s) => [s, 0])) as SeverityCounts
 }
