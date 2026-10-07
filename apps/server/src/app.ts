@@ -3,7 +3,7 @@ import path from 'node:path'
 import fastifyStatic from '@fastify/static'
 import Fastify, { LogController, type FastifyError } from 'fastify'
 import { auditWorkspaceDir, getConfig, REPO_ROOT, resolveInside, type Logger } from '@audivra/config'
-import { CreateAuditInput, normalizeTargetUrl, type AuditStage } from '@audivra/contracts'
+import { CreateAuditInput, normalizeTargetUrl, type AuditStage, type SystemHealth } from '@audivra/contracts'
 import {
   createAuditRecord,
   enqueueStage,
@@ -18,16 +18,18 @@ import {
   listPages,
   listSteps,
   listToolRuns,
+  pingDb,
   QUEUES,
   recordEvent,
   updateAudit,
   updateStep,
+  WORKER_INSTANCE,
   type Db,
   type PgBoss,
   type QueueName,
 } from '@audivra/database'
 import { getSystemStatus } from '@audivra/tool-runtime'
-import { loadAuditData } from '@audivra/insights'
+import { loadAuditData, loadDashboard } from '@audivra/insights'
 import type { EventHub } from './events-hub.ts'
 import { registerV1Routes } from './routes-v1.ts'
 
@@ -77,7 +79,44 @@ export async function buildApp(deps: AppDeps) {
     getSystemStatus({ refresh: request.query.refresh === '1' }),
   )
 
+  /** Liveness of the database and of the worker that consumes the audit queues (pg-boss instance registry). */
+  app.get('/api/system/health', async (): Promise<SystemHealth> => {
+    let database: SystemHealth['database']
+    try {
+      database = { ok: true, latencyMs: await pingDb(db), error: null }
+    } catch (error) {
+      database = { ok: false, latencyMs: null, error: error instanceof Error ? error.message : String(error) }
+    }
+    let engine: SystemHealth['engine'] = { state: 'unknown', workers: 0, activeJobs: 0, lastHeartbeatAt: null }
+    if (database.ok) {
+      try {
+        const auditQueues = new Set<string>(Object.values(QUEUES))
+        // The worker names its instance; its subscriptions only appear in the registry at the first heartbeat.
+        const instances = (await boss.getInstances()).filter(
+          (instance) => instance.name === WORKER_INSTANCE || instance.workers.some((worker) => auditQueues.has(worker.queue)),
+        )
+        const live = instances.filter((instance) => instance.live)
+        const workers = live.flatMap((instance) => instance.workers.filter((worker) => auditQueues.has(worker.queue)))
+        const lastHeartbeat = Math.max(0, ...instances.map((instance) => new Date(instance.heartbeatOn).getTime()))
+        engine = {
+          state: live.length ? 'running' : 'stopped',
+          workers: live.length,
+          activeJobs: workers.reduce((sum, worker) => sum + worker.active, 0),
+          lastHeartbeatAt: lastHeartbeat ? new Date(lastHeartbeat).toISOString() : null,
+        }
+      } catch {
+        // Registry unreadable: report "unknown" rather than guessing.
+      }
+    }
+    return { checkedAt: new Date().toISOString(), database, engine }
+  })
+
   app.get('/api/audits', async () => listAudits(db))
+
+  /** Aggregates for the Audits home screen. Benchmark audits are excluded unless `?benchmark=1`. */
+  app.get<{ Querystring: { benchmark?: string } }>('/api/dashboard', async (request) =>
+    loadDashboard(db, { includeBenchmarks: request.query.benchmark === '1' }),
+  )
 
   app.post('/api/audits', async (request, reply) => {
     const parsed = CreateAuditInput.safeParse(request.body)

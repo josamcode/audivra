@@ -11,6 +11,7 @@ import {
   QUEUES,
   runMigrations,
   type StageJob,
+  WORKER_INSTANCE,
 } from '@audivra/database'
 import { flushProcessStore, killAllOwned, reapStaleProcesses, setProcessStore } from '@audivra/tool-runtime'
 import { runBenchmark } from './benchmark.ts'
@@ -45,7 +46,7 @@ if (reaped.reaped || reaped.gone) {
 const interruptedBenchmarks = await failInterruptedBenchmarkRuns(db)
 if (interruptedBenchmarks) log.warn({ interruptedBenchmarks }, 'closed benchmark runs interrupted by a previous worker')
 
-const boss = createBoss(config.DATABASE_URL)
+const boss = createBoss(config.DATABASE_URL, WORKER_INSTANCE)
 boss.on('error', (error) => log.error({ err: error }, 'pg-boss error'))
 await boss.start()
 await ensureQueues(boss)
