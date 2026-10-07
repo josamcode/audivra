@@ -9,6 +9,7 @@ import {
   ensureQueues,
   getAuditDetail,
   listAgentRuns,
+  listArtifacts,
   listEvidence,
   listFindings,
   listToolRuns,
@@ -70,6 +71,8 @@ class FakeProvider implements AgentProvider {
       error: null,
       permissionDenials: [],
       usage: null,
+      terminationReason: 'completed',
+      toolCalls: {},
       ...this.respond(request),
     }
   }
@@ -111,6 +114,8 @@ const draftFinding = (id: string, evidenceIds: string[], severity = 'high') => (
 const businessUnderstanding = {
   summary: 'Dental clinic',
   businessType: 'Lead generation',
+  businessModel: 'Paid treatments',
+  acquisitionSignals: [],
   likelyCustomers: 'Patients',
   primaryConversion: 'WhatsApp',
   secondaryConversions: [],
@@ -122,12 +127,23 @@ const businessUnderstanding = {
 describe('audit pipeline', () => {
   it('runs a real baseline against the fixture site and finishes a baseline-only audit', async () => {
     const audit = await newAudit(fixture.url, false)
-    const pipeline = new Pipeline(db, boss, getLogger(), new FakeProvider(() => ({})))
+    const provider = new FakeProvider(() => ({}))
+    const pipeline = new Pipeline(db, boss, getLogger(), provider)
     await pipeline.handleBaseline(audit.id)
+    expect(await jobQueued(QUEUES.present, audit.id)).toBe(true)
+    await pipeline.handlePresent(audit.id)
 
     const detail = (await getAuditDetail(db, audit.id))!
     expect(detail.status).toBe('completed')
     expect(detail.steps.find((s) => s.stage === 'investigation')?.status).toBe('skipped')
+    // Without AI the presenting stage still produces deterministic, evidence-backed visuals.
+    expect(detail.steps.find((s) => s.stage === 'presenting')?.status).toBe('completed')
+    expect(provider.calls).toHaveLength(0)
+    const artifacts = await listArtifacts(db, audit.id)
+    expect(artifacts.length).toBeGreaterThan(0)
+    expect(artifacts.every((a) => a.createdBy === 'system')).toBe(true)
+    expect(detail.coverage.find((c) => c.capability === 'crawl')?.status).toBe('ran')
+    expect(detail.coverage.find((c) => c.capability === 'ai-investigation')?.status).not.toBe('ran')
     expect(detail.baseline?.pagesCrawled).toBeGreaterThanOrEqual(6)
     expect(detail.baseline?.brokenLinks).toBeGreaterThanOrEqual(2)
     expect(detail.baseline?.consoleErrors).toBeGreaterThanOrEqual(1)
@@ -167,14 +183,19 @@ describe('audit pipeline', () => {
       role: 'auditor',
       status: 'failed',
       error: 'simulated provider outage',
-      promptVersion: 'auditor:v2',
+      promptVersion: 'auditor:v3',
     })
+    // A failed AI stage still leaves the audit presentable: deterministic visuals and coverage.
+    expect(detail.steps.find((s) => s.stage === 'presenting')?.status).toBe('completed')
+    expect((await listArtifacts(db, audit.id)).length).toBeGreaterThan(0)
+    expect(detail.coverage.find((c) => c.capability === 'ai-investigation')?.status).toBe('failed')
   })
 
   it('reports an unavailable AI runtime honestly instead of completing silently', async () => {
     const audit = await newAudit(fixture.url, true)
     const pipeline = new Pipeline(db, boss, getLogger(), new FakeProvider(() => ({}), false))
     await pipeline.handleBaseline(audit.id)
+    await pipeline.handlePresent(audit.id)
     const detail = (await getAuditDetail(db, audit.id))!
     expect(detail.status).toBe('partial')
     expect(detail.steps.find((s) => s.stage === 'investigation')).toMatchObject({ status: 'failed' })
@@ -184,6 +205,53 @@ describe('audit pipeline', () => {
   it('runs auditor → reviewer → finalizer, validating evidence references end to end', async () => {
     const audit = await newAudit(fixture.url, true)
     const provider = new FakeProvider((request) => {
+      if (request.role === 'planner') {
+        return {
+          output: {
+            artifacts: [
+              {
+                type: 'metric_group',
+                title: 'Crawl and link health',
+                question: 'How many pages were checked and how many links are broken?',
+                description: 'Measured by the baseline crawler and link checker.',
+                evidenceIds: [],
+                findingIds: ['F1'],
+                category: 'SEO',
+                priority: 1,
+                placement: 'overview',
+                data: { items: [{ label: 'Pages crawled', metricKey: 'crawl:pages' }, { label: 'Broken targets', metricKey: 'links:broken' }] },
+              },
+              {
+                type: 'metric',
+                title: 'An invented number',
+                question: 'Does the resolver reject numbers that appear in no evidence?',
+                description: 'Must be rejected.',
+                evidenceIds: ['EV-1'],
+                findingIds: [],
+                category: null,
+                priority: 2,
+                placement: 'report',
+                data: { item: { label: 'Revenue lost', value: 987654.321, unit: 'count', evidenceId: 'EV-1' } },
+              },
+            ],
+            keptAsText: [{ insight: 'Business type', reason: 'A fact, not a measurement' }],
+          },
+        }
+      }
+      if (request.role === 'composer') {
+        return {
+          output: {
+            executiveSnapshot: ['A dental clinic converting through WhatsApp.', 'The mobile layout overflows.', 'Fix the banner first.'],
+            topRiskFindingIds: ['F1', 'F99'],
+            topOpportunityTitles: ['mobile FIX', 'Nonexistent work'],
+            featuredArtifactRefs: ['A1', 'A42'],
+            majorFindingIds: ['F1', 'F2'],
+            findingProof: [{ findingId: 'F1', artifactRef: 'A1', evidenceId: null }],
+            categoryHighlights: [],
+            actionPlan: { doFirst: [{ title: 'Fix the promo banner width', why: 'It overflows on mobile.', findingIds: ['F1'] }], then: [], later: [] },
+          },
+        }
+      }
       if (request.role === 'auditor') {
         return {
           output: {
@@ -243,13 +311,14 @@ describe('audit pipeline', () => {
           opportunities: [
             {
               title: 'Mobile fix',
-              description: 'x',
+              why: 'Mobile visitors hit the overflow first.',
+              scope: 'Fix the banner width and recheck all templates.',
               relatedFindingIds: ['F1'],
               impact: 'high',
               effort: 'low',
             },
           ],
-          limitations: ['None'],
+          limitations: [{ kind: 'could-not-verify', text: 'None' }],
           pagesInspected: [`${fixture.url}/`],
         },
       }
@@ -261,10 +330,13 @@ describe('audit pipeline', () => {
     await pipeline.handleReview(audit.id)
     expect(await jobQueued(QUEUES.finalize, audit.id)).toBe(true)
     await pipeline.handleFinalize(audit.id)
+    expect(await jobQueued(QUEUES.present, audit.id)).toBe(true)
+    await pipeline.handlePresent(audit.id)
 
     const detail = (await getAuditDetail(db, audit.id))!
     expect(detail.status).toBe('completed')
     expect(detail.steps.find((s) => s.stage === 'revision')?.status).toBe('skipped')
+    expect(detail.steps.find((s) => s.stage === 'presenting')?.status).toBe('completed')
     expect(detail.summary?.executiveSummary).toBe('Summary for the owner.')
 
     const findings = await listFindings(db, audit.id)
@@ -272,14 +344,41 @@ describe('audit pipeline', () => {
     expect(findings.map((f) => f.ref)).toEqual(['F1', 'F2'])
     expect(findings[0]!.severity).toBe('high')
     expect(findings[0]!.evidenceRefs).toEqual(['EV-1'])
+    // Missing issue keys are derived deterministically; keys are unique within the audit.
+    expect(findings.every((f) => f.issueKey && /^[a-z0-9-]+$/.test(f.issueKey))).toBe(true)
+    expect(new Set(findings.map((f) => f.issueKey)).size).toBe(2)
+
+    // The planner's grounded visual is kept (values filled from the catalog); the invented number is rejected.
+    const artifacts = await listArtifacts(db, audit.id)
+    const planned = artifacts.filter((a) => a.createdBy === 'planner')
+    expect(planned.map((a) => a.title)).toEqual(['Crawl and link health'])
+    expect(planned[0]!.ref).toBe('A1')
+    expect(planned[0]!.evidenceIds.length).toBeGreaterThan(0)
+    expect(artifacts.some((a) => a.title === 'An invented number')).toBe(false)
+
+    // The composer's plan is stored with unknown references removed.
+    expect(detail.reportPlan?.topRiskFindingIds).toEqual(['F1'])
+    expect(detail.reportPlan?.featuredArtifactRefs).toEqual(['A1'])
+    expect(detail.reportPlan?.topOpportunityTitles).toEqual(['Mobile fix'])
 
     const runs = await listAgentRuns(db, audit.id)
-    expect(runs.map((r) => r.role)).toEqual(['auditor', 'reviewer', 'finalizer'])
+    expect(runs.map((r) => r.role)).toEqual(['auditor', 'reviewer', 'finalizer', 'planner', 'composer'])
+    expect(runs.map((r) => r.promptVersion)).toEqual(['auditor:v3', 'reviewer:v2', 'finalizer:v3', 'planner:v1', 'composer:v1'])
     expect(JSON.stringify(runs[0]!.validation)).toMatch(/EV-9999/)
     expect(provider.calls[0]!.allowedTools).toContain('mcp__browser')
-    expect(provider.calls[0]!.disallowedTools).toEqual(expect.arrayContaining(['Bash(curl * -X POST*)']))
+    expect(provider.calls[0]!.disallowedTools).toEqual(
+      expect.arrayContaining(['Bash(curl * -X POST*)', 'mcp__browser__browser_run_code_unsafe']),
+    )
+    expect(provider.calls[0]!.toolCallLimits).toMatchObject({ browser: expect.any(Number), terminal: expect.any(Number), total: expect.any(Number) })
+    expect(provider.calls[0]!.wrapUp?.prompt).toMatch(/structured audit draft/)
+    expect(provider.calls[0]!.auditId).toBe(audit.id)
     expect(provider.calls[1]!.tools).not.toContain('Bash')
     expect(provider.calls[2]!.tools).toEqual([])
+    expect(provider.calls[2]!.prompt).toMatch(/Issue keys from the previous audit/)
+    const planner = provider.calls.find((c) => c.role === 'planner')!
+    expect(planner.tools).not.toContain('Bash')
+    expect(planner.prompt).toMatch(/links:broken/)
+    expect(provider.calls.find((c) => c.role === 'composer')!.tools).toEqual([])
   })
 
   it('runs one verification pass in the auditor session when the reviewer asks for checks', async () => {
@@ -355,6 +454,7 @@ describe('audit pipeline', () => {
     expect(await jobQueued(QUEUES.revision, audit.id)).toBe(true)
     await pipeline.handleRevision(audit.id)
     await pipeline.handleFinalize(audit.id)
+    await pipeline.handlePresent(audit.id)
 
     const revision = provider.calls.find((c) => c.role === 'revision')!
     expect(revision.resumeSessionId).toBe('auditor-session-42')
@@ -396,6 +496,7 @@ describe('audit pipeline', () => {
     await pipeline.handleInvestigation(audit.id)
     await pipeline.handleReview(audit.id)
     await pipeline.handleFinalize(audit.id)
+    await pipeline.handlePresent(audit.id)
     const detail = (await getAuditDetail(db, audit.id))!
     expect(detail.status).toBe('partial')
     expect(detail.steps.find((s) => s.stage === 'review')?.status).toBe('failed')
@@ -444,6 +545,11 @@ describe('audit pipeline', () => {
     const before = (await listEvidence(db, audit.id)).length
     await pipeline.handleBaseline(audit.id)
     expect((await listEvidence(db, audit.id)).length).toBe(before)
+    await pipeline.handlePresent(audit.id)
+    const artifacts = await listArtifacts(db, audit.id)
+    // A duplicate delivery of the presenting job does not regenerate anything.
+    await pipeline.handlePresent(audit.id)
+    expect((await listArtifacts(db, audit.id)).map((a) => a.id)).toEqual(artifacts.map((a) => a.id))
     expect((await getAuditDetail(db, audit.id))!.status).toBe('completed')
   })
 })

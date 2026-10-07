@@ -5,12 +5,15 @@ import {
   canConnect,
   createBoss,
   ensureQueues,
+  failInterruptedBenchmarkRuns,
   getDb,
+  processStore,
   QUEUES,
   runMigrations,
   type StageJob,
 } from '@audivra/database'
-import { ClaudeCliProvider } from '@audivra/ai-runtime'
+import { flushProcessStore, killAllOwned, reapStaleProcesses, setProcessStore } from '@audivra/tool-runtime'
+import { runBenchmark } from './benchmark.ts'
 import { Pipeline } from './pipeline.ts'
 
 const config = getConfig()
@@ -27,6 +30,21 @@ if (!connection.ok) {
 await runMigrations(config.DATABASE_URL)
 
 const { db } = getDb()
+
+// Process ownership: every process this worker starts is recorded, and only those are ever terminated.
+setProcessStore({
+  insert: (record) => processStore.insert(db, record),
+  finish: (id, status, exitCode) => processStore.finish(db, id, status, exitCode),
+  listStale: (ownerId) => processStore.listStale(db, ownerId),
+})
+const reaped = await reapStaleProcesses()
+if (reaped.reaped || reaped.gone) {
+  log.info(reaped, 'closed process records left by a previous worker (owned processes only)')
+}
+
+const interruptedBenchmarks = await failInterruptedBenchmarkRuns(db)
+if (interruptedBenchmarks) log.warn({ interruptedBenchmarks }, 'closed benchmark runs interrupted by a previous worker')
+
 const boss = createBoss(config.DATABASE_URL)
 boss.on('error', (error) => log.error({ err: error }, 'pg-boss error'))
 await boss.start()
@@ -41,6 +59,7 @@ const handlers: [string, Handler, number][] = [
   [QUEUES.review, (id) => pipeline.handleReview(id), 2],
   [QUEUES.revision, (id) => pipeline.handleRevision(id), 2],
   [QUEUES.finalize, (id) => pipeline.handleFinalize(id), 2],
+  [QUEUES.present, (id) => pipeline.handlePresent(id), 2],
 ]
 
 for (const [queue, handler, concurrency] of handlers) {
@@ -63,7 +82,20 @@ for (const [queue, handler, concurrency] of handlers) {
     },
   )
 }
-log.info({ queues: handlers.map(([q]) => q), ai: config.AUDIVRA_AI }, 'worker ready')
+
+await boss.work<{ benchmarkRunId?: string }>(
+  QUEUES.benchmark,
+  { localConcurrency: 1, pollingIntervalSeconds: 2 },
+  async (jobs) => {
+    for (const job of jobs) {
+      const jobLog = log.child({ jobId: job.id, queue: QUEUES.benchmark })
+      jobLog.info('benchmark started')
+      await runBenchmark({ db, boss, log: jobLog, runId: job.data?.benchmarkRunId })
+      jobLog.info('benchmark finished')
+    }
+  },
+)
+log.info({ queues: [...handlers.map(([q]) => q), QUEUES.benchmark], ai: config.AUDIVRA_AI }, 'worker ready')
 
 let shuttingDown = false
 async function shutdown(signal: string) {
@@ -71,7 +103,10 @@ async function shutdown(signal: string) {
   shuttingDown = true
   log.info({ signal }, 'worker shutting down')
   // Not graceful: in-flight stages are retried by pg-boss after restart (heartbeat expiry).
-  await ClaudeCliProvider.killAll()
+  // Only processes this worker started (ownership registry) are terminated.
+  const killed = await killAllOwned()
+  if (killed) log.info({ killed }, 'terminated owned processes')
+  await flushProcessStore().catch(() => undefined)
   await boss.stop({ graceful: false }).catch(() => undefined)
   process.exit(0)
 }

@@ -2,6 +2,7 @@ import { AuditContext, CancelledError, RequiredCapabilityError, Workspace } from
 import { AiStageError } from '@audivra/ai-runtime'
 import type { Logger } from '@audivra/config'
 import type { AuditError, AuditStage, FailureKind } from '@audivra/contracts'
+import { killOwnedForAudit, stopAuditContainers } from '@audivra/tool-runtime'
 import {
   failInterruptedRuns,
   getAuditRow,
@@ -74,7 +75,12 @@ export async function executeStage(
   const watcher = setInterval(() => {
     void getAuditRow(db, auditId)
       .then((row) => {
-        if (row?.cancelRequested && !controller.signal.aborted) controller.abort()
+        if (row?.cancelRequested && !controller.signal.aborted) {
+          controller.abort()
+          // Belt and braces: terminate any process this worker started for the audit (owned PIDs only).
+          void killOwnedForAudit(auditId).catch(() => undefined)
+          void stopAuditContainers(auditId).catch(() => undefined)
+        }
       })
       .catch(() => undefined)
   }, 3000)

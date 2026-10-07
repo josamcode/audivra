@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { runBaseline, Workspace, type AuditContext } from '@audivra/audit-core'
+import { AuditContext, runBaseline, Workspace } from '@audivra/audit-core'
 import {
   ClaudeCliProvider,
   fallbackFinal,
@@ -11,13 +11,17 @@ import {
   type AuditTarget,
 } from '@audivra/ai-runtime'
 import { getConfig, type Logger } from '@audivra/config'
-import { AuditDraft, ReviewResult, type FinalAudit } from '@audivra/contracts'
+import { AuditDraft, ReviewResult, type FinalAudit, type FindingBrief } from '@audivra/contracts'
 import {
   enqueueStage,
   getAuditRow,
+  getPreviousSiteAudit,
+  getStep,
   listEvents,
   listEvidence,
+  listFindings,
   listSteps,
+  listToolRuns,
   QUEUES,
   recordEvent,
   replaceFindings,
@@ -27,8 +31,11 @@ import {
   type AuditRow,
   type Db,
   type PgBoss,
+  type QueueName,
 } from '@audivra/database'
-import { getSystemStatus } from '@audivra/tool-runtime'
+import { computeCoverage, toBrief } from '@audivra/insights'
+import { getSystemStatus, stopAuditContainers } from '@audivra/tool-runtime'
+import { presentAudit } from './present.ts'
 import { executeStage, type StageDefinition } from './stage-runner.ts'
 
 interface PipelineState {
@@ -69,16 +76,57 @@ function latestDraft(ctx: AuditContext): AuditDraft | null {
   )
 }
 
+/** AI presentation (planner/composer) only when the audit used AI and AI is still enabled. */
+function presentWithAi(audit: AuditRow): boolean {
+  return audit.aiEnabled && pipelineState(audit).aiAvailable === true && getConfig().AUDIVRA_AI !== 'off'
+}
+
+/** Findings of the previous finished audit of the same site (stable issue keys across audits). */
+async function previousFindings(db: Db, audit: AuditRow): Promise<FindingBrief[]> {
+  const previous = await getPreviousSiteAudit(db, audit)
+  return previous ? (await listFindings(db, previous.id)).map(toBrief) : []
+}
+
+export interface PipelineOptions {
+  /** Run every stage in this process, one after another, instead of via the job queue (benchmark, CLI). */
+  inline?: boolean
+}
+
 export class Pipeline {
   private readonly provider: AgentProvider
+  private readonly inline: boolean
 
   constructor(
     private readonly db: Db,
-    private readonly boss: PgBoss,
+    private readonly boss: PgBoss | null,
     private readonly log: Logger,
     provider?: AgentProvider,
+    options: PipelineOptions = {},
   ) {
     this.provider = provider ?? new ClaudeCliProvider()
+    this.inline = options.inline === true || boss === null
+  }
+
+  /** Hands an audit to its next stage: a durable job, or a direct call in inline mode. */
+  private async next(queue: QueueName, auditId: string): Promise<void> {
+    if (!this.inline && this.boss) {
+      await enqueueStage(this.boss, queue, auditId)
+      return
+    }
+    switch (queue) {
+      case QUEUES.investigation:
+        return this.handleInvestigation(auditId)
+      case QUEUES.review:
+        return this.handleReview(auditId)
+      case QUEUES.revision:
+        return this.handleRevision(auditId)
+      case QUEUES.finalize:
+        return this.handleFinalize(auditId)
+      case QUEUES.present:
+        return this.handlePresent(auditId)
+      default:
+        throw new Error(`No inline handler for ${queue}`)
+    }
   }
 
   private readonly preparing: StageDefinition = {
@@ -115,6 +163,7 @@ export class Pipeline {
         maxLinkChecks: config.BASELINE_MAX_LINK_CHECKS,
         browserPages: config.BASELINE_BROWSER_PAGES,
         tools: await getSystemStatus(),
+        scanners: config.BASELINE_SCANNERS.split(',').map((s) => s.trim()).filter(Boolean),
       })
       await updateAudit(ctx.db, ctx.auditId, { baseline: result.stats })
       return { kind: 'next', message: `${result.evidence.length} evidence items` }
@@ -125,14 +174,19 @@ export class Pipeline {
     stage: 'investigation',
     label: 'AI investigation',
     run: async (ctx, audit) => {
-      const { sessionId, draft } = await runAuditor(ctx, this.provider, {
-        audit: target(audit),
-        baselineSummary: baselineSummary(ctx),
-        tools: await getSystemStatus(),
-        evidence: await listEvidence(ctx.db, ctx.auditId),
-      })
-      await savePipelineState(ctx, audit, { auditorSessionId: sessionId })
-      return { kind: 'next', message: `Draft with ${draft.findings.length} findings` }
+      try {
+        const { sessionId, draft } = await runAuditor(ctx, this.provider, {
+          audit: target(audit),
+          baselineSummary: baselineSummary(ctx),
+          tools: await getSystemStatus(),
+          evidence: await listEvidence(ctx.db, ctx.auditId),
+        })
+        await savePipelineState(ctx, audit, { auditorSessionId: sessionId })
+        return { kind: 'next', message: `Draft with ${draft.findings.length} findings` }
+      } finally {
+        // Containers the auditor started (audit-scoped names) never outlive the stage.
+        await stopAuditContainers(ctx.auditId).catch(() => undefined)
+      }
     },
   }
 
@@ -208,6 +262,8 @@ export class Pipeline {
             stage: 'revision',
           },
         }
+      } finally {
+        await stopAuditContainers(ctx.auditId).catch(() => undefined)
       }
     },
   }
@@ -219,13 +275,14 @@ export class Pipeline {
       const state = pipelineState(audit)
       if (!audit.aiEnabled || !state.aiAvailable) {
         await updateAudit(ctx.db, ctx.auditId, {
-          summary: { limitations: [state.aiReason ?? 'AI investigation did not run'] },
+          summary: { limitations: [{ kind: 'environment', text: state.aiReason ?? 'AI investigation did not run' }] },
         })
         return { kind: 'done' }
       }
       const draft = latestDraft(ctx)
       if (!draft) throw new Error('No audit draft available to finalize')
       const review = readJson(ctx, 'agent/review.json', ReviewResult)
+      const previous = await previousFindings(ctx.db, audit)
       let final: FinalAudit
       let degraded: string | null = null
       try {
@@ -236,12 +293,13 @@ export class Pipeline {
             review,
             revised: state.revised === true,
             evidence: await listEvidence(ctx.db, ctx.auditId),
+            previous,
           })
         ).final
       } catch (error) {
         if (ctx.signal.aborted) throw error
         degraded = error instanceof Error ? error.message : String(error)
-        final = fallbackFinal(draft, review)
+        final = fallbackFinal(draft, review, previous)
         await ctx.ws.writeJson('final/audit.json', final)
         await ctx.event(
           'agent.note',
@@ -262,16 +320,26 @@ export class Pipeline {
     },
   }
 
+  private readonly presenting: StageDefinition = {
+    stage: 'presenting',
+    label: 'Visual report',
+    run: async (ctx, audit) => {
+      const result = await presentAudit(ctx, this.provider, audit, { ai: presentWithAi(audit) })
+      return { kind: 'next', message: result.message }
+    },
+  }
+
   /** Job: preparation + baseline, then hand off to the AI stages (or finish without AI). */
   async handleBaseline(auditId: string): Promise<void> {
     const prep = await executeStage(this.db, this.log, auditId, this.preparing)
     if (!prep) return
     const base = await executeStage(this.db, this.log, auditId, this.baseline)
     if (!base) return
+    await this.refreshCoverage(auditId)
     const audit = await getAuditRow(this.db, auditId)
     const state = audit ? pipelineState(audit) : {}
     if (audit?.aiEnabled && state.aiAvailable) {
-      await enqueueStage(this.boss, QUEUES.investigation, auditId)
+      await this.next(QUEUES.investigation, auditId)
       return
     }
     const reason = state.aiReason ?? 'AI unavailable'
@@ -294,12 +362,16 @@ export class Pipeline {
 
   async handleInvestigation(auditId: string): Promise<void> {
     const outcome = await executeStage(this.db, this.log, auditId, this.investigation)
-    if (outcome) await enqueueStage(this.boss, QUEUES.review, auditId)
+    if (outcome) await this.next(QUEUES.review, auditId)
+    else await this.presentAfterFailure(auditId)
   }
 
   async handleReview(auditId: string): Promise<void> {
     const outcome = await executeStage(this.db, this.log, auditId, this.review)
-    if (!outcome) return
+    if (!outcome) {
+      await this.presentAfterFailure(auditId)
+      return
+    }
     const reviewFile = new Workspace(auditId).abs('agent/review.json')
     const review =
       outcome.kind === 'next' && existsSync(reviewFile)
@@ -307,7 +379,7 @@ export class Pipeline {
         : null
     const maxRevisions = getConfig().AUDIT_MAX_REVISIONS
     if (review && maxRevisions > 0 && needsVerificationPass(review)) {
-      await enqueueStage(this.boss, QUEUES.revision, auditId)
+      await this.next(QUEUES.revision, auditId)
       return
     }
     await updateStep(this.db, auditId, 'revision', 'skipped', {
@@ -318,17 +390,75 @@ export class Pipeline {
             ? 'Revision disabled'
             : 'Reviewer found nothing that needs verification',
     })
-    await enqueueStage(this.boss, QUEUES.finalize, auditId)
+    await this.next(QUEUES.finalize, auditId)
   }
 
   async handleRevision(auditId: string): Promise<void> {
     const outcome = await executeStage(this.db, this.log, auditId, this.revision)
-    if (outcome) await enqueueStage(this.boss, QUEUES.finalize, auditId)
+    if (outcome) await this.next(QUEUES.finalize, auditId)
+    else await this.presentAfterFailure(auditId)
   }
 
   async handleFinalize(auditId: string): Promise<void> {
     const outcome = await executeStage(this.db, this.log, auditId, this.finalizing)
-    if (!outcome) return
+    if (outcome) await this.next(QUEUES.present, auditId)
+    else await this.presentAfterFailure(auditId)
+  }
+
+  /**
+   * Job: the presenting stage. During a run it ends the pipeline; for an already finished audit
+   * (POST /api/audits/:id/present) it regenerates visuals and the report plan without changing the
+   * audit's findings or status.
+   */
+  async handlePresent(auditId: string): Promise<void> {
+    const audit = await getAuditRow(this.db, auditId)
+    if (!audit) return
+    if (audit.status === 'completed' || audit.status === 'partial') {
+      // Regeneration is requested by resetting the step (POST /api/audits/:id/present); a duplicate
+      // delivery of an already-completed job does not re-run the AI.
+      if ((await getStep(this.db, auditId, 'presenting'))?.status === 'completed') return
+      await this.regeneratePresentation(auditId)
+      return
+    }
+    const outcome = await executeStage(this.db, this.log, auditId, this.presenting)
+    if (outcome) await this.completeAudit(auditId)
+    else await this.refreshCoverage(auditId)
+  }
+
+  /** After a stage failure left the audit partial: still produce deterministic visuals and coverage. */
+  private async presentAfterFailure(auditId: string): Promise<void> {
+    const audit = await getAuditRow(this.db, auditId)
+    if (audit?.status === 'partial') await this.regeneratePresentation(auditId)
+  }
+
+  private async regeneratePresentation(auditId: string): Promise<void> {
+    const audit = await getAuditRow(this.db, auditId)
+    if (!audit) return
+    const ws = new Workspace(auditId)
+    await ws.init()
+    const ctx = new AuditContext(auditId, this.db, this.log.child({ auditId, stage: 'presenting' }), ws, new AbortController().signal)
+    await updateStep(this.db, auditId, 'presenting', 'running', { message: null, error: null })
+    await updateAudit(this.db, auditId, { stage: 'presenting' })
+    await ctx.event('stage.started', 'Visual report started', { stage: 'presenting' })
+    try {
+      const result = await presentAudit(ctx, this.provider, audit, { ai: presentWithAi(audit) })
+      await updateStep(this.db, auditId, 'presenting', 'completed', { message: result.message })
+      await ctx.event('stage.completed', 'Visual report completed', { stage: 'presenting' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.log.error({ err: error, auditId }, 'visual report generation failed')
+      await updateStep(this.db, auditId, 'presenting', 'failed', {
+        message,
+        error: { kind: 'internal', message: message.slice(0, 1000), stage: 'presenting' },
+      })
+      await ctx.event('stage.failed', `Visual report failed: ${message.slice(0, 300)}`, { stage: 'presenting' }, 'error')
+    } finally {
+      await updateAudit(this.db, auditId, { stage: 'done' })
+      await this.refreshCoverage(auditId)
+    }
+  }
+
+  private async completeAudit(auditId: string): Promise<void> {
     const steps = await listSteps(this.db, auditId)
     const failed = steps.filter((s) => s.status === 'failed')
     const status = failed.length ? 'partial' : 'completed'
@@ -338,6 +468,7 @@ export class Pipeline {
       finishedAt: new Date(),
       error: failed[0]?.error ?? null,
     })
+    await this.refreshCoverage(auditId)
     await recordEvent(this.db, {
       auditId,
       type: 'audit.completed',
@@ -348,6 +479,23 @@ export class Pipeline {
           : `Audit completed with issues: ${failed.map((s) => s.stage).join(', ')} did not complete normally`,
       data: { status },
     })
+  }
+
+  /** Recomputes and stores the explicit coverage table (every capability with a status and reason). */
+  private async refreshCoverage(auditId: string): Promise<void> {
+    try {
+      const audit = await getAuditRow(this.db, auditId)
+      if (!audit) return
+      const [toolRuns, steps, evidence] = await Promise.all([
+        listToolRuns(this.db, auditId),
+        listSteps(this.db, auditId),
+        listEvidence(this.db, auditId),
+      ])
+      const coverage = computeCoverage({ targetUrl: audit.normalizedUrl, toolRuns, steps, baseline: audit.baseline ?? null, evidence })
+      await updateAudit(this.db, auditId, { coverage })
+    } catch (error) {
+      this.log.warn({ err: error, auditId }, 'coverage computation failed')
+    }
   }
 }
 
@@ -373,6 +521,7 @@ async function persistFinal(ctx: AuditContext, final: FinalAudit): Promise<void>
     final.findings.map((f, index) => ({
       ref: f.id,
       rank: index + 1,
+      issueKey: f.issueKey,
       title: f.title,
       category: f.category,
       severity: f.severity,
