@@ -53,13 +53,21 @@ export function DefinitionList({
 }: {
   items: { label: ReactNode; value: ReactNode }[]
   className?: string
-  /** `numeric`: values right-aligned (counts). `text`: label column + left-aligned prose values. */
-  layout?: 'numeric' | 'text'
+  /**
+   * `numeric`: values right-aligned (counts). `text`: label column + left-aligned prose values.
+   * `stacked`: label above value, for narrow side panels.
+   */
+  layout?: 'numeric' | 'text' | 'stacked'
 }) {
   return (
     <dl className={cn('divide-y divide-border', className)}>
       {items.map((item, index) =>
-        layout === 'numeric' ? (
+        layout === 'stacked' ? (
+          <div key={index} className="py-1.5 text-sm first:pt-0 last:pb-0">
+            <dt className="text-xs text-muted">{item.label}</dt>
+            <dd className="mt-0.5 min-w-0 text-foreground text-break">{item.value}</dd>
+          </div>
+        ) : layout === 'numeric' ? (
           <div key={index} className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
             <dt className="shrink-0 text-muted">{item.label}</dt>
             <dd className="min-w-0 text-right text-foreground text-break">{item.value}</dd>

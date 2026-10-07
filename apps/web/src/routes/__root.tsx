@@ -15,6 +15,7 @@ function ThemedToaster() {
   const { resolved } = useTheme()
   return (
     <Toaster
+      className="print:hidden"
       theme={resolved}
       position="bottom-right"
       toastOptions={{

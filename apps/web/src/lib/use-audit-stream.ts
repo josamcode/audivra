@@ -6,13 +6,15 @@ import { queryKeys } from './queries'
 
 export type StreamState = 'idle' | 'connecting' | 'live' | 'reconnecting'
 
-type InvalidationTarget = 'audit' | 'findings' | 'evidence' | 'runs' | 'pages' | 'list'
+type InvalidationTarget = 'audit' | 'findings' | 'evidence' | 'runs' | 'pages' | 'list' | 'visuals'
 
 /** Which cached resources an incoming event makes stale. */
 function targetsFor(event: ActivityEvent): InvalidationTarget[] {
   const type = event.type
   if (type === 'evidence.created') return ['evidence', 'audit']
   if (type === 'finding.created') return ['findings', 'audit']
+  if (type === 'artifact.created') return ['visuals', 'audit']
+  if (type === 'report.ready') return ['visuals', 'audit']
   if (type.startsWith('tool.')) return ['runs']
   if (
     type.startsWith('agent.started') ||
@@ -20,9 +22,12 @@ function targetsFor(event: ActivityEvent): InvalidationTarget[] {
     type.startsWith('agent.failed')
   )
     return ['runs', 'audit']
-  if (type.startsWith('stage.') || type.startsWith('baseline.') || type.startsWith('review.'))
-    return ['audit', 'pages', 'runs']
-  if (type.startsWith('audit.')) return ['audit', 'findings', 'evidence', 'runs', 'pages', 'list']
+  if (type.startsWith('stage.')) {
+    const stage = event.data?.stage
+    return stage === 'presenting' ? ['audit', 'runs', 'visuals'] : ['audit', 'pages', 'runs']
+  }
+  if (type.startsWith('baseline.') || type.startsWith('review.')) return ['audit', 'pages', 'runs']
+  if (type.startsWith('audit.')) return ['audit', 'findings', 'evidence', 'runs', 'pages', 'list', 'visuals']
   return []
 }
 
@@ -60,6 +65,11 @@ export function useAuditStream(auditId: string, enabled: boolean, ready: boolean
         void queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns(auditId) })
       }
       if (targets.has('list')) void queryClient.invalidateQueries({ queryKey: queryKeys.audits })
+      if (targets.has('visuals')) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.visuals(auditId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.report(auditId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.exports(auditId) })
+      }
     }
 
     source.onopen = () => setConnection('live')

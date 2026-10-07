@@ -1,6 +1,8 @@
 import type {
+  AgentRole,
   AuditStage,
   AuditStatus,
+  CoverageStatus,
   EvidenceType,
   FindingType,
   Severity,
@@ -17,6 +19,7 @@ import {
   CheckCircle2,
   Circle,
   CircleDashed,
+  CircleDot,
   Code2,
   Eye,
   FileCode2,
@@ -54,7 +57,44 @@ export const STAGE_LABELS: Record<AuditStage, string> = {
   review: 'Review',
   revision: 'Revision',
   finalizing: 'Finalizing',
+  presenting: 'Visuals & report',
   done: 'Done',
+}
+
+export const ROLE_LABELS: Record<AgentRole, string> = {
+  auditor: 'AI auditor',
+  reviewer: 'Reviewer',
+  revision: 'Revision',
+  finalizer: 'Finalizer',
+  planner: 'Artifact planner',
+  composer: 'Report composer',
+}
+
+export const COVERAGE_STATUS: Record<CoverageStatus, { label: string; tone: BadgeTone }> = {
+  ran: { label: 'Ran', tone: 'success' },
+  partial: { label: 'Partial', tone: 'medium' },
+  skipped: { label: 'Skipped', tone: 'neutral' },
+  failed: { label: 'Failed', tone: 'critical' },
+  unavailable: { label: 'Unavailable', tone: 'neutral' },
+  'not-applicable': { label: 'Not applicable', tone: 'neutral' },
+}
+
+/** Compact coverage status glyph (with an accessible label). */
+export function CoverageIcon({ status, className }: { status: CoverageStatus; className?: string }) {
+  const label = COVERAGE_STATUS[status].label
+  const base = cn('size-3.5 shrink-0', className)
+  switch (status) {
+    case 'ran':
+      return <CheckCircle2 className={cn(base, 'text-success')} aria-label={label} />
+    case 'partial':
+      return <CircleDot className={cn(base, 'text-medium')} aria-label={label} />
+    case 'failed':
+      return <XCircle className={cn(base, 'text-critical')} aria-label={label} />
+    case 'not-applicable':
+      return <Circle className={cn(base, 'text-border-strong')} aria-label={label} />
+    default:
+      return <MinusCircle className={cn(base, 'text-subtle')} aria-label={label} />
+  }
 }
 
 export function StatusBadge({ status, stage }: { status: AuditStatus; stage?: AuditStage }) {
@@ -147,17 +187,17 @@ export function VerificationText({ status }: { status: VerificationStatus }) {
   )
 }
 
-const TOOL_STATE: Record<ToolState, { label: string; tone: BadgeTone }> = {
-  ready: { label: 'Ready', tone: 'success' },
-  available: { label: 'Available', tone: 'low' },
-  missing: { label: 'Missing', tone: 'neutral' },
-  disabled: { label: 'Disabled', tone: 'neutral' },
-  error: { label: 'Error', tone: 'critical' },
+export const TOOL_STATE: Record<ToolState, { label: string; tone: BadgeTone; hint: string }> = {
+  ready: { label: 'Ready', tone: 'success', hint: 'Installed and verified; agents can use it.' },
+  'needs-setup': { label: 'Needs setup', tone: 'medium', hint: 'Installed but missing configuration or a dependency.' },
+  unavailable: { label: 'Unavailable', tone: 'neutral', hint: 'Not installed or not reachable on this machine.' },
+  disabled: { label: 'Disabled', tone: 'neutral', hint: 'Turned off in configuration.' },
+  error: { label: 'Error', tone: 'critical', hint: 'The last check failed.' },
 }
 
 export function ToolStateBadge({ state }: { state: ToolState }) {
   return (
-    <Badge tone={TOOL_STATE[state].tone} dot>
+    <Badge tone={TOOL_STATE[state].tone} dot title={TOOL_STATE[state].hint}>
       {TOOL_STATE[state].label}
     </Badge>
   )

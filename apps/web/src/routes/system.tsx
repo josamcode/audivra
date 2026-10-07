@@ -1,32 +1,39 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Bot, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { ToolStateBadge } from '@/components/badges'
-import { Metric } from '@/components/metric'
 import { PageHeader } from '@/components/page-header'
-import { Panel, PanelBody, PanelHeader } from '@/components/panel'
+import { Panel } from '@/components/panel'
 import { ErrorState } from '@/components/states'
-import { ToolStatusTable } from '@/components/tool-status'
 import { Button } from '@/components/ui/button'
+import { TabPanel, Tabs } from '@/components/ui/tabs'
+import { ProcessesPanel } from '@/features/system/processes-panel'
+import { QualityPanel } from '@/features/system/quality-panel'
+import { ToolsPanel } from '@/features/system/tools-panel'
 import { api } from '@/lib/api'
 import { formatRelative } from '@/lib/format'
-import { queryKeys, systemQuery } from '@/lib/queries'
+import { benchmarksQuery, processesQuery, queryKeys, systemQuery } from '@/lib/queries'
+
+const SYSTEM_TABS = ['tools', 'quality', 'processes'] as const
+type SystemTab = (typeof SYSTEM_TABS)[number]
 
 export const Route = createFileRoute('/system')({
+  validateSearch: (search: Record<string, unknown>): { tab?: SystemTab } => ({
+    tab: SYSTEM_TABS.includes(search.tab as SystemTab) ? (search.tab as SystemTab) : undefined,
+  }),
   component: SystemPage,
 })
 
 function SystemPage() {
   const queryClient = useQueryClient()
-  const { data, isLoading, isError, error, refetch } = useQuery(systemQuery())
+  const navigate = Route.useNavigate()
+  const tab: SystemTab = Route.useSearch().tab ?? 'tools'
+  const system = useQuery(systemQuery())
+  const benchmarks = useQuery({ ...benchmarksQuery(), enabled: tab === 'quality' })
+  const processes = useQuery({ ...processesQuery(), enabled: tab === 'processes' })
   const [refreshing, setRefreshing] = useState(false)
-  const tools = data?.tools ?? []
-  const claude = tools.find((tool) => tool.id === 'claude')
-  const others = tools.filter((tool) => tool.id !== 'claude')
-  const count = (state: string) => others.filter((tool) => tool.state === state).length
 
-  const refresh = async () => {
+  const recheck = async () => {
     setRefreshing(true)
     try {
       queryClient.setQueryData(queryKeys.system, await api.systemTools(true))
@@ -40,60 +47,66 @@ function SystemPage() {
       <PageHeader
         title="System"
         description={
-          data ? `Local capabilities · checked ${formatRelative(data.checkedAt)}` : 'Local capabilities'
+          system.data
+            ? `Local capabilities, audit quality and owned processes · tools checked ${formatRelative(system.data.checkedAt)}`
+            : 'Local capabilities, audit quality and owned processes'
         }
         actions={
-          <Button onClick={() => void refresh()} disabled={refreshing}>
-            <RefreshCw className={refreshing ? 'animate-spin' : undefined} />
-            Re-check
-          </Button>
+          tab === 'tools' ? (
+            <Button onClick={() => void recheck()} disabled={refreshing}>
+              <RefreshCw className={refreshing ? 'animate-spin' : undefined} />
+              Re-check tools
+            </Button>
+          ) : tab === 'processes' ? (
+            <Button onClick={() => void processes.refetch()} disabled={processes.isFetching}>
+              <RefreshCw className={processes.isFetching ? 'animate-spin' : undefined} />
+              Refresh
+            </Button>
+          ) : null
         }
       />
-      {isError ? (
-        <div className="px-4 sm:px-6">
-          <Panel>
-            <ErrorState title="Could not load tool status" error={error} onRetry={() => void refetch()} />
-          </Panel>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4 px-4 sm:px-6">
-          <Panel>
-            <PanelHeader title="AI runtime" description="Runs the auditor, reviewer and finalizer" />
-            <PanelBody className="flex flex-wrap items-center gap-x-8 gap-y-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex size-8 items-center justify-center rounded-md border border-border text-muted">
-                  <Bot className="size-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">
-                      {claude?.name ?? 'Claude Code'}
-                    </span>
-                    {claude ? <ToolStateBadge state={claude.state} /> : null}
-                  </div>
-                  <p className="text-xs text-muted">
-                    {isLoading ? 'Checking…' : (claude?.detail ?? 'Not detected')}
-                    {claude?.version ? <span className="font-mono"> · v{claude.version}</span> : null}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-8 sm:ml-auto">
-                <Metric label="Ready" value={isLoading ? '—' : count('ready')} tone="success" />
-                <Metric label="Available" value={isLoading ? '—' : count('available')} />
-                <Metric label="Missing" value={isLoading ? '—' : count('missing')} tone="muted" />
-                <Metric label="Disabled" value={isLoading ? '—' : count('disabled')} tone="muted" />
-              </div>
-            </PanelBody>
-          </Panel>
-          <Panel className="overflow-hidden">
-            <PanelHeader
-              title="Tool registry"
-              description="Missing optional tools never fail an audit — the capability is marked as skipped."
+      <Tabs
+        value={tab}
+        onValueChange={(next) => void navigate({ search: { tab: next === 'tools' ? undefined : next }, replace: true })}
+        barClassName="px-4 sm:px-6"
+        items={[
+          { value: 'tools', label: 'Tools', count: system.data?.tools.length ?? null },
+          { value: 'quality', label: 'Quality' },
+          { value: 'processes', label: 'Processes' },
+        ]}
+      >
+        <div className="px-4 pt-4 sm:px-6">
+          <TabPanel value="tools">
+            {system.isError ? (
+              <Panel>
+                <ErrorState
+                  title="Could not load tool status"
+                  error={system.error}
+                  onRetry={() => void system.refetch()}
+                />
+              </Panel>
+            ) : (
+              <ToolsPanel data={system.data} isLoading={system.isLoading} />
+            )}
+          </TabPanel>
+          <TabPanel value="quality">
+            <QualityPanel
+              runs={benchmarks.data ?? []}
+              isLoading={benchmarks.isLoading}
+              error={benchmarks.error}
+              onRetry={() => void benchmarks.refetch()}
             />
-            <ToolStatusTable tools={others} isLoading={isLoading} />
-          </Panel>
+          </TabPanel>
+          <TabPanel value="processes">
+            <ProcessesPanel
+              processes={processes.data ?? []}
+              isLoading={processes.isLoading}
+              error={processes.error}
+              onRetry={() => void processes.refetch()}
+            />
+          </TabPanel>
         </div>
-      )}
+      </Tabs>
     </div>
   )
 }

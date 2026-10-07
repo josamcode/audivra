@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+/* Trusted artifact renderers and the client report document (shared with HTML/PDF exports). */
+@import '@audivra/report-ui/styles/artifacts.css';
+@import '@audivra/report-ui/styles/report.css';
 
 /*
  * Audivra design tokens. This file is the single source of colour, type, radius and shadow.
@@ -76,6 +79,65 @@
   --success-soft: oklch(0.265 0.045 155);
   --running: oklch(0.76 0.13 285);
   --running-soft: oklch(0.27 0.055 285);
+}
+
+/*
+ * Artifact renderers read --av-* variables. In the app they follow the app tokens, so visuals
+ * switch with the theme; the report preview (.rp-document) pins them to the light print theme.
+ * The theme class lives on <html>, so one mapping on :root resolves correctly for both themes.
+ */
+:root {
+  --av-bg: var(--surface);
+  --av-bg-muted: var(--surface-muted);
+  --av-border: var(--border);
+  --av-border-strong: var(--border-strong);
+  --av-fg: var(--foreground);
+  --av-muted: var(--muted);
+  --av-subtle: var(--subtle);
+  --av-accent: var(--link);
+  --av-accent-soft: color-mix(in oklab, var(--link) 16%, var(--surface));
+  --av-critical: var(--critical);
+  --av-critical-soft: var(--critical-soft);
+  --av-high: var(--high);
+  --av-high-soft: var(--high-soft);
+  --av-medium: var(--medium);
+  --av-medium-soft: var(--medium-soft);
+  --av-low: var(--low);
+  --av-low-soft: var(--low-soft);
+  --av-info: var(--info);
+  --av-info-soft: var(--info-soft);
+  --av-success: var(--success);
+  --av-success-soft: var(--success-soft);
+}
+
+/*
+ * The report preview and in-app visuals must look exactly like the exported HTML/PDF/PNG, which
+ * render with browser defaults (no Tailwind preflight). Restore the defaults the report-ui styles
+ * build on. Unlayered rules beat the preflight layer; :where() keeps them below every report-ui
+ * class rule, which is the same cascade the exports have.
+ */
+:where(.rp-document, .av-frame) :where(p, ul, ol, dl, dd, figure, blockquote, pre, hr) {
+  margin: revert;
+}
+
+:where(.rp-document, .av-frame) :where(ul, ol) {
+  padding: revert;
+  list-style: revert;
+}
+
+:where(.rp-document, .av-frame) :where(h1, h2, h3, h4, h5, h6) {
+  margin: revert;
+  font-size: revert;
+  font-weight: revert;
+}
+
+:where(.rp-document, .av-frame) :where(img, svg, video) {
+  display: revert;
+  vertical-align: revert;
+}
+
+:where(.rp-document) :where(summary) {
+  display: revert;
 }
 
 @theme {

@@ -1,7 +1,7 @@
 import type { AuditDetail } from '@audivra/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ExternalLink, Loader2, RotateCw, Square } from 'lucide-react'
+import { ExternalLink, FileText, Loader2, RotateCw, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusBadge } from '@/components/badges'
 import { StageProgress } from '@/components/stage-progress'
@@ -10,8 +10,9 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { api } from '@/lib/api'
 import { durationBetween, formatDateTime, formatDuration } from '@/lib/format'
-import { isTerminal, queryKeys } from '@/lib/queries'
+import { isFinished, isTerminal, queryKeys } from '@/lib/queries'
 import type { StreamState } from '@/lib/use-audit-stream'
+import { ExportMenu } from './export-menu'
 
 function LiveIndicator({ state }: { state: StreamState }) {
   if (state === 'idle') return null
@@ -111,14 +112,28 @@ export function AuditHeader({
                 Retry failed stage
               </Button>
             ) : null}
+            {isFinished(audit.status) ? (
+              <>
+                <Link
+                  to="/audits/$auditId/report"
+                  params={{ auditId: audit.id }}
+                  className={buttonVariants({ size: 'sm' })}
+                >
+                  <FileText />
+                  Report
+                </Link>
+                <ExportMenu audit={audit} />
+              </>
+            ) : null}
             <a
               href={audit.normalizedUrl}
               target="_blank"
               rel="noreferrer noopener"
-              className={buttonVariants({ size: 'sm' })}
+              className={buttonVariants({ size: 'sm', variant: 'ghost' })}
+              aria-label="Open site in a new tab"
+              title="Open site"
             >
               <ExternalLink />
-              <span className="hidden sm:inline">Open site</span>
             </a>
           </div>
         </div>

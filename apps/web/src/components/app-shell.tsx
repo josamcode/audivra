@@ -112,7 +112,7 @@ function RuntimeStatus() {
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
-      <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-surface-muted md:flex">
+      <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-surface-muted md:flex print:hidden">
         <div className="flex h-12 items-center px-4">
           <Link to="/" aria-label="Audivra home">
             <Logo />
@@ -132,7 +132,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-surface-muted px-3 md:hidden">
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-surface-muted px-3 md:hidden print:hidden">
         <Link to="/" aria-label="Audivra home" className="mr-1">
           <Logo />
         </Link>

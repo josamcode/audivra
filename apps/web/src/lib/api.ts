@@ -1,12 +1,20 @@
 import type {
   ActivityEvent,
   AgentRunItem,
+  Artifact,
+  AuditComparison,
   AuditDetail,
   AuditListItem,
+  BenchmarkRunItem,
+  ClientReport,
   CreateAuditInput,
   EvidenceItem,
+  ExportItem,
+  ExportKind,
   FindingItem,
+  OwnedProcessItem,
   PageItem,
+  SiteHistory,
   SystemStatus,
   ToolRunItem,
 } from '@audivra/contracts'
@@ -62,6 +70,29 @@ export const api = {
   toolRuns: (id: string) => request<ToolRunItem[]>(`${auditPath(id)}/tool-runs`),
   agentRuns: (id: string) => request<AgentRunItem[]>(`${auditPath(id)}/agent-runs`),
   events: (id: string) => request<ActivityEvent[]>(`${auditPath(id)}/events`),
+  visuals: (id: string) => request<Artifact[]>(`${auditPath(id)}/visuals`),
+  /** Re-runs the presenting stage (artifact planner + report composer) for a finished audit. */
+  present: (id: string) => request<{ queued: boolean }>(`${auditPath(id)}/present`, { method: 'POST' }),
+  report: (id: string) => request<ClientReport>(`${auditPath(id)}/report`),
+  comparison: (id: string, withId?: string) =>
+    request<AuditComparison>(
+      `${auditPath(id)}/comparison${withId ? `?with=${encodeURIComponent(withId)}` : ''}`,
+    ),
+  siteHistory: (siteKey: string) => request<SiteHistory>(`/api/sites/${encodeURIComponent(siteKey)}/history`),
+  exports: (id: string) => request<ExportItem[]>(`${auditPath(id)}/exports`),
+  benchmarks: () => request<BenchmarkRunItem[]>('/api/benchmarks'),
+  runBenchmark: () => request<{ queued: boolean }>('/api/benchmarks', { method: 'POST' }),
+  processes: () => request<OwnedProcessItem[]>('/api/system/processes'),
+}
+
+/** Download URL of an audit export (generated on demand by the API). */
+export function exportUrl(auditId: string, kind: ExportKind): string {
+  return `${auditPath(auditId)}/export/${kind}`
+}
+
+/** PNG/SVG rendering of a visual artifact (A*). */
+export function visualFileUrl(auditId: string, ref: string, format: 'png' | 'svg', download = false): string {
+  return `${auditPath(auditId)}/visuals/${encodeURIComponent(ref)}.${format}${download ? '?download=1' : ''}`
 }
 
 /** URL of a workspace artifact served by the API. */

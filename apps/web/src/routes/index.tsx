@@ -1,21 +1,30 @@
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Plus, ScanSearch } from 'lucide-react'
+import { FlaskConical, Plus, ScanSearch } from 'lucide-react'
+import { useMemo } from 'react'
 import { PageHeader } from '@/components/page-header'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState } from '@/components/states'
-import { buttonVariants } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { AuditsTable } from '@/features/audits/audits-table'
 import { pluralize } from '@/lib/format'
 import { auditsQuery, isTerminal } from '@/lib/queries'
 
 export const Route = createFileRoute('/')({
+  validateSearch: (search: Record<string, unknown>): { benchmark?: boolean } => ({
+    benchmark: search.benchmark === true || search.benchmark === '1' || search.benchmark === 'true' ? true : undefined,
+  }),
   component: AuditsPage,
 })
 
 function AuditsPage() {
   const { data, isLoading, isError, error, refetch } = useQuery(auditsQuery())
-  const audits = data ?? []
+  const showBenchmark = Route.useSearch().benchmark === true
+  const navigate = Route.useNavigate()
+  const all = useMemo(() => data ?? [], [data])
+  const benchmarkCount = all.filter((audit) => audit.benchmark).length
+  // Benchmark audits (fixture sites run by System → Quality) are hidden unless asked for.
+  const audits = useMemo(() => (showBenchmark ? all : all.filter((audit) => !audit.benchmark)), [all, showBenchmark])
   const running = audits.filter((audit) => !isTerminal(audit.status)).length
 
   return (
@@ -24,14 +33,28 @@ function AuditsPage() {
         title="Audits"
         description={
           data
-            ? `${pluralize(audits.length, 'audit')}${running ? ` · ${running} in progress` : ''}`
+            ? `${pluralize(audits.length, 'audit')}${running ? ` · ${running} in progress` : ''}${
+                benchmarkCount && !showBenchmark ? ` · ${benchmarkCount} benchmark hidden` : ''
+              }`
             : 'Evidence-backed website audits'
         }
         actions={
-          <Link to="/audits/new" className={buttonVariants({ variant: 'primary' })}>
-            <Plus />
-            New audit
-          </Link>
+          <>
+            {benchmarkCount ? (
+              <Button
+                variant="ghost"
+                aria-pressed={showBenchmark}
+                onClick={() => void navigate({ search: { benchmark: showBenchmark ? undefined : true }, replace: true })}
+              >
+                <FlaskConical />
+                {showBenchmark ? 'Hide benchmark audits' : `Show benchmark audits (${benchmarkCount})`}
+              </Button>
+            ) : null}
+            <Link to="/audits/new" className={buttonVariants({ variant: 'primary' })}>
+              <Plus />
+              New audit
+            </Link>
+          </>
         }
       />
       <div className="px-4 sm:px-6">

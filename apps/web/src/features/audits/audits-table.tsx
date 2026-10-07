@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { StatusBadge } from '@/components/badges'
 import { DataTable, useDataTable } from '@/components/data-table'
 import { CountCell } from '@/components/metric'
+import { Badge } from '@/components/ui/badge'
 import { useNow } from '@/lib/hooks'
 import { durationBetween, formatDateTime, formatDuration, formatRelative } from '@/lib/format'
 import { isTerminal } from '@/lib/queries'
@@ -31,7 +32,10 @@ export function AuditsTable({
         header: 'Website',
         cell: ({ row }) => (
           <div className="min-w-0 py-1">
-            <div className="truncate font-medium text-foreground">{row.original.domain}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-medium text-foreground">{row.original.domain}</span>
+              {row.original.benchmark ? <Badge tone="neutral">Benchmark</Badge> : null}
+            </div>
             <div className="truncate text-xs text-muted">{row.original.clientName ?? row.original.url}</div>
           </div>
         ),

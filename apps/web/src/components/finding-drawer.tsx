@@ -1,4 +1,4 @@
-import type { EvidenceItem, FindingItem } from '@audivra/contracts'
+import type { Artifact, EvidenceItem, FindingItem } from '@audivra/contracts'
 import { Link } from '@tanstack/react-router'
 import { ArrowUpRight, Briefcase, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -10,8 +10,9 @@ import {
   SeverityBadge,
   VERIFICATION,
 } from '@/components/badges'
+import { AppArtifact } from '@/components/artifact-card'
 import { RichText } from '@/components/rich-text'
-import { EvidenceViewer } from '@/components/evidence-viewer'
+import { EvidenceViewer, isImageArtifact } from '@/components/evidence-viewer'
 import { SectionLabel } from '@/components/panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -75,6 +76,7 @@ export function FindingDrawer({
   finding,
   evidence,
   findings,
+  visuals = [],
   onClose,
   onSelect,
 }: {
@@ -83,6 +85,8 @@ export function FindingDrawer({
   evidence: EvidenceItem[]
   /** Ordered list used for previous/next navigation. */
   findings: FindingItem[]
+  /** Visual artifacts of the audit; the finding's artifactRefs are shown as visual proof. */
+  visuals?: Artifact[]
   onClose: () => void
   onSelect: (ref: string) => void
 }) {
@@ -168,7 +172,9 @@ export function FindingDrawer({
         </div>
       }
     >
-      {shown ? <FindingBody key={shown.ref} auditId={auditId} finding={shown} byRef={byRef} /> : null}
+      {shown ? (
+        <FindingBody key={shown.ref} auditId={auditId} finding={shown} byRef={byRef} visuals={visuals} />
+      ) : null}
     </Sheet>
   )
 }
@@ -177,13 +183,22 @@ function FindingBody({
   auditId,
   finding,
   byRef,
+  visuals,
 }: {
   auditId: string
   finding: FindingItem
   byRef: Map<string, EvidenceItem>
+  visuals: Artifact[]
 }) {
-  // Default to the first piece of evidence so the proof is visible immediately.
-  const [activeEvidence, setActiveEvidence] = useState<string | null>(finding.evidenceRefs[0] ?? null)
+  // Visual proof: artifacts that visualize this finding (annotated screenshots, charts, tables).
+  const proof = finding.artifactRefs
+    .map((ref) => visuals.find((artifact) => artifact.ref === ref))
+    .filter((artifact): artifact is Artifact => Boolean(artifact))
+  // Without a visual, open the first screenshot (else the first evidence) so proof is visible at once.
+  const firstScreenshot = finding.evidenceRefs.find((ref) => isImageArtifact(byRef.get(ref)?.artifactPath))
+  const [activeEvidence, setActiveEvidence] = useState<string | null>(
+    proof.length ? null : (firstScreenshot ?? finding.evidenceRefs[0] ?? null),
+  )
   return (
     <div className="flex flex-col gap-6 px-5 py-5">
       <div className="grid grid-cols-2 divide-x divide-y divide-border rounded-md border border-border sm:grid-cols-4 sm:divide-y-0">
@@ -205,6 +220,17 @@ function FindingBody({
 
       <Section title="Problem">{finding.description}</Section>
       <Section title="What was observed">{finding.observed}</Section>
+
+      {proof.length ? (
+        <section>
+          <SectionLabel>Visual proof</SectionLabel>
+          <div className="flex flex-col gap-3">
+            {proof.map((artifact) => (
+              <AppArtifact key={artifact.id} artifact={artifact} auditId={auditId} />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <div className="mb-1.5 flex items-center justify-between">
@@ -240,7 +266,12 @@ function FindingBody({
             </div>
             {activeEvidence ? (
               <div className="mt-3 rounded-md border border-border p-3.5">
-                <EvidenceViewer key={activeEvidence} auditId={auditId} evidenceRef={activeEvidence} />
+                <EvidenceViewer
+                  key={activeEvidence}
+                  auditId={auditId}
+                  evidenceRef={activeEvidence}
+                  excludeFinding={finding.ref}
+                />
               </div>
             ) : null}
           </>

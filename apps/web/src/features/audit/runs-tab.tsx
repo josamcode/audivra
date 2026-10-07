@@ -1,7 +1,8 @@
-import type { AgentRunItem, AuditDetail, PageItem, ToolRunItem } from '@audivra/contracts'
+import type { AgentRunItem, AuditDetail, ToolRunItem } from '@audivra/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { createColumnHelper } from '@tanstack/react-table'
-import { Bot, FileText, Globe, Wrench } from 'lucide-react'
+import { Bot, FileText, Wrench } from 'lucide-react'
+import { ROLE_LABELS } from '@/components/badges'
 import { DataTable, useDataTable } from '@/components/data-table'
 import { Panel, PanelHeader } from '@/components/panel'
 import { EmptyState, ErrorState } from '@/components/states'
@@ -10,7 +11,33 @@ import { Tooltip } from '@/components/ui/tooltip'
 import { artifactUrl } from '@/lib/api'
 import { durationBetween, formatCost, formatDuration, humanizeKey, titleCase, urlPath } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { agentRunsQuery, pagesQuery, toolRunsQuery } from '@/lib/queries'
+import { agentRunsQuery, toolRunsQuery } from '@/lib/queries'
+
+const COST_HINT = 'API-equivalent estimate (subscription usage is metered differently)'
+
+const TERMINATION: Record<string, { label: string; tone: string }> = {
+  completed: { label: 'Completed', tone: 'text-muted' },
+  'budget-wrapup': { label: 'Wrapped up at budget', tone: 'text-medium' },
+  'max-turns': { label: 'Hit max turns', tone: 'text-medium' },
+  timeout: { label: 'Timed out', tone: 'text-critical' },
+  cancelled: { label: 'Cancelled', tone: 'text-muted' },
+  error: { label: 'Error', tone: 'text-critical' },
+  'invalid-output': { label: 'Invalid output', tone: 'text-critical' },
+}
+
+function runDuration(run: AgentRunItem): number | null {
+  return run.durationMs ?? durationBetween(run.startedAt, run.finishedAt)
+}
+
+function toolCallSummary(calls: Record<string, number> | null): string | null {
+  if (!calls) return null
+  const entries = Object.entries(calls).filter(([, count]) => count > 0)
+  if (!entries.length) return null
+  return entries
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, count]) => `${count} ${kind}`)
+    .join(' · ')
+}
 
 const RUN_TONE: Record<string, BadgeTone> = {
   running: 'running',
@@ -56,9 +83,22 @@ const agentColumn = createColumnHelper<AgentRunItem>()
 const agentColumns = [
   agentColumn.accessor('role', {
     header: 'Role',
-    cell: ({ getValue }) => (
-      <span className="font-medium whitespace-nowrap text-foreground">{titleCase(getValue())}</span>
-    ),
+    cell: ({ row }) => {
+      const termination = row.original.terminationReason
+      const known = termination ? TERMINATION[termination] : undefined
+      return (
+        <div className="min-w-0 py-1">
+          <div className="font-medium whitespace-nowrap text-foreground">
+            {ROLE_LABELS[row.original.role] ?? titleCase(row.original.role)}
+          </div>
+          {termination && termination !== 'completed' ? (
+            <div className={cn('text-2xs whitespace-nowrap', known?.tone ?? 'text-muted')}>
+              {known?.label ?? titleCase(termination)}
+            </div>
+          ) : null}
+        </div>
+      )
+    },
     meta: { className: 'w-1' },
   }),
   agentColumn.accessor('status', {
@@ -78,15 +118,29 @@ const agentColumns = [
     ),
     meta: { className: 'max-w-56' },
   }),
-  agentColumn.accessor((run) => durationBetween(run.startedAt, run.finishedAt) ?? 0, {
+  agentColumn.accessor((run) => runDuration(run) ?? 0, {
     id: 'duration',
     header: 'Duration',
     cell: ({ row }) => (
       <span className="font-mono text-xs whitespace-nowrap text-muted tabular-nums">
-        {formatDuration(durationBetween(row.original.startedAt, row.original.finishedAt))}
+        {formatDuration(runDuration(row.original))}
       </span>
     ),
     meta: { className: 'w-1', align: 'right' },
+  }),
+  agentColumn.accessor((run) => toolCallSummary(run.toolCalls) ?? '', {
+    id: 'tools',
+    header: 'Tool calls',
+    enableSorting: false,
+    cell: ({ row }) => {
+      const summary = toolCallSummary(row.original.toolCalls)
+      return summary ? (
+        <span className="block text-xs text-muted">{summary}</span>
+      ) : (
+        <span className="text-xs text-subtle">—</span>
+      )
+    },
+    meta: { className: 'hidden min-w-32 lg:table-cell' },
   }),
   agentColumn.accessor('numTurns', {
     header: 'Turns',
@@ -96,9 +150,19 @@ const agentColumns = [
     meta: { className: 'hidden w-1 sm:table-cell', align: 'right' },
   }),
   agentColumn.accessor('costUsd', {
-    header: 'Cost',
+    // Not sortable: a sort button would wrap the focusable hint below.
+    enableSorting: false,
+    header: () => (
+      <Tooltip content={COST_HINT}>
+        <span tabIndex={0} className="underline decoration-border-strong decoration-dotted underline-offset-2 outline-none">
+          Cost est.
+        </span>
+      </Tooltip>
+    ),
     cell: ({ getValue }) => (
-      <span className="font-mono text-xs text-muted tabular-nums">{formatCost(getValue())}</span>
+      <span className="font-mono text-xs text-muted tabular-nums" title={COST_HINT}>
+        {formatCost(getValue())}
+      </span>
     ),
     meta: { className: 'hidden w-1 sm:table-cell', align: 'right' },
   }),
@@ -129,7 +193,10 @@ const toolColumns = [
     header: 'Tool',
     cell: ({ row }) => (
       <div className="min-w-0 py-1">
-        <div className="font-medium whitespace-nowrap text-foreground">{row.original.tool}</div>
+        <div className="font-medium whitespace-nowrap text-foreground">
+          {row.original.tool}
+          {row.original.via ? <span className="ml-1.5 text-2xs font-normal text-subtle">via {row.original.via}</span> : null}
+        </div>
         <div className="truncate text-2xs text-subtle">{row.original.purpose}</div>
       </div>
     ),
@@ -202,66 +269,9 @@ const toolColumns = [
   }),
 ]
 
-const pageColumn = createColumnHelper<PageItem>()
-const pageColumns = [
-  pageColumn.accessor('url', {
-    header: 'URL',
-    cell: ({ row }) => (
-      <div className="min-w-0 py-1">
-        <a
-          href={row.original.url}
-          target="_blank"
-          rel="noreferrer"
-          className="block truncate font-mono text-xs text-foreground hover:underline"
-          title={row.original.url}
-        >
-          {urlPath(row.original.url)}
-        </a>
-        {row.original.title ? (
-          <div className="truncate text-2xs text-subtle">{row.original.title}</div>
-        ) : null}
-      </div>
-    ),
-    meta: { className: 'w-full max-w-0' },
-  }),
-  pageColumn.accessor('status', {
-    header: 'HTTP',
-    cell: ({ getValue }) => {
-      const status = getValue()
-      return (
-        <span
-          className={
-            status && status >= 400 ? 'font-mono text-xs text-critical' : 'font-mono text-xs text-muted'
-          }
-        >
-          {status ?? '—'}
-        </span>
-      )
-    },
-    meta: { className: 'w-1', align: 'right' },
-  }),
-  pageColumn.accessor('depth', {
-    header: 'Depth',
-    cell: ({ getValue }) => <span className="font-mono text-xs text-muted">{getValue()}</span>,
-    meta: { className: 'hidden w-1 sm:table-cell', align: 'right' },
-  }),
-  pageColumn.accessor('source', {
-    header: 'Found via',
-    cell: ({ getValue }) => <span className="text-xs whitespace-nowrap text-muted">{getValue()}</span>,
-    meta: { className: 'hidden w-1 sm:table-cell' },
-  }),
-  pageColumn.accessor('inspectedInBrowser', {
-    header: 'Browser',
-    cell: ({ getValue }) =>
-      getValue() ? <Badge tone="neutral">Inspected</Badge> : <span className="text-xs text-subtle">—</span>,
-    meta: { className: 'w-1' },
-  }),
-]
-
 export function RunsTab({ audit }: { audit: AuditDetail }) {
   const agentRuns = useQuery(agentRunsQuery(audit.id))
   const toolRuns = useQuery(toolRunsQuery(audit.id))
-  const pages = useQuery(pagesQuery(audit.id))
 
   const agentTable = useDataTable({
     data: agentRuns.data ?? [],
@@ -274,19 +284,13 @@ export function RunsTab({ audit }: { audit: AuditDetail }) {
     getRowId: (run) => run.id,
     meta: { auditId: audit.id },
   })
-  const pageTable = useDataTable({
-    data: pages.data ?? [],
-    columns: pageColumns,
-    getRowId: (page) => page.url,
-    initialSorting: [{ id: 'depth', desc: false }],
-  })
 
   return (
     <div className="flex flex-col gap-4">
       <Panel className="overflow-hidden">
         <PanelHeader
           title="AI runs"
-          description="Auditor, reviewer, revision and finalizer runs with model, prompt version and validation results"
+          description="Auditor, reviewer, revision, finalizer, artifact planner and report composer — with model, prompt version, tool use and validation"
         />
         {agentRuns.isError ? (
           <ErrorState error={agentRuns.error} onRetry={() => void agentRuns.refetch()} />
@@ -319,22 +323,10 @@ export function RunsTab({ audit }: { audit: AuditDetail }) {
           />
         )}
       </Panel>
-      <Panel className="overflow-hidden">
-        <PanelHeader
-          title="Pages"
-          description={pages.data ? `${pages.data.length} discovered` : 'Discovered during the crawl'}
-        />
-        {pages.isError ? (
-          <ErrorState error={pages.error} onRetry={() => void pages.refetch()} />
-        ) : (
-          <DataTable
-            table={pageTable}
-            isLoading={pages.isLoading}
-            minWidth="min-w-0"
-            empty={<EmptyState icon={Globe} compact title="No pages discovered yet" />}
-          />
-        )}
-      </Panel>
+      <p className="text-xs text-subtle">
+        Costs are {COST_HINT.charAt(0).toLowerCase() + COST_HINT.slice(1)}. Tool calls are counted by Audivra per
+        kind; model reasoning is never stored.
+      </p>
     </div>
   )
 }

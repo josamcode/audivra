@@ -10,7 +10,7 @@ import {
   type Severity,
 } from '@audivra/contracts'
 import { createColumnHelper, type ColumnFiltersState, type FilterFn } from '@tanstack/react-table'
-import { ListFilter, Search, SearchX } from 'lucide-react'
+import { ListFilter, Search, SearchX, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   Confidence,
@@ -31,6 +31,12 @@ import { urlPath } from '@/lib/format'
 import { isTerminal } from '@/lib/queries'
 
 const column = createColumnHelper<FindingItem>()
+
+/** URL equality that ignores a trailing slash and the fragment. */
+function sameUrl(a: string, b: string): boolean {
+  const norm = (url: string) => url.split('#')[0]!.replace(/\/+$/, '')
+  return norm(a) === norm(b)
+}
 
 const searchFilter: FilterFn<FindingItem> = (row, _columnId, value: string) => {
   const needle = value.trim().toLowerCase()
@@ -145,6 +151,8 @@ export function FindingsTab({
   onRetry,
   selectedRef,
   onSelect,
+  pageFilter,
+  onClearPageFilter,
 }: {
   audit: AuditDetail
   findings: FindingItem[]
@@ -153,6 +161,9 @@ export function FindingsTab({
   onRetry: () => void
   selectedRef: string | null
   onSelect: (ref: string) => void
+  /** Only findings affecting this page (set from the Pages tab). */
+  pageFilter: string | null
+  onClearPageFilter: () => void
 }) {
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState<Severity | All>('all')
@@ -167,8 +178,14 @@ export function FindingsTab({
     return filters
   }, [severity, category, type])
 
+  const pageFindings = useMemo(
+    () =>
+      pageFilter ? findings.filter((f) => f.affectedUrls.some((url) => sameUrl(url, pageFilter))) : findings,
+    [findings, pageFilter],
+  )
+
   const table = useDataTable({
-    data: findings,
+    data: pageFindings,
     columns,
     getRowId: (finding) => finding.ref,
     initialSorting: [{ id: 'rank', desc: false }],
@@ -181,12 +198,13 @@ export function FindingsTab({
 
   const presentCategories = CATEGORIES.filter((c) => findings.some((f) => f.category === c))
   const filtered = table.getFilteredRowModel().rows.length
-  const filtering = columnFilters.length > 0 || search.trim() !== ''
+  const filtering = columnFilters.length > 0 || search.trim() !== '' || pageFilter !== null
   const clear = () => {
     setSearch('')
     setSeverity('all')
     setCategory('all')
     setType('all')
+    if (pageFilter) onClearPageFilter()
   }
 
   const emptyState = filtering ? (
@@ -235,6 +253,19 @@ export function FindingsTab({
           className="w-full sm:w-64"
           aria-label="Search findings"
         />
+        {pageFilter ? (
+          <button
+            type="button"
+            onClick={onClearPageFilter}
+            className="inline-flex h-8 max-w-64 cursor-pointer items-center gap-1.5 rounded-md border border-border-strong bg-surface-selected px-2.5 text-sm text-foreground hover:bg-surface-hover"
+            aria-label={`Remove page filter ${pageFilter}`}
+            title={pageFilter}
+          >
+            <span className="text-muted">Page</span>
+            <span className="truncate font-mono text-xs">{urlPath(pageFilter)}</span>
+            <X className="size-3.5 shrink-0 text-subtle" />
+          </button>
+        ) : null}
         <Select
           label="Severity"
           value={severity}

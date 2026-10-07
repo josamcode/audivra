@@ -1,7 +1,8 @@
-import type { ActivityEvent, AuditStage, AuditStep } from '@audivra/contracts'
+import type { ActivityEvent, AgentRole, AuditStage, AuditStep } from '@audivra/contracts'
 import {
   Ban,
   Bot,
+  ChartColumn,
   CheckCircle2,
   ChevronRight,
   CircleDot,
@@ -17,14 +18,16 @@ import {
   ScanSearch,
   Search,
   SquareTerminal,
+  FileText,
+  Timer,
   Wrench,
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { useState } from 'react'
-import { STAGE_LABELS, StepIcon } from '@/components/badges'
+import { ROLE_LABELS, STAGE_LABELS, StepIcon } from '@/components/badges'
 import { Button } from '@/components/ui/button'
-import { durationBetween, formatDuration, formatTime, titleCase } from '@/lib/format'
+import { durationBetween, formatDuration, formatTime, pluralize, titleCase } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 export type ActivityFilter = 'all' | 'ai' | 'tools' | 'evidence' | 'issues'
@@ -98,6 +101,12 @@ function iconFor(event: ActivityEvent): { icon: LucideIcon; className: string } 
     case 'review.started':
     case 'review.completed':
       return { icon: ClipboardCheck, className: muted }
+    case 'artifact.created':
+      return { icon: ChartColumn, className: muted }
+    case 'report.ready':
+      return { icon: FileText, className: 'text-success' }
+    case 'agent.budget':
+      return { icon: Timer, className: 'text-medium' }
     case 'agent.activity': {
       const kind = typeof event.data?.kind === 'string' ? event.data.kind : 'other'
       return { icon: KIND_ICON[kind] ?? CircleDot, className: failed ? 'text-critical' : muted }
@@ -111,10 +120,20 @@ const HIDDEN_DATA_KEYS = new Set(['stage', 'role', 'kind', 'agentRunId', 'toolRu
 
 function roleLabel(event: ActivityEvent): string | null {
   const role = event.data?.role
-  return typeof role === 'string' ? titleCase(role) : null
+  if (typeof role !== 'string') return null
+  return ROLE_LABELS[role as AgentRole] ?? titleCase(role)
 }
 
-function EventRow({ event }: { event: ActivityEvent }) {
+/** Friendlier wording for raw tool names that older runs logged verbatim. */
+function displayMessage(event: ActivityEvent): string {
+  const raw = /^Browser: run code unsafe/i
+  if (raw.test(event.message)) return event.message.replace(raw, 'Browser: Ran Playwright code')
+  const tool = typeof event.data?.tool === 'string' ? event.data.tool : ''
+  if (!event.message && tool.endsWith('browser_run_code_unsafe')) return 'Browser: Ran Playwright code'
+  return event.message
+}
+
+function EventRow({ event, grouped = false }: { event: ActivityEvent; grouped?: boolean }) {
   const [open, setOpen] = useState(false)
   const { icon: Icon, className } = iconFor(event)
   const details = Object.entries(event.data ?? {}).filter(
@@ -146,8 +165,8 @@ function EventRow({ event }: { event: ActivityEvent }) {
               event.level === 'error' && 'text-critical',
             )}
           >
-            {role ? <span className="mr-1.5 text-xs font-medium text-subtle">{role}</span> : null}
-            {event.message}
+            {role && !grouped ? <span className="mr-1.5 text-xs font-medium text-subtle">{role}</span> : null}
+            {displayMessage(event)}
           </p>
           {open && details.length ? (
             <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-md border border-border bg-surface-muted px-2.5 py-1.5">
@@ -174,6 +193,103 @@ function EventRow({ event }: { event: ActivityEvent }) {
           </button>
         ) : null}
       </div>
+    </li>
+  )
+}
+
+type TimelineItem =
+  | { kind: 'event'; event: ActivityEvent }
+  | { kind: 'burst'; key: string; role: string | null; events: ActivityEvent[] }
+
+const BURST_MIN = 3
+
+/** Collapses runs of consecutive tool actions by the same AI role into one expandable row. */
+export function groupBursts(events: ActivityEvent[]): TimelineItem[] {
+  const items: TimelineItem[] = []
+  let run: ActivityEvent[] = []
+  const flush = () => {
+    if (run.length >= BURST_MIN) {
+      const first = run[0]!
+      items.push({ kind: 'burst', key: `burst-${first.id}`, role: roleLabel(first), events: run })
+    } else {
+      for (const event of run) items.push({ kind: 'event', event })
+    }
+    run = []
+  }
+  for (const event of events) {
+    if (event.type === 'agent.activity') {
+      const previous = run[run.length - 1]
+      if (previous && previous.data?.role !== event.data?.role) flush()
+      run.push(event)
+    } else {
+      flush()
+      items.push({ kind: 'event', event })
+    }
+  }
+  flush()
+  return items
+}
+
+const KIND_LABEL: Record<string, string> = {
+  browser: 'browser',
+  terminal: 'terminal',
+  file: 'file',
+  evidence: 'evidence',
+  search: 'search',
+}
+
+function BurstRow({ role, events }: { role: string | null; events: ActivityEvent[] }) {
+  const [open, setOpen] = useState(false)
+  const counts = new Map<string, number>()
+  for (const event of events) {
+    const kind = typeof event.data?.kind === 'string' ? event.data.kind : 'other'
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  const breakdown = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, count]) => `${count} ${KIND_LABEL[kind] ?? 'other'}`)
+    .join(' · ')
+  const failed = events.filter((event) => event.level === 'error').length
+  const first = events[0]!
+  const last = events[events.length - 1]!
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-start gap-3 px-4 py-1.5 text-left transition-colors hover:bg-surface-hover"
+      >
+        <time className="w-16 shrink-0 pt-px font-mono text-2xs text-subtle tabular-nums" dateTime={first.createdAt}>
+          {formatTime(first.createdAt)}
+        </time>
+        <Bot className="mt-0.5 size-3.5 shrink-0 text-subtle" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm text-muted">
+            {role ? <span className="mr-1.5 text-xs font-medium text-subtle">{role}</span> : null}
+            {pluralize(events.length, 'action')}
+            <span className="text-subtle"> — {breakdown}</span>
+            {failed ? <span className="text-critical"> · {failed} failed</span> : null}
+            <span className="ml-1.5 font-mono text-2xs text-subtle tabular-nums">
+              {formatDuration(new Date(last.createdAt).getTime() - new Date(first.createdAt).getTime())}
+            </span>
+          </span>
+          {open ? null : (
+            <span className="block truncate text-xs text-subtle">Latest: {displayMessage(last)}</span>
+          )}
+        </span>
+        <ChevronRight
+          className={cn('mt-0.5 size-3.5 shrink-0 text-subtle transition-transform', open && 'rotate-90')}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <ol className="bg-surface-muted py-1" aria-label={`${pluralize(events.length, 'action')}${role ? ` by ${role}` : ''}`}>
+          {events.map((event) => (
+            <EventRow key={event.id} event={event} grouped />
+          ))}
+        </ol>
+      ) : null}
     </li>
   )
 }
@@ -251,9 +367,13 @@ function StageSection({
             </div>
           ) : null}
           <ol className="py-1.5">
-            {shown.map((event) => (
-              <EventRow key={event.id} event={event} />
-            ))}
+            {groupBursts(shown).map((item) =>
+              item.kind === 'burst' ? (
+                <BurstRow key={item.key} role={item.role} events={item.events} />
+              ) : (
+                <EventRow key={item.event.id} event={item.event} />
+              ),
+            )}
           </ol>
         </>
       )}
