@@ -36,12 +36,20 @@ const Env = z.object({
   REVIEWER_EFFORT: optionalString,
   FINALIZER_MODEL: optionalString,
   FINALIZER_EFFORT: optionalString,
+  PRESENTER_MODEL: optionalString,
+  PRESENTER_EFFORT: optionalString,
   AUDITOR_TIMEOUT_MINUTES: z.coerce.number().positive().default(60),
   AUDITOR_MAX_TURNS: z.coerce.number().int().positive().default(400),
+  /** Safety ceilings for one investigation run (normal audits use a fraction of these). */
+  AUDITOR_MAX_BROWSER_ACTIONS: z.coerce.number().int().positive().default(300),
+  AUDITOR_MAX_COMMANDS: z.coerce.number().int().positive().default(200),
+  AUDITOR_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(600),
   AUDIT_MAX_REVISIONS: z.coerce.number().int().min(0).max(3).default(1),
   BASELINE_MAX_PAGES: z.coerce.number().int().positive().default(30),
   BASELINE_MAX_LINK_CHECKS: z.coerce.number().int().positive().default(200),
   BASELINE_BROWSER_PAGES: z.coerce.number().int().positive().default(4),
+  /** Optional baseline scanners (comma-separated): httpx, katana, pa11y, zap, testssl. Empty disables all. */
+  BASELINE_SCANNERS: z.string().default('httpx,katana,pa11y,zap,testssl'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
   CLAUDE_BIN: z.string().default('claude'),
 })
