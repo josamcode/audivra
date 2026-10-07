@@ -16,19 +16,23 @@
     "db:migrate": "pnpm --filter @audivra/database migrate",
     "db:generate": "pnpm --filter @audivra/database generate",
     "tools": "tsx scripts/tools.ts",
-    "fixture": "pnpm --filter @audivra/fixture-site start",
-    "typecheck": "pnpm -r --parallel typecheck",
+    "fixture": "node fixtures/site/server.mjs",
+    "typecheck": "pnpm -r --parallel typecheck && tsc -p tsconfig.tests.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "playwright test",
-    "test:e2e:ai": "playwright test -c playwright.ai.config.ts"
+    "test:e2e:ai": "playwright test -c playwright.ai.config.ts",
+    "present": "tsx scripts/present.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "devDependencies": {
     "@audivra/config": "workspace:*",
     "@audivra/database": "workspace:*",
+    "@audivra/insights": "workspace:*",
+    "@audivra/reporting": "workspace:*",
     "@audivra/tool-runtime": "workspace:*",
     "@axe-core/playwright": "4.13.0",
     "@eslint/js": "^10.0.1",
@@ -41,11 +45,13 @@
     "globals": "^17.13.0",
     "lighthouse": "^13.5.0",
     "linkinator": "^8.1.0",
+    "pa11y": "^10.0.0",
     "playwright": "1.63.0",
     "prettier": "^3.9.9",
     "tsx": "^4.23.15",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.71.1",
+    "unlighthouse": "~0.19.1",
     "vitest": "^5.0.3"
   }
 }

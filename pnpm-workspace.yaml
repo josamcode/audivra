@@ -6,6 +6,8 @@ packages:
 allowBuilds:
   esbuild: true
   sharp: true
+  puppeteer: false
+  vue-demi: true
 
 overrides:
   '@axe-core/playwright>playwright-core': 1.63.0

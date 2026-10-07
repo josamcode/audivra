@@ -7,14 +7,23 @@
  *  3. Create + migrate the app and test databases
  *  4. Playwright Chromium (project version)
  *  5. Optional project-local binaries (Katana, httpx) into .tools/bin — skip with --skip-tools
- *  6. Report tool and AI runtime status
+ *  6. Docker scanner images, only on request: --with-scanners (ZAP + testssl.sh), --with-sitespeed
+ *  7. Report tool and AI runtime status
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { getConfig, LOCAL_BIN_DIR, LOCAL_TOOLS_DIR, REPO_ROOT, resetConfig } from '@audivra/config'
 import { canConnect, ensureDatabase, runMigrations } from '@audivra/database'
-import { chromiumExecutable, getSystemStatus, runProcess } from '@audivra/tool-runtime'
+import {
+  chromiumExecutable,
+  DOCKER_IMAGES,
+  dockerImagePresent,
+  dockerVersion,
+  getSystemStatus,
+  LOCAL_BROWSERS_DIR,
+  runProcess,
+} from '@audivra/tool-runtime'
 
 const args = new Set(process.argv.slice(2))
 const ok = (msg: string) => console.log(`  ✓ ${msg}`)
@@ -79,10 +88,12 @@ async function main() {
   step('Browser (Playwright Chromium)')
   if (chromiumExecutable()) ok(`Chromium present: ${chromiumExecutable()}`)
   else {
-    console.log('    installing Chromium for Playwright (one-time download)…')
+    console.log(`    installing Chromium for Playwright into ${path.relative(REPO_ROOT, LOCAL_BROWSERS_DIR)} (one-time download, ~170 MB)…`)
     const install = await runProcess({
       command: process.execPath,
       args: [path.join(REPO_ROOT, 'node_modules', 'playwright', 'cli.js'), 'install', 'chromium'],
+      // Project-local: never fills (or depends on) the shared cache on the system drive.
+      env: { PLAYWRIGHT_BROWSERS_PATH: LOCAL_BROWSERS_DIR },
       timeoutMs: 900_000,
     })
     if (install.failed || !chromiumExecutable())
@@ -105,6 +116,9 @@ async function main() {
     }
   }
 
+  step('Docker scanners (passive security, deep performance)')
+  await setupDockerScanners()
+
   step('Tool registry')
   const status = await getSystemStatus({ refresh: true })
   for (const tool of status.tools) {
@@ -120,6 +134,37 @@ async function main() {
   }
 
   console.log('\nSetup complete. Start the app with:  pnpm dev   →  http://127.0.0.1:' + config.WEB_PORT)
+}
+
+/**
+ * ZAP (passive baseline) and testssl.sh run in Docker; sitespeed.io is an optional deep-performance
+ * tool. The images are large, so they are only pulled on request (they land on Docker's data disk).
+ */
+async function setupDockerScanners() {
+  const images: { id: string; image: string; size: string; flag: string }[] = [
+    { id: 'testssl.sh', image: DOCKER_IMAGES.testssl, size: '~80 MB', flag: '--with-scanners' },
+    { id: 'ZAP baseline', image: DOCKER_IMAGES.zap, size: '~3.7 GB', flag: '--with-scanners' },
+    { id: 'sitespeed.io', image: DOCKER_IMAGES.sitespeed, size: '~5 GB', flag: '--with-sitespeed' },
+  ]
+  const docker = await dockerVersion()
+  if (!docker) {
+    warn('Docker is not running: ZAP, testssl.sh and sitespeed.io will show as unavailable (audits still work).')
+    return
+  }
+  for (const { id, image, size, flag } of images) {
+    if (await dockerImagePresent(image)) {
+      ok(`${id}: ${image} present`)
+      continue
+    }
+    if (!args.has(flag)) {
+      warn(`${id}: not pulled (${size}). Run \`pnpm run setup -- ${flag}\` to enable it; check Docker's disk has room first.`)
+      continue
+    }
+    console.log(`    pulling ${image} (${size})…`)
+    const pull = await runProcess({ command: 'docker', args: ['pull', image], timeoutMs: 60 * 60_000 })
+    if (pull.failed) warn(`${id}: pull failed (${pull.stderr.trim().split('\n').pop() ?? pull.errorMessage}). Audits still work without it.`)
+    else ok(`${id}: pulled ${image}`)
+  }
 }
 
 /** Downloads a ProjectDiscovery release binary for this platform into .tools/bin (no global install). */
