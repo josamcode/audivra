@@ -118,6 +118,27 @@ The worker writes every activity event to `audit_events` and calls `pg_notify('a
 (`/api/audits/:id/stream`, `Last-Event-ID` resume). The UI appends events and batches query
 invalidations.
 
+## Audits home screen
+
+`GET /api/dashboard[?benchmark=1]` returns everything the home screen shows (`packages/insights/src/dashboard.ts`),
+built from a handful of light queries: counts and durations grouped by site/status, the 200 most recent audits
+without their JSON documents, finding counts per finished AI audit, and the identity/ranking fields (no prose,
+evidence or artifacts) of the findings of each website's latest five audits.
+
+- Benchmark audits are excluded unless `?benchmark=1`. Loopback and private-network targets (fixtures, local
+  dev servers) are listed but never counted as websites or used for follow-ups.
+- A trend compares a finished AI audit with the previous finished AI audit of the same site: critical + high
+  findings decide, medium findings break ties, low and info findings never change the direction. Without a
+  previous audit there is no trend.
+- Priority follow-ups are issues of each website's latest audit, ranked deterministically by severity, business
+  impact, finding type, regression, recurrence across recent audits (matched as in comparisons), conversion-path
+  category and effort — at most two per website and five in total. Low issues qualify only when they regressed or
+  have high business impact.
+- Repeat issues are websites whose latest audit still contains issues found in the audit before it.
+
+`GET /api/system/health` measures a database round trip and reads pg-boss's instance registry (worker
+heartbeats) to tell whether a worker is consuming the audit queues.
+
 ## Workspace layout
 
 ```

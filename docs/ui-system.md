@@ -70,7 +70,7 @@ Primitives (`src/components/ui`, built on Base UI where interaction is non-trivi
 `Button`/`buttonVariants`, `Input`/`Label`, `Select` (Base UI), `Tabs`/`TabPanel` (Base UI),
 `Sheet` (right drawer) and `Modal` (Base UI Dialog), `Menu`/`MenuItem`/`MenuGroup` (Base UI Menu),
 `ConfirmDialog` (Base UI AlertDialog, for actions with real cost), `Tooltip` (Base UI),
-`SegmentedControl`, `Badge`/`Dot`/`tagVariants`, `Skeleton`, `Separator`/`Kbd`.
+`SegmentedControl`, `Switch` (Base UI), `Badge`/`Dot`/`tagVariants`, `Skeleton`, `Separator`/`Kbd`.
 
 Product layer (`src/components`, `src/features`):
 
@@ -121,6 +121,12 @@ preview cannot drift from the exported files.
 
 ## Screens
 
+- **Audits (home)** — answers “what needs my attention?”: a five-cell summary strip (audits, active work,
+  websites, findings in the latest audits, average duration), *Running now* only while work is in flight
+  (real stages), recent audits (site mark, status, start/duration, severity summary, severity-history trend,
+  search and filters), priority follow-ups; rail: system health (worker, database, Claude, tools), recent
+  activity, sites with repeat issues. Benchmark audits are hidden unless the header switch is on (URL `?benchmark=true`);
+  local targets are tagged and never counted as websites. No audits yet → one empty state plus system health.
 - **Overview** — first viewport answers “what state is this site in?”: status/visual-report notices,
   KPI strip (findings, verified share, pages, evidence, coverage, change since last audit), executive
   take with “View full analysis”, what matters most (top risks), featured visuals (or key baseline
