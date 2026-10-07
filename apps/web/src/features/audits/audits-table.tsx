@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { createColumnHelper } from '@tanstack/react-table'
 import { ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { StatusBadge } from '@/components/badges'
+import { STAGE_LABELS, StatusBadge } from '@/components/badges'
 import { DataTable, useDataTable } from '@/components/data-table'
 import { Panel } from '@/components/panel'
 import { EmptyState } from '@/components/states'
@@ -68,7 +68,7 @@ function FindingsCell({ audit }: { audit: DashboardAudit }) {
         <span className="font-mono font-medium tabular-nums">{audit.findingCount}</span>{' '}
         <span className="text-muted">{audit.findingCount === 1 ? 'finding' : 'findings'}</span>
       </div>
-      <SeverityCountsText counts={audit.severityCounts} className="flex-nowrap" />
+      <SeverityCountsText counts={audit.severityCounts} limit={3} className="flex-nowrap" />
     </div>
   )
 }
@@ -144,17 +144,26 @@ export function AuditsTable({ audits, now }: { audits: DashboardAudit[]; now: nu
                 </div>
                 <div className="hidden truncate text-xs text-muted @2xl:block">{audit.clientName ?? audit.url}</div>
                 <div className="truncate text-xs text-muted @2xl:hidden">
-                  {formatRelative(startedAt(audit), now)} · {findingsSummary(audit)}
+                  {formatRelative(startedAt(audit), now)}
+                  <span className="@xl:hidden"> · {findingsSummary(audit)}</span>
                 </div>
               </div>
             </div>
           )
         },
-        meta: { className: 'w-full max-w-0' },
+        meta: { className: 'w-full max-w-0 min-w-40' },
       }),
       column.accessor('status', {
         header: 'Status',
-        cell: ({ row }) => <StatusBadge status={row.original.status} stage={row.original.stage} />,
+        // The stage goes on its own line so a long one never widens the column for every row.
+        cell: ({ row }) => (
+          <div className="py-1">
+            <StatusBadge status={row.original.status} />
+            {row.original.status === 'running' && row.original.stage !== 'done' ? (
+              <div className="mt-0.5 text-2xs whitespace-nowrap text-muted">{STAGE_LABELS[row.original.stage]}</div>
+            ) : null}
+          </div>
+        ),
         meta: { className: 'w-1' },
       }),
       column.accessor(startedAt, {
@@ -178,7 +187,7 @@ export function AuditsTable({ audits, now }: { audits: DashboardAudit[]; now: nu
       column.accessor('findingCount', {
         header: 'Findings',
         cell: ({ row }) => <FindingsCell audit={row.original} />,
-        meta: { className: 'hidden w-1 @2xl:table-cell' },
+        meta: { className: 'hidden w-1 @xl:table-cell' },
       }),
       column.display({
         id: 'trend',

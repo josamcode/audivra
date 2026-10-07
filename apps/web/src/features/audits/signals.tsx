@@ -61,9 +61,12 @@ export function TargetTag({ benchmark, local }: { benchmark: boolean; local: boo
 
 const SEVERITY_TEXT = { critical: 'text-critical', high: 'text-high', medium: 'text-medium', low: 'text-low' } as const
 
-/** "1 high  1 medium  10 low": counts coloured by severity, always with their label. Info notes are left out. */
-export function SeverityCountsText({ counts, className }: { counts: SeverityCounts; className?: string }) {
-  const levels = (['critical', 'high', 'medium', 'low'] as const).filter((level) => counts[level] > 0)
+/**
+ * "1 high  1 medium  10 low": counts coloured by severity, always with their label. Info notes are left
+ * out; `limit` keeps only the most severe levels where space is tight (the total is shown nearby).
+ */
+export function SeverityCountsText({ counts, className, limit = 4 }: { counts: SeverityCounts; className?: string; limit?: number }) {
+  const levels = (['critical', 'high', 'medium', 'low'] as const).filter((level) => counts[level] > 0).slice(0, limit)
   if (levels.length === 0) {
     return <span className={cn('text-xs text-subtle', className)}>{counts.info ? `${counts.info} info` : 'No issues'}</span>
   }
