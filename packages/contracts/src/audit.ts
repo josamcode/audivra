@@ -17,12 +17,15 @@ import {
   EffortLevel,
 } from './enums.ts'
 import {
-  BusinessUnderstanding,
-  FinalOpportunity,
-  PageType,
-  Technology,
+  LimitationItem,
   Opportunity,
+  PageType,
+  StoredBusinessUnderstanding,
+  StoredOpportunity,
+  Technology,
 } from './agent-outputs.ts'
+import { CoverageItem } from './coverage.ts'
+import { ReportPlan } from './report.ts'
 import { normalizeTargetUrl } from './url.ts'
 
 export const CreateAuditInput = z.object({
@@ -53,11 +56,12 @@ export type AuditError = z.infer<typeof AuditError>
 
 export const AuditSummary = z.object({
   executiveSummary: z.string().optional(),
-  businessUnderstanding: BusinessUnderstanding.optional(),
+  businessUnderstanding: StoredBusinessUnderstanding.optional(),
   importantPageTypes: z.array(PageType).optional(),
   technologies: z.array(Technology).optional(),
-  opportunities: z.array(FinalOpportunity).optional(),
-  limitations: z.array(z.string()).optional(),
+  opportunities: z.array(StoredOpportunity).optional(),
+  /** Older audits store plain strings; newer ones store categorized items. */
+  limitations: z.array(z.union([z.string(), LimitationItem])).optional(),
   pagesInspected: z.array(z.string()).optional(),
 })
 export type AuditSummary = z.infer<typeof AuditSummary>
@@ -66,6 +70,8 @@ export const AuditListItem = z.object({
   id: z.string(),
   url: z.string(),
   domain: z.string(),
+  /** Canonical site identity used to group repeated audits (host without "www.", plus non-default port). */
+  siteKey: z.string(),
   clientName: z.string().nullable(),
   status: AuditStatus,
   stage: AuditStage,
@@ -74,6 +80,7 @@ export const AuditListItem = z.object({
   finishedAt: z.string().nullable(),
   severityCounts: SeverityCounts,
   findingCount: z.number(),
+  benchmark: z.boolean(),
 })
 export type AuditListItem = z.infer<typeof AuditListItem>
 
@@ -124,8 +131,16 @@ export const AuditDetail = AuditListItem.extend({
   summary: AuditSummary.nullable(),
   baseline: BaselineStats.nullable(),
   categoryCounts: z.record(z.string(), z.number()),
+  typeCounts: z.object({ verified: z.number(), observed: z.number(), inferred: z.number() }),
   evidenceCount: z.number(),
+  artifactCount: z.number(),
   aiEnabled: z.boolean(),
+  coverage: z.array(CoverageItem),
+  reportPlan: ReportPlan.nullable(),
+  /** Most recent earlier completed/partial audit of the same site, for comparison. */
+  previousAuditId: z.string().nullable(),
+  /** Number of completed/partial audits of this site (including this one). */
+  siteAuditCount: z.number(),
 })
 export type AuditDetail = z.infer<typeof AuditDetail>
 
@@ -164,6 +179,9 @@ export const FindingItem = z.object({
   effort: EffortLevel,
   opportunity: Opportunity.nullable(),
   evidenceRefs: z.array(z.string()),
+  issueKey: z.string().nullable(),
+  /** Artifacts (A*) that visualize this finding. */
+  artifactRefs: z.array(z.string()),
   createdBy: z.string(),
   rank: z.number(),
 })
@@ -191,6 +209,8 @@ export const ToolRunItem = z.object({
   durationMs: z.number().nullable(),
   error: z.string().nullable(),
   artifactPaths: z.array(z.string()),
+  /** Execution method, e.g. "npm", "docker", "binary", "in-process". */
+  via: z.string().nullable(),
 })
 export type ToolRunItem = z.infer<typeof ToolRunItem>
 
@@ -204,7 +224,13 @@ export const AgentRunItem = z.object({
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
   numTurns: z.number().nullable(),
+  /** API-equivalent cost estimate reported by Claude Code; subscription usage is metered differently. */
   costUsd: z.number().nullable(),
+  durationMs: z.number().nullable(),
+  /** Why the run ended: completed, budget-wrapup, max-turns, timeout, cancelled, error, invalid-output. */
+  terminationReason: z.string().nullable(),
+  /** Tool calls by kind (browser, terminal, file, evidence, search, other) as counted by Audivra. */
+  toolCalls: z.record(z.string(), z.number()).nullable(),
   error: z.string().nullable(),
   validation: z.record(z.string(), z.unknown()).nullable(),
   output: z.unknown().nullable(),
@@ -218,5 +244,11 @@ export const PageItem = z.object({
   depth: z.number(),
   source: z.string(),
   inspectedInBrowser: z.boolean(),
+  /** Page type assigned by the auditor (e.g. "Product detail"), when known. */
+  pageType: z.string().nullable(),
+  lang: z.string().nullable(),
+  dir: z.string().nullable(),
+  /** Number of final findings whose affected URLs include this page. */
+  findingCount: z.number(),
 })
 export type PageItem = z.infer<typeof PageItem>

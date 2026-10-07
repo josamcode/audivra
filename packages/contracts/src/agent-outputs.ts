@@ -22,16 +22,29 @@ export type Opportunity = z.infer<typeof Opportunity>
 export const BusinessUnderstanding = z.object({
   summary: z.string().describe('What the business does and what the website appears designed to achieve.'),
   businessType: z.string().describe('e.g. "B2C e-commerce", "Local service lead generation", "SaaS".'),
+  businessModel: z
+    .string()
+    .describe('How the business appears to make money, e.g. "Paid consultations", "Product sales". Short.'),
   likelyCustomers: z.string(),
   primaryConversion: z
     .string()
     .describe('The most likely primary conversion action, e.g. "WhatsApp enquiry".'),
   secondaryConversions: z.array(z.string()),
+  acquisitionSignals: z
+    .array(z.string())
+    .describe('Observed hints of how visitors arrive: ad pixels, campaign links, social profiles, SEO content. Empty if none seen.'),
   confidence: Confidence,
   assumptions: z.array(z.string()).describe('Assumptions you made that are not directly proven.'),
   evidenceIds: EvidenceIds,
 })
 export type BusinessUnderstanding = z.infer<typeof BusinessUnderstanding>
+
+/** Stored business understanding: audits produced before the extended fields existed lack them. */
+export const StoredBusinessUnderstanding = BusinessUnderstanding.extend({
+  businessModel: z.string().optional(),
+  acquisitionSignals: z.array(z.string()).optional(),
+})
+export type StoredBusinessUnderstanding = z.infer<typeof StoredBusinessUnderstanding>
 
 export const Technology = z.object({
   name: z.string(),
@@ -114,8 +127,16 @@ export const ReviewResult = z.object({
 })
 export type ReviewResult = z.infer<typeof ReviewResult>
 
+export const ISSUE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+){0,7}$/
+
 export const FinalFinding = z.object({
   id: z.string().describe('Final ID, e.g. "F1". Order findings by priority.'),
+  issueKey: z
+    .string()
+    .regex(ISSUE_KEY_PATTERN)
+    .describe(
+      'Stable kebab-case key for the underlying issue, independent of wording, e.g. "mobile-horizontal-overflow", "www-certificate-mismatch", "missing-conversion-tracking". When a previous audit had the same issue, reuse its key exactly.',
+    ),
   sourceFindingIds: z
     .array(z.string())
     .min(1)
@@ -126,13 +147,33 @@ export const FinalFinding = z.object({
 export type FinalFinding = z.infer<typeof FinalFinding>
 
 export const FinalOpportunity = z.object({
-  title: z.string(),
-  description: z.string(),
+  title: z.string().describe('Short name of the work item, e.g. "Conversion tracking setup".'),
+  why: z.string().describe('One or two sentences: the problem it solves and why it is worth doing, grounded in findings.'),
+  scope: z.string().describe('Suggested scope of the work in one or two sentences. No pricing.'),
   relatedFindingIds: z.array(z.string()).describe('Final finding IDs (F*) this opportunity addresses.'),
   impact: z.enum(['high', 'medium', 'low']),
   effort: EffortLevel,
 })
 export type FinalOpportunity = z.infer<typeof FinalOpportunity>
+
+/** Opportunity as stored; audits from before structured opportunities only have `description`. */
+export const StoredOpportunity = FinalOpportunity.extend({
+  why: z.string().optional(),
+  scope: z.string().optional(),
+  description: z.string().optional(),
+})
+export type StoredOpportunity = z.infer<typeof StoredOpportunity>
+
+export const LIMITATION_KINDS = ['could-not-verify', 'environment', 'inference', 'out-of-scope'] as const
+export const LimitationItem = z.object({
+  kind: z
+    .enum(LIMITATION_KINDS)
+    .describe(
+      'could-not-verify: checked but not confirmable; environment: tooling/network limits of this run; inference: conclusions drawn without direct proof; out-of-scope: deliberately not examined.',
+    ),
+  text: z.string().describe('One concise sentence.'),
+})
+export type LimitationItem = z.infer<typeof LimitationItem>
 
 export const FinalAudit = z.object({
   executiveSummary: z
@@ -143,7 +184,7 @@ export const FinalAudit = z.object({
   technologies: z.array(Technology),
   findings: z.array(FinalFinding),
   opportunities: z.array(FinalOpportunity).describe('Prioritized, highest value first.'),
-  limitations: z.array(z.string()),
+  limitations: z.array(LimitationItem).describe('Categorized, one concise sentence each.'),
   pagesInspected: z.array(z.string()),
 })
 export type FinalAudit = z.infer<typeof FinalAudit>

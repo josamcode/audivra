@@ -81,6 +81,7 @@ export const AUDIT_STAGES = [
   'review',
   'revision',
   'finalizing',
+  'presenting',
   'done',
 ] as const
 export const AuditStage = z.enum(AUDIT_STAGES)
@@ -94,7 +95,7 @@ export const TOOL_RUN_STATUSES = ['running', 'completed', 'failed', 'skipped'] a
 export const ToolRunStatus = z.enum(TOOL_RUN_STATUSES)
 export type ToolRunStatus = z.infer<typeof ToolRunStatus>
 
-export const AGENT_ROLES = ['auditor', 'reviewer', 'revision', 'finalizer'] as const
+export const AGENT_ROLES = ['auditor', 'reviewer', 'revision', 'finalizer', 'planner', 'composer'] as const
 export const AgentRole = z.enum(AGENT_ROLES)
 export type AgentRole = z.infer<typeof AgentRole>
 

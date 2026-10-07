@@ -65,9 +65,11 @@ const draft = {
   businessUnderstanding: {
     summary: 'Dental clinic',
     businessType: 'Local service lead generation',
+    businessModel: 'Paid treatments',
     likelyCustomers: 'Patients in Cairo',
     primaryConversion: 'WhatsApp booking',
     secondaryConversions: [],
+    acquisitionSignals: [],
     confidence: 0.8,
     assumptions: [],
     evidenceIds: [],

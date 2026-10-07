@@ -30,3 +30,18 @@ export function normalizeTargetUrl(input: string): NormalizedUrl {
   parsed.hash = ''
   return { ok: true, url: parsed.toString(), origin: parsed.origin, domain: parsed.host }
 }
+
+/**
+ * Canonical site identity used to group repeated audits: lower-cased host without a leading "www."
+ * plus any non-default port. http/https and www/apex variants of one site share a key; other
+ * subdomains (shop.example.com) stay distinct.
+ */
+export function siteKeyFor(urlOrHost: string): string {
+  let host = urlOrHost.trim().toLowerCase()
+  try {
+    host = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(host) ? host : `https://${host}`).host
+  } catch {
+    // fall back to the raw value
+  }
+  return host.replace(/^www\./, '')
+}
