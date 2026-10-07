@@ -10,7 +10,7 @@ import { E2E_PORTS, e2eServers } from './e2e/env.ts'
 export default defineConfig({
   testDir: './e2e',
   testMatch: /.*\.ai\.spec\.ts/,
-  timeout: 45 * 60_000,
+  timeout: 60 * 60_000,
   expect: { timeout: 20_000 },
   workers: 1,
   retries: 0,

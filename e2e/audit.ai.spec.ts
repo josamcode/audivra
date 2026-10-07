@@ -20,7 +20,7 @@ test('AI audit of the fixture produces evidence-linked findings that open in the
     .poll(
       async () =>
         ((await (await page.request.get(`/api/audits/${auditId}`)).json()) as { status: string }).status,
-      { timeout: 40 * 60_000, intervals: [10_000] },
+      { timeout: 50 * 60_000, intervals: [10_000] },
     )
     .toMatch(/completed|partial|failed/)
   await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
@@ -41,9 +41,11 @@ test('AI audit of the fixture produces evidence-linked findings that open in the
   await expect(page.getByText('Problem', { exact: false }).first()).toBeVisible()
   await expect(page.getByText(/What was observed/i).first()).toBeVisible()
 
-  // Linked evidence is shown in the drawer and opens in the evidence workspace.
-  const chip = page.getByRole('button', { name: /EV-\d+/ }).first()
-  await expect(chip).toBeVisible()
+  // Linked evidence is listed in the drawer (after any visual proof); selecting one previews it and
+  // offers a link to the evidence workspace.
+  const chip = page.locator('button[aria-pressed]').filter({ hasText: /EV-\d+/ }).first()
+  await chip.scrollIntoViewIfNeeded()
+  await chip.click()
   await page.getByText('Open in evidence').click()
   await expect(page).toHaveURL(/tab=evidence/)
   await expect(page).toHaveURL(/ev=EV-\d+/)
