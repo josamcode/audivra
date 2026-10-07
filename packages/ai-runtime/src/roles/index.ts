@@ -7,6 +7,7 @@ import {
   toAgentJsonSchema,
   type ActivityEvent,
   type EvidenceItem,
+  type FindingBrief,
   type SystemStatus,
 } from '@audivra/contracts'
 import { listEvidence, updateAgentRun } from '@audivra/database'
@@ -56,12 +57,13 @@ export function evidenceIndex(items: EvidenceItem[]): string {
     .join('\n')
 }
 
-function toolList(tools: SystemStatus): string {
+function toolList(tools: SystemStatus, auditId: string): string {
   return tools.tools
-    .map(
-      (t) =>
-        `- ${t.name}: ${t.state}${t.version ? ` ${t.version}` : ''}${t.command && (t.state === 'ready' || t.state === 'available') ? ` — use: \`${t.command}\`` : ''}${t.state !== 'ready' && t.detail ? ` (${t.detail})` : ''}`,
-    )
+    .map((t) => {
+      // Container hints carry the audit ID so Audivra can stop exactly these containers later.
+      const command = t.command?.replaceAll('<audit>', auditId)
+      return `- ${t.name}: ${t.state}${t.version ? ` ${t.version}` : ''}${command && t.state === 'ready' ? ` — use: \`${command}\`` : ''}${t.state !== 'ready' && t.detail ? ` (${t.detail})` : ''}`
+    })
     .join('\n')
 }
 
@@ -103,6 +105,19 @@ function validationFailure(error: unknown, agentRunId: string, label: string): n
 
 const minutes = (n: number) => n * 60_000
 
+/** Safety ceilings for an investigation run (scaled for the shorter revision pass). */
+function investigationLimits(scale = 1): Record<string, number> {
+  const config = getConfig()
+  return {
+    browser: Math.round(config.AUDITOR_MAX_BROWSER_ACTIONS * scale),
+    terminal: Math.round(config.AUDITOR_MAX_COMMANDS * scale),
+    total: Math.round(config.AUDITOR_MAX_TOOL_CALLS * scale),
+  }
+}
+
+const INVESTIGATION_WRAP_UP =
+  'Do not investigate further. Using only the evidence you have already recorded and what you have already observed, return the complete structured audit draft now. Keep findings whose evidence is recorded, lower the confidence of anything you could not finish verifying, and list unfinished checks under limitations.'
+
 export async function runAuditor(
   ctx: AuditContext,
   provider: AgentProvider,
@@ -112,6 +127,7 @@ export async function runAuditor(
   const prompt = loadPrompt('auditor-system')
   const budget = config.AUDITOR_TIMEOUT_MINUTES
   const deadline = new Date(Date.now() + minutes(budget * 0.8))
+  const limits = investigationLimits()
   const userPrompt = `# Audit task
 
 Target website: ${input.audit.url}
@@ -119,16 +135,18 @@ ${input.audit.clientName ? `Client / project: ${input.audit.clientName}\n` : ''}
 Working directory (audit workspace): ${ctx.ws.root}
 
 Time budget: about ${budget} minutes in total. Started at ${new Date().toISOString()}. Aim to have your structured output ready by ${deadline.toISOString()} — check \`date\` occasionally.
+Safety ceilings (not targets — typical audits use a small fraction): ${limits.browser} browser actions, ${limits.terminal} terminal commands, ${limits.total} tool calls in total. If a ceiling or the time budget is reached, your tools are switched off and you will be asked to write up from the evidence already recorded — so record evidence as you go.
 
 ## What already happened
 A deterministic baseline inspection ran before you. Its digest is below and its files are in \`baseline/\`, \`screenshots/\`, \`browser/\`, \`tools/\` and \`network/\`. Treat it as leads, not truth: verify material claims before relying on them.
 
 ## Available tools on this machine
-${toolList(input.tools)}
+${toolList(input.tools, input.audit.id)}
 - Browser: MCP server \`browser\` (headless Chromium; isolated session)
 - Evidence: MCP server \`audit\` (record_evidence, list_evidence, get_evidence, log_activity)
 
 Passive only: Nuclei, ZAP active scans and any other active/offensive tooling are out of scope even if present.
+The baseline already ran the ready scanners; read their reports in \`tools/\` before re-running anything. If you start a Docker container, keep the \`--name audivra-${input.audit.id}-…\` naming shown above: Audivra stops exactly those containers when the audit ends.
 
 ## Evidence recorded so far
 ${evidenceIndex(input.evidence)}
@@ -152,6 +170,8 @@ Understand the business, decide what matters, investigate with the browser, term
     allowedTools: INVESTIGATOR_ALLOWED,
     disallowedTools: INVESTIGATOR_DENIED,
     mcp: { browser: true, audit: true },
+    toolCallLimits: limits,
+    wrapUp: { prompt: INVESTIGATION_WRAP_UP, maxTurns: 8, timeoutMs: minutes(12) },
   })
   assertSucceeded(outcome, 'AI Auditor')
   const existing = new Set(await listRefs(ctx))
@@ -249,6 +269,12 @@ Review the draft adversarially and return your structured feedback.`
     tools: REVIEWER_TOOLS,
     allowedTools: REVIEWER_ALLOWED,
     mcp: { browser: false, audit: true },
+    wrapUp: {
+      prompt:
+        'Return your structured review now from what you have checked. Findings you did not get to check go under findingsNeedingVerification only if they are high or critical; otherwise approve them with the note "not checked in depth".',
+      maxTurns: 6,
+      timeoutMs: minutes(8),
+    },
   })
   assertSucceeded(outcome, 'AI Reviewer')
   try {
@@ -328,6 +354,8 @@ ${feedback}`
       disallowedTools: INVESTIGATOR_DENIED,
       mcp: { browser: true, audit: true },
       resumeSessionId,
+      toolCallLimits: investigationLimits(0.5),
+      wrapUp: { prompt: INVESTIGATION_WRAP_UP, maxTurns: 8, timeoutMs: minutes(12) },
     })
 
   const outcome = await run(resume)
@@ -343,6 +371,15 @@ ${feedback}`
   }
 }
 
+function previousKeys(previous: FindingBrief[]): string {
+  const keyed = previous.filter((f) => f.issueKey)
+  if (keyed.length === 0) return 'None — this is the first audit of this site (or earlier audits had no keys). Create new keys.'
+  return [
+    'Reuse a key exactly when a final finding describes the same underlying issue:',
+    ...keyed.map((f) => `- ${f.issueKey} — ${f.title} (${f.severity}, ${f.category})`),
+  ].join('\n')
+}
+
 export async function runFinalizer(
   ctx: AuditContext,
   provider: AgentProvider,
@@ -352,6 +389,8 @@ export async function runFinalizer(
     review: ReviewResult | null
     revised: boolean
     evidence: EvidenceItem[]
+    /** Findings of the previous audit of the same site (for stable issue keys). */
+    previous?: FindingBrief[]
   },
 ): Promise<{ agentRunId: string; final: FinalAudit; issues: ValidationIssue[] }> {
   const config = getConfig()
@@ -370,6 +409,9 @@ ${input.review ? `\`\`\`json\n${JSON.stringify(input.review, null, 2)}\n\`\`\`` 
 
 ## Evidence index (only these IDs exist)
 ${evidenceIndex(input.evidence)}
+
+## Issue keys from the previous audit of this site
+${previousKeys(input.previous ?? [])}
 
 Produce the final structured audit.`
 

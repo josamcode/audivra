@@ -16,6 +16,8 @@ export interface McpServerSpec {
 
 export interface AgentRunRequest {
   role: AgentRole
+  /** Audit the run belongs to (process ownership + accounting). */
+  auditId?: string
   /** Working directory (the audit workspace). */
   cwd: string
   /** Role prompt file (appended to the provider's agent system prompt). */
@@ -36,6 +38,16 @@ export interface AgentRunRequest {
   mcpServers?: Record<string, McpServerSpec>
   /** Continue an earlier session (used for the focused revision pass). */
   resumeSessionId?: string
+  /**
+   * Safety ceilings on tool calls by kind (browser, terminal, file, read, evidence, web, other) and
+   * `total`. Exceeding one stops the run; with `wrapUp` the agent is then asked for its result.
+   */
+  toolCallLimits?: Record<string, number>
+  /**
+   * Graceful termination: when the run hits its time budget, turn limit or a tool ceiling, the
+   * session is resumed without tools and asked to return the structured output from its work so far.
+   */
+  wrapUp?: { prompt: string; maxTurns: number; timeoutMs: number }
   env?: Record<string, string>
   signal: AbortSignal
   /** Raw event log for debugging (thinking content is never written). */
@@ -59,6 +71,13 @@ export interface AgentRunResult {
   error: string | null
   permissionDenials: unknown[]
   usage: Record<string, unknown> | null
+  /**
+   * completed | max-turns | timeout | tool-budget | cancelled | error, or `wrapped-up:<reason>` when a
+   * ceiling was reached and the wrap-up turn still produced the structured output.
+   */
+  terminationReason: string
+  /** Tool calls by kind: browser, terminal, file, read, evidence, web, output, other. */
+  toolCalls: Record<string, number>
 }
 
 export interface ProviderAvailability {

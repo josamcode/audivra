@@ -36,6 +36,8 @@ function draft(findings: DraftFinding[]): AuditDraft {
     businessUnderstanding: {
       summary: 'A clinic',
       businessType: 'Lead gen',
+      businessModel: 'Paid treatments',
+      acquisitionSignals: [],
       likelyCustomers: 'Patients',
       primaryConversion: 'WhatsApp',
       secondaryConversions: [],
@@ -100,7 +102,7 @@ const baseFinal = (findings: unknown[]) => ({
   technologies: [],
   findings,
   opportunities: [
-    { title: 'Fix CTA', description: 'x', relatedFindingIds: ['F1', 'F9'], impact: 'high', effort: 'low' },
+    { title: 'Fix CTA', why: 'x', scope: 'y', relatedFindingIds: ['F1', 'F9'], impact: 'high', effort: 'low' },
   ],
   limitations: [],
   pagesInspected: [],
@@ -213,6 +215,8 @@ describe('fallbackFinal', () => {
     expect(final.findings[1]!.type).toBe('supported-observation')
     expect(final.findings[1]!.affectedUrls).toEqual(['https://example.com/a', 'https://example.com/b'])
     expect(final.findings[1]!.evidenceIds).toEqual(['EV-1', 'EV-3'])
-    expect(final.limitations.at(-1)).toMatch(/finalization did not complete/)
+    expect(final.limitations.at(-1)).toMatchObject({ kind: 'environment', text: expect.stringMatching(/finalization did not complete/) })
+    // Fallback findings get deterministic, unique issue keys.
+    expect(final.findings.every((f) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(f.issueKey))).toBe(true)
   })
 })

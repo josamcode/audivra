@@ -53,6 +53,10 @@ export const INVESTIGATOR_DENIED = [
   'Bash(*gobuster*)',
   'Bash(*dirb*)',
   'Bash(*wfuzz*)',
+  // Runs arbitrary code inside the browser server process (outside the workspace) — scripts in
+  // ./scripts cover every legitimate need. Uploading local files to a site is never needed.
+  'mcp__browser__browser_run_code_unsafe',
+  'mcp__browser__browser_file_upload',
 ]
 
 export const REVIEWER_TOOLS = ['Read', 'Glob', 'Grep']
@@ -79,6 +83,8 @@ export interface RoleRunOptions {
   disallowedTools?: string[]
   mcp: { browser: boolean; audit: boolean }
   resumeSessionId?: string
+  toolCallLimits?: Record<string, number>
+  wrapUp?: { prompt: string; maxTurns: number; timeoutMs: number }
 }
 
 export interface RoleRunOutcome {
@@ -121,6 +127,7 @@ export async function runRole(
 
   const result = await provider.run({
     role: options.role,
+    auditId: ctx.auditId,
     cwd: ctx.ws.root,
     systemPromptFile: options.prompt.path,
     prompt: options.userPrompt,
@@ -134,6 +141,8 @@ export async function runRole(
     disallowedTools: options.disallowedTools,
     mcpServers,
     resumeSessionId: options.resumeSessionId,
+    toolCallLimits: options.toolCallLimits,
+    wrapUp: options.wrapUp,
     signal: ctx.signal,
     transcriptFile: ctx.ws.abs(`agent/${options.role}-transcript.jsonl`),
     onStart: (info) => {
@@ -166,6 +175,8 @@ export async function runRole(
     error: result.error,
     output: result.output ?? null,
     usage: result.usage,
+    terminationReason: result.terminationReason,
+    toolCalls: result.toolCalls,
     finishedAt: new Date(),
   })
   const minutes = Math.max(1, Math.round(result.durationMs / 60000))
@@ -177,7 +188,14 @@ export async function runRole(
       result.status === 'completed'
         ? `${roleLabel(options.role)} finished in ${minutes} min (${result.numTurns ?? '?'} turns)`
         : `${roleLabel(options.role)} ${result.status === 'cancelled' ? 'cancelled' : `failed: ${result.error}`}`,
-    data: { role: options.role, agentRunId, status: result.status, model: result.model },
+    data: {
+      role: options.role,
+      agentRunId,
+      status: result.status,
+      model: result.model,
+      terminationReason: result.terminationReason,
+      toolCalls: result.toolCalls,
+    },
     agentRunId,
   })
   return { agentRunId, result }
@@ -189,5 +207,7 @@ export function roleLabel(role: AgentRole): string {
     reviewer: 'AI Reviewer',
     revision: 'Auditor verification pass',
     finalizer: 'Finalizer',
+    planner: 'Artifact Planner',
+    composer: 'Report Composer',
   }[role]
 }

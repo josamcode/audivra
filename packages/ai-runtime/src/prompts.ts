@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { PROMPTS_DIR } from '@audivra/config'
 
-export type PromptName = 'auditor-system' | 'reviewer-system' | 'finalizer-system'
+export type PromptName =
+  | 'auditor-system'
+  | 'reviewer-system'
+  | 'finalizer-system'
+  | 'planner-system'
+  | 'composer-system'
 
 export interface PromptFile {
   name: PromptName
@@ -18,4 +23,11 @@ export function loadPrompt(name: PromptName): PromptFile {
   const text = readFileSync(file, 'utf8')
   const match = text.match(/<!--\s*version:\s*([\w:.-]+)\s*-->/)
   return { name, path: file, version: match?.[1] ?? `${name}:unversioned`, text }
+}
+
+const ALL_PROMPTS: PromptName[] = ['auditor-system', 'reviewer-system', 'finalizer-system', 'planner-system', 'composer-system']
+
+/** Current version of every role prompt, e.g. { auditor: 'auditor:v3', … } (stored with benchmark runs). */
+export function promptVersions(): Record<string, string> {
+  return Object.fromEntries(ALL_PROMPTS.map((name) => [name.replace('-system', ''), loadPrompt(name).version]))
 }

@@ -5,9 +5,11 @@ import {
   SEVERITY_RANK,
   type DraftFinding,
   type FinalFinding,
+  type FindingBrief,
   type FindingType,
   type Severity,
 } from '@audivra/contracts'
+import { findingSimilarity, SIMILARITY_THRESHOLD, titleTokens } from '@audivra/insights'
 
 export interface ValidationIssue {
   scope: string
@@ -162,11 +164,12 @@ export function validateFinal(
   review: ReviewResult | null,
   existingRefs: Set<string>,
 ): { final: FinalAudit; issues: ValidationIssue[] } {
-  const final = parseOrThrow(FinalAudit, value, 'Finalizer')
+  const final = parseOrThrow(FinalAudit, normalizeIssueKeys(value), 'Finalizer')
   const issues: ValidationIssue[] = []
   const draftById = new Map(draft.findings.map((f) => [f.id, f]))
   const adjustments = new Map((review?.severityAdjustments ?? []).map((a) => [a.findingId, a.to]))
   const usedIds = new Set<string>()
+  const usedKeys = new Set<string>()
   const findings: FinalFinding[] = []
 
   for (const finding of final.findings) {
@@ -205,7 +208,9 @@ export function validateFinal(
     let id = finding.id.trim() || `F${findings.length + 1}`
     if (usedIds.has(id)) id = `F${findings.length + 1}`
     usedIds.add(id)
-    findings.push({ ...finding, id, sourceFindingIds: sources, evidenceIds, severity, type })
+    const issueKey = uniqueKey(finding.issueKey, usedKeys)
+    if (issueKey !== finding.issueKey) issues.push({ scope: id, message: `Issue key ${finding.issueKey} was not unique; using ${issueKey}` })
+    findings.push({ ...finding, id, issueKey, sourceFindingIds: sources, evidenceIds, severity, type })
   }
 
   const finalIds = new Set(findings.map((f) => f.id))
@@ -239,7 +244,11 @@ export function validateFinal(
  * Deterministic fallback when the finalizer is unavailable: applies the reviewer's decisions
  * mechanically to the draft. Clearly labelled in the summary; never adds content.
  */
-export function fallbackFinal(draft: AuditDraft, review: ReviewResult | null): FinalAudit {
+export function fallbackFinal(
+  draft: AuditDraft,
+  review: ReviewResult | null,
+  previous: FindingBrief[] = [],
+): FinalAudit {
   const rejected = new Set(review?.rejectedFindings.map((r) => r.findingId) ?? [])
   const approved = new Set(review?.approvedFindings.map((a) => a.findingId) ?? [])
   const needsCheck = new Set(review?.findingsNeedingVerification.map((v) => v.findingId) ?? [])
@@ -282,9 +291,11 @@ export function fallbackFinal(draft: AuditDraft, review: ReviewResult | null): F
     })
     .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.confidence - a.confidence)
 
+  const usedKeys = new Set<string>()
   const findings: FinalFinding[] = ordered.map((f, index) => {
     const { sources, id: _draftId, ...rest } = f
-    return { ...rest, id: `F${index + 1}`, sourceFindingIds: sources }
+    const issueKey = uniqueKey(stableIssueKey(f, previous), usedKeys)
+    return { ...rest, id: `F${index + 1}`, issueKey, sourceFindingIds: sources }
   })
   const counts = findings.reduce<Record<string, number>>(
     (acc, f) => ({ ...acc, [f.severity]: (acc[f.severity] ?? 0) + 1 }),
@@ -307,14 +318,75 @@ export function fallbackFinal(draft: AuditDraft, review: ReviewResult | null): F
     findings,
     opportunities: findings
       .filter((f) => f.opportunity)
-      .map((f) => ({ ...f.opportunity!, relatedFindingIds: [f.id] }))
+      .map((f) => ({
+        title: f.opportunity!.title,
+        why: f.whyItMatters,
+        scope: f.opportunity!.description,
+        impact: f.opportunity!.impact,
+        effort: f.opportunity!.effort,
+        relatedFindingIds: [f.id],
+      }))
       .sort(
         (a, b) => ['high', 'medium', 'low'].indexOf(a.impact) - ['high', 'medium', 'low'].indexOf(b.impact),
       ),
     limitations: [
-      ...draft.limitations,
-      'AI finalization did not complete; findings reflect the reviewed draft.',
+      ...draft.limitations.map((text) => ({ kind: 'could-not-verify' as const, text })),
+      { kind: 'environment' as const, text: 'AI finalization did not complete; findings reflect the reviewed draft.' },
     ],
     pagesInspected: draft.pagesInspected,
   }
+}
+
+/** Kebab-case issue key from category + the most informative title words (deterministic). */
+export function deriveIssueKey(category: string, title: string): string {
+  const words = [...titleTokens(title)].filter((w) => /^[a-z0-9]+$/.test(w)).slice(0, 5)
+  const base = [category.toLowerCase().replace(/[^a-z0-9]+/g, '-'), ...words].join('-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  const parts = base.split('-').filter(Boolean).slice(0, 8)
+  return parts.length ? parts.join('-') : 'finding'
+}
+
+/** Reuses the previous audit's key for the same issue (by similarity), otherwise derives a new one. */
+export function stableIssueKey(finding: Pick<DraftFinding, 'title' | 'category' | 'severity' | 'affectedUrls'>, previous: FindingBrief[]): string {
+  const brief: FindingBrief = { ref: '', title: finding.title, severity: finding.severity, category: finding.category, issueKey: null, affectedUrls: finding.affectedUrls }
+  let best: { key: string; score: number } | null = null
+  for (const prev of previous) {
+    if (!prev.issueKey) continue
+    const score = findingSimilarity(brief, prev)
+    if (score >= SIMILARITY_THRESHOLD && (!best || score > best.score)) best = { key: prev.issueKey, score }
+  }
+  return best?.key ?? deriveIssueKey(finding.category, finding.title)
+}
+
+/** Coerces model-written issue keys into the kebab-case format before schema validation. */
+function normalizeIssueKeys(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { findings?: unknown }).findings)) return value
+  const record = value as { findings: unknown[] }
+  return {
+    ...record,
+    findings: record.findings.map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw
+      const f = raw as Record<string, unknown>
+      const cleaned =
+        typeof f.issueKey === 'string'
+          ? f.issueKey
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .split('-')
+              .filter(Boolean)
+              .slice(0, 8)
+              .join('-')
+          : ''
+      return {
+        ...f,
+        issueKey: cleaned || deriveIssueKey(typeof f.category === 'string' ? f.category : 'finding', typeof f.title === 'string' ? f.title : ''),
+      }
+    }),
+  }
+}
+
+function uniqueKey(key: string, used: Set<string>): string {
+  let candidate = key
+  for (let n = 2; used.has(candidate); n++) candidate = `${key.split('-').slice(0, 7).join('-')}-${n}`
+  used.add(candidate)
+  return candidate
 }

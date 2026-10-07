@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { execa } from 'execa'
 import { getConfig } from '@audivra/config'
-import { killProcessTree, probeVersion, runProcess, toolBinDirs } from '@audivra/tool-runtime'
+import { browserEnv, probeVersion, registerOwned, runProcess, toolBinDirs } from '@audivra/tool-runtime'
 import type { AgentProvider, AgentRunRequest, AgentRunResult, ProviderAvailability } from '../provider.ts'
 import { describeToolUse } from './activity.ts'
 
@@ -64,14 +64,6 @@ function resultText(content: unknown): string {
 export class ClaudeCliProvider implements AgentProvider {
   readonly id = 'claude-code-cli'
 
-  /** PIDs of running agent processes, so the worker can kill whole process trees on shutdown. */
-  static readonly active = new Set<number>()
-
-  static async killAll(): Promise<void> {
-    await Promise.all([...ClaudeCliProvider.active].map((pid) => killProcessTree(pid)))
-    ClaudeCliProvider.active.clear()
-  }
-
   constructor(private readonly bin = getConfig().CLAUDE_BIN) {}
 
   async isAvailable(): Promise<ProviderAvailability> {
@@ -89,6 +81,57 @@ export class ClaudeCliProvider implements AgentProvider {
   }
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
+    const first = await this.runOnce(request)
+    const reason = first.terminationReason
+    const wrapUp = request.wrapUp
+    if (!wrapUp || !first.sessionId || request.signal.aborted || !WRAP_UP_REASONS[reason]) return first
+
+    // Bounded autonomy: a ceiling was reached. Resume the same session once, without tools, and ask for
+    // the structured result from the work done so far — a runaway run ends gracefully, not empty-handed.
+    request.onActivity?.({
+      kind: 'other',
+      tool: 'runtime',
+      level: 'warn',
+      message: `Reached the ${WRAP_UP_REASONS[reason]} — asking for the result from the work done so far`,
+    })
+    const second = await this.runOnce({
+      ...request,
+      prompt: `${WRAP_UP_PREFIX[reason]} ${wrapUp.prompt}`,
+      resumeSessionId: first.sessionId,
+      tools: [],
+      allowedTools: [],
+      disallowedTools: undefined,
+      mcpServers: undefined,
+      maxTurns: wrapUp.maxTurns,
+      timeoutMs: wrapUp.timeoutMs,
+      toolCallLimits: undefined,
+      wrapUp: undefined,
+    })
+    const toolCalls = { ...first.toolCalls }
+    for (const [kind, count] of Object.entries(second.toolCalls)) toolCalls[kind] = (toolCalls[kind] ?? 0) + count
+    const sum = (a: number | null, b: number | null) => (a === null && b === null ? null : (a ?? 0) + (b ?? 0))
+    const merged = {
+      ...second,
+      sessionId: second.sessionId ?? first.sessionId,
+      model: second.model ?? first.model,
+      numTurns: sum(first.numTurns, second.numTurns),
+      costUsd: sum(first.costUsd, second.costUsd),
+      durationMs: first.durationMs + second.durationMs,
+      permissionDenials: [...first.permissionDenials, ...second.permissionDenials],
+      usage: { main: first.usage, wrapUp: second.usage },
+      toolCalls,
+    }
+    if (second.status === 'completed') return { ...merged, terminationReason: `wrapped-up:${reason}` }
+    return {
+      ...merged,
+      status: second.status === 'cancelled' ? 'cancelled' : 'failed',
+      output: null,
+      error: `${first.error ?? reason}; the wrap-up turn also failed: ${second.error ?? 'unknown error'}`,
+      terminationReason: second.status === 'cancelled' ? 'cancelled' : reason,
+    }
+  }
+
+  private async runOnce(request: AgentRunRequest): Promise<AgentRunResult> {
     const started = Date.now()
     const agentDir = path.join(request.cwd, 'agent')
     await mkdir(agentDir, { recursive: true })
@@ -132,6 +175,7 @@ export class ClaudeCliProvider implements AgentProvider {
 
     const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === 'path') ?? 'PATH'
     const env: Record<string, string> = {
+      ...browserEnv(),
       ...request.env,
       [pathKey]: [...toolBinDirs(), process.env[pathKey] ?? ''].join(path.delimiter),
       DISABLE_AUTOUPDATER: '1',
@@ -143,6 +187,7 @@ export class ClaudeCliProvider implements AgentProvider {
     let final: StreamMessage | null = null
     let stderr = ''
     const toolNames = new Map<string, string>()
+    const toolCalls: Record<string, number> = {}
 
     const child = execa(this.bin, args, {
       cwd: request.cwd,
@@ -155,12 +200,20 @@ export class ClaudeCliProvider implements AgentProvider {
       stripFinalNewline: false,
     })
 
-    if (child.pid) ClaudeCliProvider.active.add(child.pid)
-    let killedBy: 'timeout' | 'cancel' | null = null
-    const kill = (reason: 'timeout' | 'cancel') => {
+    // Registered in the ownership registry: cancellation and timeouts terminate only this process
+    // tree (the CLI and the MCP servers/shells it started), never anything else on the machine.
+    const owned = registerOwned(child.pid, {
+      tool: `claude:${request.role}`,
+      auditId: request.auditId ?? null,
+      cwd: request.cwd,
+      command: `${this.bin} -p (${request.role})`,
+    })
+    let killedBy: 'timeout' | 'cancel' | 'tool-budget' | null = null
+    let budgetDetail = ''
+    const kill = (reason: 'timeout' | 'cancel' | 'tool-budget') => {
       if (killedBy) return
       killedBy = reason
-      void killProcessTree(child.pid)
+      void owned?.kill()
     }
     const timer = setTimeout(() => kill('timeout'), request.timeoutMs)
     const onAbort = () => kill('cancel')
@@ -198,8 +251,17 @@ export class ClaudeCliProvider implements AgentProvider {
         for (const block of message.message.content) {
           if (block.type !== 'tool_use') continue
           toolNames.set(block.id, block.name)
+          const kind = toolCallKind(block.name)
+          toolCalls[kind] = (toolCalls[kind] ?? 0) + 1
           const activity = describeToolUse(block.name, block.input ?? {}, request.cwd)
           if (activity) request.onActivity?.(activity)
+          const limits = request.toolCallLimits
+          if (limits && !killedBy && kind !== 'output') {
+            const total = Object.entries(toolCalls).reduce((n, [k, c]) => (k === 'output' ? n : n + c), 0)
+            if (limits[kind] !== undefined && toolCalls[kind]! > limits[kind]!) budgetDetail = `${limits[kind]} ${kind} calls`
+            else if (limits.total !== undefined && total > limits.total) budgetDetail = `${limits.total} tool calls`
+            if (budgetDetail) kill('tool-budget')
+          }
         }
         return
       }
@@ -237,7 +299,7 @@ export class ClaudeCliProvider implements AgentProvider {
     })
 
     const exit = await child
-    if (child.pid) ClaudeCliProvider.active.delete(child.pid)
+    owned?.finish(exit.exitCode ?? null)
     if (pending.trim()) handleLine(pending)
     clearTimeout(timer)
     request.signal.removeEventListener('abort', onAbort)
@@ -252,14 +314,27 @@ export class ClaudeCliProvider implements AgentProvider {
       durationMs: Date.now() - started,
       permissionDenials: result?.permission_denials ?? [],
       usage: result ? { usage: result.usage ?? null, modelUsage: result.modelUsage ?? null } : null,
+      toolCalls,
     }
-    if (killedBy === 'cancel') return { ...base, status: 'cancelled', output: null, error: 'Cancelled' }
+    if (killedBy === 'cancel') {
+      return { ...base, status: 'cancelled', output: null, error: 'Cancelled', terminationReason: 'cancelled' }
+    }
     if (killedBy === 'timeout') {
       return {
         ...base,
         status: 'failed',
         output: null,
         error: `Timed out after ${Math.round(request.timeoutMs / 60000)} minutes`,
+        terminationReason: 'timeout',
+      }
+    }
+    if (killedBy === 'tool-budget') {
+      return {
+        ...base,
+        status: 'failed',
+        output: null,
+        error: `Stopped at the safety ceiling of ${budgetDetail}`,
+        terminationReason: 'tool-budget',
       }
     }
     if (!result) {
@@ -270,6 +345,7 @@ export class ClaudeCliProvider implements AgentProvider {
         status: 'failed',
         output: null,
         error: `Claude CLI ended without a result: ${detail.slice(0, 600)}`,
+        terminationReason: 'error',
       }
     }
     if (result.is_error || result.subtype !== 'success') {
@@ -277,11 +353,42 @@ export class ClaudeCliProvider implements AgentProvider {
         result.subtype === 'error_max_turns'
           ? 'Reached the maximum number of turns before producing a result'
           : `${result.subtype ?? 'error'}${result.api_error_status ? ` (API ${result.api_error_status})` : ''}: ${(result.result ?? '').slice(0, 400)}`
-      return { ...base, status: 'failed', output: result.structured_output ?? null, error: reason }
+      return {
+        ...base,
+        status: 'failed',
+        output: result.structured_output ?? null,
+        error: reason,
+        terminationReason: result.subtype === 'error_max_turns' ? 'max-turns' : 'error',
+      }
     }
     if (result.structured_output === undefined || result.structured_output === null) {
-      return { ...base, status: 'failed', output: null, error: 'Run finished without structured output' }
+      return { ...base, status: 'failed', output: null, error: 'Run finished without structured output', terminationReason: 'error' }
     }
-    return { ...base, status: 'completed', output: result.structured_output, error: null }
+    return { ...base, status: 'completed', output: result.structured_output, error: null, terminationReason: 'completed' }
   }
+}
+
+/** Termination reasons that trigger the wrap-up turn, with how they are described to the user. */
+const WRAP_UP_REASONS: Record<string, string> = {
+  timeout: 'time budget',
+  'max-turns': 'turn limit',
+  'tool-budget': 'tool-call ceiling',
+}
+
+const WRAP_UP_PREFIX: Record<string, string> = {
+  timeout: 'Your time budget for this run is used up and your tools have been switched off.',
+  'max-turns': 'You have reached the turn limit for this run and your tools have been switched off.',
+  'tool-budget': 'You have reached the tool-call ceiling for this run and your tools have been switched off.',
+}
+
+/** Tool-call accounting by kind (shown on Runs; also used to spot wasted effort). */
+export function toolCallKind(name: string): string {
+  if (name.startsWith('mcp__browser__')) return 'browser'
+  if (name.startsWith('mcp__audit__')) return 'evidence'
+  if (name === 'Bash' || name === 'PowerShell') return 'terminal'
+  if (name === 'Write' || name === 'Edit' || name === 'NotebookEdit') return 'file'
+  if (name === 'Read' || name === 'Glob' || name === 'Grep') return 'read'
+  if (name === 'WebFetch' || name === 'WebSearch') return 'web'
+  if (name === 'StructuredOutput') return 'output'
+  return 'other'
 }
