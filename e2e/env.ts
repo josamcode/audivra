@@ -24,6 +24,8 @@ export function e2eServers(
     LOG_LEVEL: 'warn',
     BASELINE_MAX_PAGES: '12',
     BASELINE_BROWSER_PAGES: '3',
+    // ZAP and testssl take minutes per audit (and testssl needs HTTPS); the E2E fixture uses the fast scanners.
+    BASELINE_SCANNERS: 'httpx,katana,pa11y',
     ...extraEnv,
   }
   return [

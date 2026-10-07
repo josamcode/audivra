@@ -12,11 +12,11 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: [
-            'packages/**/test/**/*.test.ts',
+            'packages/**/test/**/*.test.{ts,tsx}',
             'apps/server/test/**/*.test.ts',
             'apps/worker/test/**/*.test.ts',
           ],
-          exclude: ['**/*.integration.test.ts', '**/node_modules/**'],
+          exclude: ['**/*.integration.test.{ts,tsx}', '**/node_modules/**'],
           environment: 'node',
         },
       },
@@ -39,6 +39,8 @@ export default defineConfig({
             LOG_FORMAT: 'json',
             BASELINE_BROWSER_PAGES: '2',
             BASELINE_MAX_PAGES: '12',
+            // Optional scanners have their own integration test; pipeline tests stay fast without them.
+            BASELINE_SCANNERS: '',
           },
         },
       },

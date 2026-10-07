@@ -59,6 +59,60 @@ test('create an audit of the fixture site and inspect baseline evidence through 
   await expect(page).toHaveURL(new RegExp(auditUrl.split('/audits/')[1]!.split('?')[0]!))
 })
 
+test('visual report, exports and history for finished audits', async ({ page }) => {
+  type AuditRow = { id: string; status: string; domain: string }
+  const finished = async () =>
+    ((await (await page.request.get('/api/audits')).json()) as AuditRow[]).filter((a) => a.status === 'completed' && a.domain.includes('4331'))
+  const [first] = await finished()
+  expect(first, 'the previous test leaves a finished fixture audit').toBeTruthy()
+  const id = first!.id
+
+  // Overview: summary tiles and an explicit coverage table (disabled scanners are listed, not hidden).
+  await page.goto(`/audits/${id}`)
+  await expect(page.getByText('First audit').first()).toBeVisible()
+  await expect(page.getByText('Coverage').first()).toBeVisible()
+  await expect(page.getByText(/Passive security scan \(ZAP\)/).first()).toBeVisible()
+
+  // Visuals: deterministic, evidence-backed visuals exist without AI, each exportable as PNG.
+  await page.goto(`/audits/${id}?tab=visuals`)
+  await expect(page.getByText('Key measurements').first()).toBeVisible()
+  await expect(page.getByText('Site structure').first()).toBeVisible()
+  const png = await page.request.get(`/api/audits/${id}/visuals/A1.png`)
+  expect(png.status()).toBe(200)
+  expect(png.headers()['content-type']).toContain('image/png')
+
+  // Pages: the crawled inventory.
+  await page.goto(`/audits/${id}?tab=pages`)
+  await expect(page.getByText('/services/implants').first()).toBeVisible()
+
+  // Client report preview with its fixed structure.
+  await page.goto(`/audits/${id}/report`)
+  await expect(page.getByRole('heading', { name: 'Executive snapshot' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Technical appendix' })).toBeVisible()
+  await page.getByRole('button', { name: 'More' }).click()
+  await expect(page.getByText('Complete audit bundle (ZIP)').first()).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // Exports are generated from persisted data.
+  const json = await page.request.get(`/api/audits/${id}/export/json`)
+  expect(json.status()).toBe(200)
+  expect(((await json.json()) as { schema: string }).schema).toBe('audivra.audit.v1')
+
+  // A second audit of the same site turns the History tab into a comparison.
+  const created = await page.request.post('/api/audits', { data: { url: FIXTURE_URL } })
+  expect(created.ok()).toBe(true)
+  const second = ((await created.json()) as { id: string }).id
+  await expect
+    .poll(async () => ((await (await page.request.get(`/api/audits/${second}`)).json()) as { status: string }).status, { timeout: 5 * 60_000 })
+    .toBe('completed')
+  await page.goto(`/audits/${second}?tab=history`)
+  await expect(page.getByText('Measurements').first()).toBeVisible()
+  await expect(page.getByText('Audits of this site').first()).toBeVisible()
+  const comparison = await page.request.get(`/api/audits/${second}/comparison`)
+  expect(comparison.status()).toBe(200)
+  expect(((await comparison.json()) as { previous: { id: string } }).previous.id).toBe(id)
+})
+
 test('system page lists tool availability', async ({ page }) => {
   await page.goto('/system')
   await expect(page.getByText('Playwright', { exact: true }).first()).toBeVisible()

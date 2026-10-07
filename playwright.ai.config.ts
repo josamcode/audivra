@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { chromiumExecutable } from '@audivra/tool-runtime'
 import { E2E_PORTS, e2eServers } from './e2e/env.ts'
 
 /**
@@ -20,6 +21,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 900 },
+    // The Chromium build Audivra itself uses (shared Playwright cache or the project-local .tools cache).
+    launchOptions: { executablePath: chromiumExecutable() ?? undefined },
   },
   webServer: e2eServers('claude', { AUDITOR_TIMEOUT_MINUTES: '25' }),
 })
