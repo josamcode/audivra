@@ -17,22 +17,29 @@ deterministic baseline only gathers cheap facts, which the prompts explicitly tr
 | Process     | Entry                                | Responsibility                                                              |
 | ----------- | ------------------------------------ | --------------------------------------------------------------------------- |
 | API server  | `apps/server/src/main.ts`            | REST API, SSE relay of activity events, artifact serving, enqueueing jobs   |
-| Worker      | `apps/worker/src/main.ts`            | Runs durable pipeline stages from pg-boss queues                            |
-| Web         | `apps/web` (Vite)                    | Audit workspace UI                                                          |
-| Agent runs  | `claude -p …` children of the worker | Auditor / Reviewer / verification pass / Finalizer                          |
+| Worker      | `apps/worker/src/main.ts`            | Runs durable pipeline stages and the benchmark from pg-boss queues          |
+| Web         | `apps/web` (Vite)                    | Audit workspace UI, client report preview                                   |
+| Agent runs  | `claude -p …` children of the worker | Auditor / Reviewer / verification pass / Finalizer / Planner / Composer     |
 | MCP servers | children of each agent run           | `browser` (official Playwright MCP) and `audit` (evidence + activity notes) |
+| Scanners    | children of the worker               | Lighthouse, Pa11y, httpx, Katana; ZAP and testssl.sh as named containers   |
 
 ## Pipeline (durable)
 
 Each stage is a separate pg-boss job (queues `audit-baseline`, `audit-investigation`, `audit-review`,
-`audit-revision`, `audit-finalize`). A stage persists its step status and enqueues the next stage.
-Long AI stages use pg-boss heartbeats, so a crashed worker's job is retried after restart; stages that
-already completed are skipped when a job is delivered again.
+`audit-revision`, `audit-finalize`, `audit-present`). A stage persists its step status and enqueues the
+next stage. Long AI stages use pg-boss heartbeats, so a crashed worker's job is retried after restart;
+stages that already completed are skipped when a job is delivered again. The benchmark and the CLI run
+the same handlers inline (`new Pipeline(…, { inline: true })`).
 
 ```
-preparing+baseline ──► investigation ──► review ──► [revision] ──► finalizing ──► done
-       │ AI off/unavailable ─────────────────────────────────────►┘
+preparing+baseline ──► investigation ──► review ──► [revision] ──► finalizing ──► presenting ──► done
+       │ AI off/unavailable ─────────────────────────────────────►┘ (deterministic visuals only)
 ```
+
+**Presenting** indexes Lighthouse reports the auditor saved, labels the page inventory with the AI's
+page types, runs the Artifact Planner (specs → resolver → stored artifacts) and the Report Composer
+(validated report plan). `POST /api/audits/:id/present` regenerates both for a finished audit without
+touching findings. Coverage is recomputed after the baseline and when the audit finishes.
 
 Failure semantics:
 
@@ -45,8 +52,12 @@ Failure semantics:
 - **Verification-pass failure** → finalize from the reviewed draft.
 - **Finalizer failure** → deterministic fallback (`fallbackFinal`) applies the reviewer's decisions to the
   draft and labels the summary as auto-assembled; audit `partial`.
-- **Cancellation** → a 3-second watcher aborts the stage; agent process trees are killed (`taskkill /T`
-  on Windows).
+- **Planner / composer failure** → deterministic visuals and the default report layout; the step message
+  says so and findings are untouched. A partial audit still gets deterministic visuals and coverage.
+- **Ceilings reached** (time, turns, browser actions, commands) → the agent's session is resumed once
+  without tools and asked for its structured result (`terminationReason: wrapped-up:<reason>`).
+- **Cancellation** → a 3-second watcher aborts the stage; the processes and containers owned by that
+  audit are terminated through the ownership registry (exact PIDs / container names only).
 
 ## AI runtime
 
@@ -69,12 +80,17 @@ claude -p --output-format stream-json --verbose
 - The final `structured_output` is validated again with Zod (`packages/contracts/src/agent-outputs.ts`).
 - The verification pass resumes the auditor's own session (`--resume`), so it keeps its context.
 
-| Role              | Tools                                                              | MCP                  | Output         |
-| ----------------- | ------------------------------------------------------------------ | -------------------- | -------------- |
-| Auditor           | Bash, Read/Write/Edit (workspace), Glob, Grep, WebFetch, TodoWrite | browser, audit       | `AuditDraft`   |
-| Reviewer          | Read (workspace), Glob, Grep                                       | audit (read + notes) | `ReviewResult` |
-| Verification pass | as Auditor                                                         | browser, audit       | `AuditDraft`   |
-| Finalizer         | none                                                               | none                 | `FinalAudit`   |
+| Role              | Tools                                                              | MCP                  | Output         | Prompt         |
+| ----------------- | ------------------------------------------------------------------ | -------------------- | -------------- | -------------- |
+| Auditor           | Bash, Read/Write/Edit (workspace), Glob, Grep, WebFetch, TodoWrite | browser, audit       | `AuditDraft`   | `auditor:v3`   |
+| Reviewer          | Read (workspace), Glob, Grep                                       | audit (read + notes) | `ReviewResult` | `reviewer:v2`  |
+| Verification pass | as Auditor                                                         | browser, audit       | `AuditDraft`   | `auditor:v3`   |
+| Finalizer         | none                                                               | none                 | `FinalAudit`   | `finalizer:v3` |
+| Artifact Planner  | Read (workspace), Glob, Grep                                       | audit (read)         | `ArtifactPlan` | `planner:v1`   |
+| Report Composer   | none                                                               | none                 | `ReportPlan`   | `composer:v1`  |
+
+Each AgentRun stores the prompt version, model, turns, duration, cost estimate, termination reason
+and tool calls by kind (browser, terminal, file, read, evidence, web).
 
 ### Deterministic guards on AI output (`validate.ts`)
 
@@ -110,11 +126,14 @@ invalidations.
   screenshots/  baseline + agent screenshots
   browser/    per-page rendered DOM and inspection reports; Playwright MCP output
   network/    request lists
-  tools/      lighthouse/, axe/, registry.json, agent tool output
+  tools/      lighthouse/, axe/, pa11y/, zap/, testssl/, httpx.json, katana.jsonl, registry.json,
+              plus anything the auditor ran
   scripts/    scripts the auditor wrote
   notes/      auditor notes
-  agent/      role prompts, redacted stream transcripts, raw outputs, draft.json, review.json
+  agent/      role prompts, redacted stream transcripts, raw outputs, draft.json, review.json,
+              artifact-plan.json, artifact-resolution.json, report-plan.json
   final/      audit.json
+  exports/    generated PDF/HTML/JSON/CSV/ZIP (re-generated on demand)
 ```
 
 Artifact paths are always workspace-relative and resolved through `resolveInside()`, which rejects
