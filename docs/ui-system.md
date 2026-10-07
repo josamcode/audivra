@@ -55,8 +55,13 @@ used only when a series *is* a severity.
 
 ## Spacing, radius, shadow
 
-- Tailwind's 4px spacing scale only. Page gutter `px-4 sm:px-6`; panel padding `p-4`; table cells
-  `h-10 px-3`; gaps between panels `gap-4`, inside toolbars `gap-2`.
+- Tailwind's 4px spacing scale only. Panel padding `p-4`; table cells `h-10 px-3`; gaps between panels
+  `gap-4`, inside toolbars `gap-2`.
+- **One page frame.** Every page's header, tab bar and content use `pageFrame` (`page-header.tsx`:
+  `max-w-screen-2xl`, gutter `px-4 sm:px-6`), so edges never move between pages. Full-width bands (tab
+  bars, the audit header) apply it to an inner element. Page headers use `pt-5 pb-4`, content after a tab
+  bar starts at `pt-4`, and two-column pages share `pageColumns` (main column + 20/22rem rail).
+  Sidebar destinations have no breadcrumb; drill-down pages (an audit) show it as the first line.
 - Radius: `rounded-sm` (badges, tags, small controls) · `rounded-md` (buttons, inputs, inner boxes) ·
   `rounded-lg` (panels, modal, artifact frames). `rounded-full` only for dots and bars.
 - Shadow: `shadow-popover` (select/menu/tooltip popups) and `shadow-overlay` (drawer/modal/dialog).
@@ -77,7 +82,7 @@ Product layer (`src/components`, `src/features`):
 | Component | Use |
 | --- | --- |
 | `AppShell` | Sidebar (desktop) / top bar (mobile), runtime status, theme switch |
-| `PageHeader`, `Toolbar` | Page title + actions; filter/search bars above tables |
+| `PageHeader`, `PageFrame` / `pageFrame` / `pageColumns`, `Toolbar` | Page title + actions; the shared page frame and two-column grid; filter/search bars above tables |
 | `Panel`, `PanelHeader`, `PanelBody`, `SectionLabel`, `DefinitionList` (`numeric` / `text` / `stacked`) | The one bordered container; never nest panels |
 | `Metric`, `CountCell` | Compact labelled numbers |
 | KPI strip (overview, history, quality) | One bordered row of 5–6 real counts with a one-line detail each — never a score, never decoration |
