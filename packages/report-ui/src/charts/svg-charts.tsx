@@ -69,17 +69,20 @@ export function Donut({
   )
 }
 
-function niceTicks(min: number, max: number, count = 4): number[] {
+function niceTicks(min: number, max: number, count = 4, options: { integer?: boolean; floor?: number } = {}): number[] {
   if (min === max) {
     const pad = Math.abs(min) * 0.1 || 1
     min -= pad
     max += pad
   }
+  // Counts and scores never go below zero, and counts never get fractional ticks.
+  if (options.floor !== undefined) min = Math.max(options.floor, min)
   const span = max - min
   const step0 = span / count
   const magnitude = 10 ** Math.floor(Math.log10(step0))
   const residual = step0 / magnitude
-  const step = (residual >= 5 ? 10 : residual >= 2 ? 5 : residual >= 1 ? 2 : 1) * magnitude
+  let step = (residual >= 5 ? 10 : residual >= 2 ? 5 : residual >= 1 ? 2 : 1) * magnitude
+  if (options.integer) step = Math.max(1, Math.round(step))
   const start = Math.floor(min / step) * step
   const end = Math.ceil(max / step) * step
   const ticks: number[] = []
@@ -124,7 +127,9 @@ export function LineChart({
   const zeroBased = unit === 'count' || unit === 'score' || unit === 'percent'
   const minValue = Math.min(...values, zeroBased ? 0 : Infinity)
   const maxValue = Math.max(...values)
-  const ticks = compact ? [Math.min(...values), maxValue] : niceTicks(minValue, maxValue)
+  const ticks = compact
+    ? [Math.min(...values), maxValue]
+    : niceTicks(minValue, maxValue, 4, { integer: unit === 'count', floor: zeroBased ? 0 : undefined })
   const domainMin = Math.min(ticks[0] ?? 0, minValue)
   const domainMax = Math.max(ticks[ticks.length - 1] ?? 1, maxValue)
   const margin = compact ? { top: 10, right: 10, bottom: 10, left: 10 } : { top: 26, right: 18, bottom: 32, left: 60 }
@@ -140,8 +145,8 @@ export function LineChart({
   // Several audits on one day are told apart by time; long histories thin their labels (anchored on
   // the latest audit) instead of overlapping them.
   const sameDay = new Set(dates.map((d) => d.slice(0, 10))).size < dates.length
-  const dateLabel = (date: string) => (sameDay ? `${formatShortDate(date)} ${utcTime(date)}` : formatShortDate(date))
-  const maxLabels = Math.max(2, Math.floor((plotW - 2 * inset) / (sameDay ? 84 : 54)) + 1)
+  const dateLabel = (date: string) => (sameDay ? `${formatShortDate(date)} ${utcTime(date)} UTC` : formatShortDate(date))
+  const maxLabels = Math.max(2, Math.floor((plotW - 2 * inset) / (sameDay ? 108 : 54)) + 1)
   const labelStep = Math.max(1, Math.ceil(dates.length / maxLabels))
   const showDate = (index: number) => (dates.length - 1 - index) % labelStep === 0
   return (
