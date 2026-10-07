@@ -2,6 +2,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { execa } from 'execa'
+import { registerOwned } from './processes.ts'
 
 export interface RunProcessOptions {
   command: string
@@ -22,6 +23,11 @@ export interface RunProcessOptions {
   maxBuffer?: number
   /** Set false for long-running streaming processes; output is then only delivered via callbacks/files. */
   buffer?: boolean
+  /**
+   * Ownership metadata. Processes with an owner are persisted in the ownership registry; others
+   * (short probes) are tracked in memory only. Either way only this process tree can be terminated.
+   */
+  owner?: { tool: string; auditId?: string | null; containerName?: string | null }
 }
 
 export interface RunProcessResult {
@@ -55,9 +61,6 @@ export async function runProcess(options: RunProcessOptions): Promise<RunProcess
     extendEnv: true,
     input: options.input,
     stdin: options.input === undefined ? 'ignore' : undefined,
-    timeout: options.timeoutMs,
-    cancelSignal: options.signal,
-    forceKillAfterDelay: 5000,
     reject: false,
     maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
     buffer: options.buffer ?? true,
@@ -86,7 +89,35 @@ export async function runProcess(options: RunProcessOptions): Promise<RunProcess
     })
   }
 
+  const handle = registerOwned(subprocess.pid, {
+    tool: options.owner?.tool ?? path.basename(options.command),
+    auditId: options.owner?.auditId ?? null,
+    containerName: options.owner?.containerName ?? null,
+    cwd: options.cwd ?? process.cwd(),
+    command: display,
+    persist: Boolean(options.owner),
+  })
+  // Timeouts and cancellation terminate this process's tree only (execa alone would leave
+  // grandchildren running on Windows).
+  let timedOut = false
+  let cancelled = false
+  const timer = options.timeoutMs
+    ? setTimeout(() => {
+        timedOut = true
+        void handle?.kill()
+      }, options.timeoutMs)
+    : null
+  const onAbort = () => {
+    cancelled = true
+    void handle?.kill()
+  }
+  options.signal?.addEventListener('abort', onAbort, { once: true })
+  if (options.signal?.aborted) onAbort()
+
   const result = await subprocess
+  if (timer) clearTimeout(timer)
+  options.signal?.removeEventListener('abort', onAbort)
+  handle?.finish(result.exitCode ?? null)
   const stdout = typeof result.stdout === 'string' ? result.stdout : ''
   const stderr = typeof result.stderr === 'string' ? result.stderr : ''
   return {
@@ -95,10 +126,16 @@ export async function runProcess(options: RunProcessOptions): Promise<RunProcess
     stdout,
     stderr,
     durationMs: Date.now() - started,
-    timedOut: Boolean(result.timedOut),
-    cancelled: Boolean(result.isCanceled),
-    failed: Boolean(result.failed),
-    errorMessage: result.failed ? (result.shortMessage ?? result.message ?? 'Process failed') : null,
+    timedOut,
+    cancelled,
+    failed: Boolean(result.failed) || timedOut || cancelled,
+    errorMessage: timedOut
+      ? `Timed out after ${Math.round((options.timeoutMs ?? 0) / 1000)} s`
+      : cancelled
+        ? 'Cancelled'
+        : result.failed
+          ? (result.shortMessage ?? result.message ?? 'Process failed')
+          : null,
   }
 }
 
