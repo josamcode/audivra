@@ -324,7 +324,7 @@ export function RunsTab({ audit }: { audit: AuditDetail }) {
         )}
       </Panel>
       <p className="text-xs text-subtle">
-        Costs are {COST_HINT.charAt(0).toLowerCase() + COST_HINT.slice(1)}. Tool calls are counted by Audivra per
+        Costs are an {COST_HINT}. Tool calls are counted by Audivra per
         kind; model reasoning is never stored.
       </p>
     </div>

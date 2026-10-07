@@ -376,12 +376,12 @@ function KpiStrip({ audit, findings }: { audit: AuditDetail; findings: FindingIt
       {audit.previousAuditId && finished ? (
         <Kpi
           label="Since last audit"
-          value={change ? `${change.resolved} resolved` : '—'}
+          value={change ? `${change.new} new · ${change.resolved} gone` : '—'}
           numeric={false}
           tone={change ? 'default' : 'muted'}
           detail={
             change
-              ? `${change.new} new · ${change.regressed} regressed · ${change.improved} improved`
+              ? `${change.unchanged} still present · ${change.regressed} regressed · ${change.improved} improved`
               : comparison.isError
                 ? 'Comparison unavailable'
                 : 'Comparing…'

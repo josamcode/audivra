@@ -29,8 +29,8 @@ const CHANGE: Record<FindingChangeStatus, { label: string; tone: string; hint: s
   regressed: { label: 'Regressed', tone: 'text-critical', hint: 'Still present and more severe than before' },
   new: { label: 'New', tone: 'text-high', hint: 'Not found in the earlier audit' },
   improved: { label: 'Improved', tone: 'text-low', hint: 'Still present but less severe' },
-  resolved: { label: 'Resolved', tone: 'text-success', hint: 'Found earlier, not found now' },
-  unchanged: { label: 'Unchanged', tone: 'text-muted', hint: 'Present in both audits at the same severity' },
+  resolved: { label: 'Not found again', tone: 'text-success', hint: 'Reported earlier, absent now — usually fixed; confirm before relying on it' },
+  unchanged: { label: 'Still present', tone: 'text-muted', hint: 'Present in both audits at the same severity' },
 }
 
 const GROUP_ORDER: FindingChangeStatus[] = ['regressed', 'new', 'improved', 'resolved', 'unchanged']
