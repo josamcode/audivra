@@ -315,7 +315,7 @@ function ActionList({ title, items, start }: { title: string; items: ReportActio
 function ComparisonSection({ comparison }: { comparison: AuditComparison }) {
   const s = comparison.summary
   const groups: { key: 'resolved' | 'new' | 'improved' | 'regressed'; label: string }[] = [
-    { key: 'resolved', label: 'Resolved' },
+    { key: 'resolved', label: 'Not found again' },
     { key: 'new', label: 'New' },
     { key: 'improved', label: 'Improved' },
     { key: 'regressed', label: 'Regressed' },
@@ -324,15 +324,17 @@ function ComparisonSection({ comparison }: { comparison: AuditComparison }) {
   return (
     <>
       <p className="rp-p rp-muted">
-        Compared with the audit of {formatDate(comparison.previous.finishedAt ?? comparison.previous.createdAt)}.
+        Compared with the audit of {formatDate(comparison.previous.finishedAt ?? comparison.previous.createdAt)}. “Not found
+        again” means an issue reported last time was not reported in this audit — usually because it was fixed, but
+        confirm before relying on it.
       </p>
       <ul className="rp-change-summary">
         {[
-          ['Resolved', s.resolved],
+          ['Not found again', s.resolved],
           ['New', s.new],
           ['Improved', s.improved],
           ['Regressed', s.regressed],
-          ['Unchanged', s.unchanged],
+          ['Still present', s.unchanged],
         ].map(([label, value]) => (
           <li key={label as string}>
             <span className="rp-num rp-big-num">{value}</span>
@@ -548,13 +550,13 @@ export function ClientReportDocument({ report, resolveAsset, interactive = true 
       ) : null}
 
       {featured.length || visuals.length ? (
-        <Section id="visuals" title="Visual evidence" kicker="What we measured and saw" pageBreak>
+        <Section id="visuals" title="Visual evidence" kicker="What we measured and saw">
           <Visuals artifacts={[...featured, ...visuals]} resolveAsset={resolveAsset} />
         </Section>
       ) : null}
 
       {report.majorFindings.length ? (
-        <Section id="findings" title="Major findings" kicker="Problems, proof and fixes" pageBreak>
+        <Section id="findings" title="Major findings" kicker="Problems, proof and fixes">
           {report.majorFindings.map((finding) => (
             <FindingCard key={finding.ref} finding={finding} resolveAsset={resolveAsset} />
           ))}
