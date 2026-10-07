@@ -1,4 +1,4 @@
-import { queryOptions } from '@tanstack/react-query'
+import { keepPreviousData, queryOptions } from '@tanstack/react-query'
 import type { AuditDetail, AuditStatus } from '@audivra/contracts'
 import { api } from './api'
 
@@ -29,8 +29,11 @@ export function isPresenting(audit: AuditDetail): boolean {
 }
 
 export const queryKeys = {
+  /** Prefix of everything derived from the audit list; invalidated whenever an audit changes state. */
   audits: ['audits'] as const,
+  dashboard: (includeBenchmarks: boolean) => ['audits', 'dashboard', includeBenchmarks ? 'with-benchmarks' : 'normal'] as const,
   system: ['system', 'tools'] as const,
+  health: ['system', 'health'] as const,
   audit: (id: string) => ['audit', id] as const,
   findings: (id: string) => ['audit', id, 'findings'] as const,
   evidence: (id: string) => ['audit', id, 'evidence'] as const,
@@ -48,16 +51,25 @@ export const queryKeys = {
   processes: ['system', 'processes'] as const,
 }
 
-export const auditsQuery = () =>
+export const dashboardQuery = (includeBenchmarks: boolean) =>
   queryOptions({
-    queryKey: queryKeys.audits,
-    queryFn: api.listAudits,
-    // Only poll while something is in flight; otherwise the list is static.
-    refetchInterval: (query) => (query.state.data?.some((audit) => !isTerminal(audit.status)) ? 5000 : false),
+    queryKey: queryKeys.dashboard(includeBenchmarks),
+    queryFn: () => api.dashboard(includeBenchmarks),
+    // Keep the current screen while the benchmark toggle loads the other scope.
+    placeholderData: keepPreviousData,
+    // Only poll while something is in flight; otherwise the home screen is static.
+    refetchInterval: (query) => {
+      const summary = query.state.data?.summary
+      return summary && summary.running + summary.queued + summary.hiddenActive > 0 ? 5000 : false
+    },
   })
 
 export const systemQuery = () =>
   queryOptions({ queryKey: queryKeys.system, queryFn: () => api.systemTools(), staleTime: 60_000 })
+
+/** Database and audit-engine liveness (cheap: one query and the worker registry). */
+export const systemHealthQuery = () =>
+  queryOptions({ queryKey: queryKeys.health, queryFn: api.systemHealth, refetchInterval: 30_000 })
 
 export const auditQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.audit(id), queryFn: () => api.getAudit(id) })

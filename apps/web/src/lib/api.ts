@@ -4,10 +4,10 @@ import type {
   Artifact,
   AuditComparison,
   AuditDetail,
-  AuditListItem,
   BenchmarkRunItem,
   ClientReport,
   CreateAuditInput,
+  Dashboard,
   EvidenceItem,
   ExportItem,
   ExportKind,
@@ -15,6 +15,7 @@ import type {
   OwnedProcessItem,
   PageItem,
   SiteHistory,
+  SystemHealth,
   SystemStatus,
   ToolRunItem,
 } from '@audivra/contracts'
@@ -56,7 +57,9 @@ const auditPath = (id: string) => `/api/audits/${encodeURIComponent(id)}`
 
 export const api = {
   systemTools: (refresh = false) => request<SystemStatus>(`/api/system/tools${refresh ? '?refresh=1' : ''}`),
-  listAudits: () => request<AuditListItem[]>('/api/audits'),
+  systemHealth: () => request<SystemHealth>('/api/system/health'),
+  dashboard: (includeBenchmarks: boolean) =>
+    request<Dashboard>(`/api/dashboard${includeBenchmarks ? '?benchmark=1' : ''}`),
   createAudit: (input: CreateAuditInput) =>
     request<AuditDetail>('/api/audits', { method: 'POST', body: JSON.stringify(input) }),
   getAudit: (id: string) => request<AuditDetail>(auditPath(id)),

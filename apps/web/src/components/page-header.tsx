@@ -16,7 +16,8 @@ export function PageHeader({
 }) {
   return (
     <header className={cn('flex flex-wrap items-end gap-x-4 gap-y-3 px-4 pt-5 pb-4 sm:px-6', className)}>
-      <div className="min-w-0 flex-1">
+      {/* The minimum width makes the actions wrap below the title on phones instead of squeezing it. */}
+      <div className="min-w-60 flex-1">
         {breadcrumb ? <div className="mb-1 text-xs text-muted">{breadcrumb}</div> : null}
         <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
         {description ? <p className="mt-0.5 text-sm text-muted">{description}</p> : null}

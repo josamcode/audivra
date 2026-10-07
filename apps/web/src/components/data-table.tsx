@@ -89,6 +89,7 @@ export function DataTable<T>({
   empty,
   className,
   minWidth = 'min-w-180',
+  rowLimit,
 }: {
   table: Table<T>
   onRowClick?: (row: T) => void
@@ -98,8 +99,11 @@ export function DataTable<T>({
   className?: string
   /** Minimum table width before horizontal scrolling kicks in on narrow screens. */
   minWidth?: string
+  /** Render only the first rows of the sorted, filtered result. */
+  rowLimit?: number
 }) {
-  const rows = table.getRowModel().rows
+  const allRows = table.getRowModel().rows
+  const rows = rowLimit === undefined ? allRows : allRows.slice(0, rowLimit)
   return (
     <div className={cn('relative w-full overflow-x-auto', className)}>
       <table className={cn('w-full border-collapse text-sm', minWidth)}>
@@ -170,7 +174,7 @@ export function DataTable<T>({
                 className={cn(
                   'border-b border-border last:border-b-0',
                   onRowClick &&
-                    'cursor-pointer outline-none hover:bg-surface-hover focus-visible:bg-surface-hover',
+                    'group/row cursor-pointer outline-none hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring focus-visible:outline-solid',
                   'data-selected:bg-surface-selected',
                 )}
               >

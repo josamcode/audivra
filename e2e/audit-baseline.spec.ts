@@ -2,8 +2,15 @@ import { expect, test } from '@playwright/test'
 import { FIXTURE_URL } from './env.ts'
 
 test('create an audit of the fixture site and inspect baseline evidence through the UI', async ({ page }) => {
-  // Audits list → New audit
+  // First run (the E2E database starts empty): an empty state instead of empty panels, with System health.
   await page.goto('/')
+  await expect(page.getByText('No audits yet')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Start first audit' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Recent audits' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Summary' })).toHaveCount(0)
+
+  // Audits home → New audit
   await page.getByRole('link', { name: 'New audit' }).first().click()
   await expect(page).toHaveURL(/\/audits\/new$/)
 
@@ -20,6 +27,16 @@ test('create an audit of the fixture site and inspect baseline evidence through 
 
   // Live progress: the header shows the running stage, then completion (pushed over SSE).
   await expect(page.getByText(/Running|Queued/).first()).toBeVisible()
+
+  // While it runs, the home screen leads with it under "Running now", with real stages (no percentage).
+  await page.goto('/')
+  const runningNow = page.locator('section', { has: page.getByRole('heading', { name: 'Running now' }) })
+  await expect(runningNow).toBeVisible()
+  await expect(runningNow.getByText('127.0.0.1:4331')).toBeVisible()
+  await expect(runningNow.getByText('Baseline').first()).toBeVisible()
+  await expect(runningNow).not.toContainText('%')
+  await page.goto(auditUrl)
+
   await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible({ timeout: 5 * 60_000 })
   await expect(page.getByText('Baseline-only audit (AI disabled)')).toBeVisible()
 
@@ -111,6 +128,54 @@ test('visual report, exports and history for finished audits', async ({ page }) 
   const comparison = await page.request.get(`/api/audits/${second}/comparison`)
   expect(comparison.status()).toBe(200)
   expect(((await comparison.json()) as { previous: { id: string } }).previous.id).toBe(id)
+})
+
+test('audits home: real summary, recent audits, system health and the benchmark toggle', async ({ page }) => {
+  type Dashboard = { summary: { totalAudits: number; websites: number; localTargets: number }; audits: { id: string }[] }
+  const dashboard = (await (await page.request.get('/api/dashboard')).json()) as Dashboard
+  expect(dashboard.summary.totalAudits).toBeGreaterThanOrEqual(2)
+
+  await page.goto('/')
+  await expect(page.getByText('Track recent audits, site health, activity, and follow-up opportunities.')).toBeVisible()
+  // Every number comes from the API; the fixture runs on 127.0.0.1, a local target, so no website is counted.
+  const summary = page.getByRole('region', { name: 'Summary' })
+  await expect(summary).toContainText(`Total audits${dashboard.summary.totalAudits}`)
+  await expect(summary).toContainText('Websites audited0')
+  await expect(summary).toContainText(`Excludes ${dashboard.summary.localTargets} local target`)
+  await expect(summary).toContainText('All caught up')
+
+  // Rows are local, baseline-only audits: tagged as such, with no invented findings or trend.
+  const rows = page.locator('tbody tr')
+  await expect(rows).toHaveCount(dashboard.audits.length)
+  await expect(rows.first()).toContainText('Local')
+  await expect(rows.first()).toContainText('Baseline only')
+
+  // Keyboard: a focused row opens with Enter.
+  await rows.first().focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(new RegExp(`/audits/${dashboard.audits[0]!.id}`))
+  await page.goBack()
+
+  // Search filters the list; an unmatched query says so.
+  await page.getByRole('textbox', { name: 'Search audits or websites' }).fill('no-such-site.example')
+  await expect(page.getByText('No audits match')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(rows).toHaveCount(dashboard.audits.length)
+
+  // Local targets never become business follow-ups; the runtime state is real.
+  await expect(page.getByText('No follow-ups yet')).toBeVisible()
+  const health = page.locator('section', { has: page.getByRole('heading', { name: 'System health' }) })
+  await expect(health.getByText('Audit engine')).toBeVisible()
+  await expect(health.getByText('Running', { exact: true })).toBeVisible()
+  await expect(health.getByText('Healthy', { exact: true })).toBeVisible()
+
+  // Benchmark audits are opt-in and the choice lives in the URL. With none recorded, turning it off hides it.
+  await page.goto('/?benchmark=true')
+  const toggle = page.getByRole('switch', { name: 'Show benchmark audits' })
+  await expect(toggle).toBeChecked()
+  await toggle.click()
+  await expect(page).not.toHaveURL(/benchmark/)
+  await expect(toggle).toHaveCount(0)
 })
 
 test('system page lists tool availability', async ({ page }) => {
