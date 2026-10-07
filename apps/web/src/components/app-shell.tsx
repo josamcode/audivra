@@ -38,7 +38,7 @@ function NavItem({ item, compact = false }: { item: (typeof NAV)[number]; compac
   return (
     <Link
       to={item.to}
-      activeOptions={{ exact: item.exact ?? false }}
+      activeOptions={{ exact: item.exact ?? false, includeSearch: false }}
       className={cn(
         'flex h-8 items-center gap-2 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-surface-hover hover:text-foreground',
         'data-[status=active]:bg-surface-selected data-[status=active]:text-foreground',
