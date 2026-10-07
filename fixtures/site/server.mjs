@@ -237,7 +237,43 @@ button { margin-top: 16px; padding: 12px 20px; font-size: 16px; background: #1d4
 [dir="rtl"] body, [dir="rtl"] { text-align: right; }
 `
 
-const ATLAS_HERO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360"><rect width="960" height="360" fill="#ecfdf5"/><circle cx="760" cy="180" r="120" fill="#a7f3d0"/><text x="60" y="200" font-family="Arial" font-size="44" fill="#065f46">Move better, recover faster</text></svg>`
+let atlasFavicon = null
+/** A 16×16 32-bit .ico (the healthy site must not 404 on /favicon.ico). */
+function faviconIco() {
+  if (atlasFavicon) return atlasFavicon
+  const size = 16
+  const pixelBytes = size * size * 4
+  const maskBytes = size * 4
+  const bmpSize = 40 + pixelBytes + maskBytes
+  const buf = Buffer.alloc(6 + 16 + bmpSize)
+  buf.writeUInt16LE(0, 0)
+  buf.writeUInt16LE(1, 2)
+  buf.writeUInt16LE(1, 4)
+  buf[6] = size
+  buf[7] = size
+  buf.writeUInt16LE(1, 10)
+  buf.writeUInt16LE(32, 12)
+  buf.writeUInt32LE(bmpSize, 14)
+  buf.writeUInt32LE(22, 18)
+  const o = 22
+  buf.writeUInt32LE(40, o)
+  buf.writeInt32LE(size, o + 4)
+  buf.writeInt32LE(size * 2, o + 8)
+  buf.writeUInt16LE(1, o + 12)
+  buf.writeUInt16LE(32, o + 14)
+  buf.writeUInt32LE(pixelBytes + maskBytes, o + 20)
+  for (let i = 0; i < size * size; i++) {
+    const p = o + 40 + i * 4
+    buf[p] = 0x3d // B
+    buf[p + 1] = 0x65 // G
+    buf[p + 2] = 0x16 // R
+    buf[p + 3] = 0xff
+  }
+  atlasFavicon = buf
+  return buf
+}
+
+const ATLAS_HERO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360"><rect width="960" height="360" fill="#ecfdf5"/><circle cx="760" cy="180" r="120" fill="#a7f3d0"/><circle cx="220" cy="230" r="70" fill="#d1fae5"/></svg>`
 
 function healthySite(port) {
   const base = `http://127.0.0.1:${port}`
@@ -282,7 +318,9 @@ function healthySite(port) {
 <link rel="alternate" hreflang="en" href="${base}${pairs[key].en}">
 <link rel="alternate" hreflang="ar" href="${base}${pairs[key].ar}">
 <link rel="alternate" hreflang="x-default" href="${base}${pairs[key].en}">
+<link rel="icon" href="/favicon.ico" sizes="16x16">
 <link rel="stylesheet" href="/styles.css">
+${key === 'home' ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'MedicalBusiness', name: l.name, url: `${base}${own}`, telephone: '+203000000000', priceRange: '600-750 EGP', address: { '@type': 'PostalAddress', streetAddress: '4 Garden St', addressLocality: 'Alexandria', addressCountry: 'EG' } })}</script>` : ''}
 </head>
 <body>
 <header>
@@ -296,7 +334,7 @@ function healthySite(port) {
 ${body}
 </main>
 <footer>
-  <p>${l.footer} · <a href="tel:+203000000000">+20 3 000 0000</a> · <a href="https://wa.me/203000000000">WhatsApp</a> · <a href="${pairs.privacy[lang]}">${l.privacy}</a></p>
+  <p>${l.footer} · <a href="tel:+203000000000" dir="ltr">+20 3 000 0000</a> · <a href="https://wa.me/203000000000">WhatsApp</a> · <a href="${pairs.privacy[lang]}">${l.privacy}</a></p>
 </footer>
 </body>
 </html>`
@@ -322,7 +360,7 @@ ${body}
       layout('en', 'home', {
         title: 'Atlas Physio — Physiotherapy in Alexandria',
         description: 'Evidence-based physiotherapy for back pain, sports injuries and rehabilitation in Alexandria.',
-        body: `<img src="/img/hero.svg" width="960" height="360" alt="Physiotherapist guiding a patient through a stretching exercise">
+        body: `<img src="/img/hero.svg" width="960" height="360" alt="">
 <h1>Physiotherapy in Alexandria</h1>
 <p>Evidence-based treatment for back pain, sports injuries and post-surgery rehabilitation. Same-week appointments.</p>
 <p><a class="cta" href="https://wa.me/203000000000">Book on WhatsApp</a></p>
@@ -348,7 +386,7 @@ ${body}
       layout('en', 'contact', {
         title: 'Contact and booking | Atlas Physio',
         description: 'Book a physiotherapy appointment by WhatsApp, phone or the booking form.',
-        body: `<h1>Book an appointment</h1><p>Message us on <a href="https://wa.me/203000000000">WhatsApp</a>, call <a href="tel:+203000000000">+20 3 000 0000</a> or send the form.</p>${contactForm('en')}`,
+        body: `<h1>Book an appointment</h1><p>Message us on <a href="https://wa.me/203000000000">WhatsApp</a>, call <a href="tel:+203000000000" dir="ltr">+20 3 000 0000</a> or send the form.</p>${contactForm('en')}`,
       }),
     '/privacy': () =>
       layout('en', 'privacy', {
@@ -362,7 +400,7 @@ ${body}
       layout('ar', 'home', {
         title: 'أطلس للعلاج الطبيعي في الإسكندرية',
         description: 'علاج طبيعي قائم على الأدلة لآلام الظهر وإصابات الملاعب وإعادة التأهيل في الإسكندرية.',
-        body: `<img src="/img/hero.svg" width="960" height="360" alt="أخصائي علاج طبيعي يساعد مريضًا في تمرين إطالة">
+        body: `<img src="/img/hero.svg" width="960" height="360" alt="">
 <h1>العلاج الطبيعي في الإسكندرية</h1>
 <p>علاج قائم على الأدلة لآلام الظهر وإصابات الملاعب وإعادة التأهيل بعد الجراحة. مواعيد في نفس الأسبوع.</p>
 <p><a class="cta" href="https://wa.me/203000000000">احجز عبر واتساب</a></p>
@@ -402,6 +440,7 @@ ${body}
   const assets = {
     '/styles.css': ['text/css', ATLAS_STYLES],
     '/img/hero.svg': ['image/svg+xml', ATLAS_HERO_SVG],
+    '/favicon.ico': ['image/x-icon', null],
     '/robots.txt': ['text/plain', `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`],
   }
   const sitemapUrls = ['/', '/services', '/about', '/contact', '/privacy', '/ar/', '/ar/services', '/ar/about', '/ar/contact', '/ar/privacy']
@@ -446,7 +485,7 @@ ${s.sitemapUrls.map((u) => `  <url><loc>http://127.0.0.1:${port}${u}</loc></url>
     }
     if (s.assets[path]) {
       const [type, body] = s.assets[path]
-      const content = body ?? (path === '/img/hero-large.bmp' ? heavyHeroImage() : '')
+      const content = body ?? (path === '/img/hero-large.bmp' ? heavyHeroImage() : path === '/favicon.ico' ? faviconIco() : '')
       res.writeHead(200, { 'content-type': type, ...s.headers })
       return res.end(req.method === 'HEAD' ? undefined : content)
     }
