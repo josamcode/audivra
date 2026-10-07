@@ -5,7 +5,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Globe, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { PageHeader } from '@/components/page-header'
+import { PageFrame, PageHeader, pageColumns } from '@/components/page-header'
 import { Panel, PanelBody, PanelHeader, SectionLabel } from '@/components/panel'
 import { Notice } from '@/components/states'
 import { Dot } from '@/components/ui/badge'
@@ -102,17 +102,9 @@ function NewAuditPage() {
   const { errors } = form.formState
 
   return (
-    <div className="mx-auto max-w-7xl pb-10">
-      <PageHeader
-        title="New audit"
-        description="Paste a website. Business context is inferred from the public site."
-        breadcrumb={
-          <Link to="/" className="hover:text-foreground">
-            Audits
-          </Link>
-        }
-      />
-      <div className="grid max-w-5xl items-start gap-4 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="pb-10">
+      <PageHeader title="New audit" description="Paste a website. Business context is inferred from the public site." />
+      <PageFrame className={pageColumns}>
         <Panel>
           <PanelHeader title="Target" />
           <PanelBody>
@@ -196,7 +188,7 @@ function NewAuditPage() {
             </div>
           </PanelBody>
         </Panel>
-      </div>
+      </PageFrame>
     </div>
   )
 }

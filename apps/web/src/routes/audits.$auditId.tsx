@@ -4,6 +4,7 @@ import { FileQuestion } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { EmptyState, ErrorState } from '@/components/states'
 import { FindingDrawer } from '@/components/finding-drawer'
+import { PageFrame, pageFrame } from '@/components/page-header'
 import { buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TabPanel, Tabs } from '@/components/ui/tabs'
@@ -31,6 +32,7 @@ import {
   visualsQuery,
 } from '@/lib/queries'
 import { useAuditStream } from '@/lib/use-audit-stream'
+import { cn } from '@/lib/utils'
 
 export interface AuditSearch {
   tab?: AuditTab
@@ -83,8 +85,8 @@ export const Route = createFileRoute('/audits/$auditId')({
 function AuditSkeleton() {
   return (
     <div>
-      <div className="border-b border-border bg-surface px-4 pt-4 pb-3 sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2">
+      <div className="border-b border-border bg-surface">
+        <div className={cn(pageFrame, 'flex flex-col gap-2 pt-5 pb-3')}>
           <Skeleton className="h-3 w-24" />
           <Skeleton className="h-6 w-56" />
           <Skeleton className="h-3 w-72" />
@@ -175,8 +177,8 @@ function AuditPage() {
         <Tabs
           value={tab}
           onValueChange={(next) => setSearch({ tab: next, ev: undefined, view: undefined, page: undefined })}
-          barClassName="bg-surface px-4 sm:px-6"
-          listClassName="mx-auto max-w-7xl"
+          barClassName="bg-surface"
+          listClassName={pageFrame}
           items={[
             { value: 'overview', label: 'Overview' },
             {
@@ -192,7 +194,7 @@ function AuditPage() {
             { value: 'runs', label: 'Runs' },
           ]}
         >
-          <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6">
+          <PageFrame className="pt-4">
             <TabPanel value="overview">
               <OverviewTab
                 audit={data}
@@ -262,7 +264,7 @@ function AuditPage() {
             <TabPanel value="runs">
               <RunsTab audit={data} />
             </TabPanel>
-          </div>
+          </PageFrame>
         </Tabs>
         <FindingDrawer
           auditId={auditId}

@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { ExternalLink, FileText, Loader2, RotateCw, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusBadge } from '@/components/badges'
+import { pageFrame } from '@/components/page-header'
 import { StageProgress } from '@/components/stage-progress'
 import { Dot } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -12,6 +13,7 @@ import { api } from '@/lib/api'
 import { durationBetween, formatDateTime, formatDuration } from '@/lib/format'
 import { isFinished, isTerminal, queryKeys } from '@/lib/queries'
 import type { StreamState } from '@/lib/use-audit-stream'
+import { cn } from '@/lib/utils'
 import { ExportMenu } from './export-menu'
 
 function LiveIndicator({ state }: { state: StreamState }) {
@@ -63,8 +65,8 @@ export function AuditHeader({
   const duration = durationBetween(audit.startedAt, audit.finishedAt, now)
 
   return (
-    <header className="bg-surface px-4 pt-4 sm:px-6">
-      <div className="mx-auto max-w-7xl">
+    <header className="bg-surface">
+      <div className={cn(pageFrame, 'pt-5')}>
         <div className="mb-1 text-xs text-muted">
           <Link to="/" className="hover:text-foreground">
             Audits
@@ -73,7 +75,8 @@ export function AuditHeader({
           <span className="font-mono">{audit.id}</span>
         </div>
         <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-          <div className="min-w-0 flex-1">
+          {/* As in PageHeader: on phones the actions wrap below the title instead of truncating it. */}
+          <div className="min-w-60 flex-1">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
               <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
                 {audit.domain}

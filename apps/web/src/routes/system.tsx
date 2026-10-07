@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { PageHeader } from '@/components/page-header'
+import { PageFrame, PageHeader, pageFrame } from '@/components/page-header'
 import { Panel } from '@/components/panel'
 import { ErrorState } from '@/components/states'
 import { Button } from '@/components/ui/button'
@@ -43,7 +43,7 @@ function SystemPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl pb-10">
+    <div className="pb-10">
       <PageHeader
         title="System"
         description={
@@ -68,14 +68,14 @@ function SystemPage() {
       <Tabs
         value={tab}
         onValueChange={(next) => void navigate({ search: { tab: next === 'tools' ? undefined : next }, replace: true })}
-        barClassName="px-4 sm:px-6"
+        listClassName={pageFrame}
         items={[
           { value: 'tools', label: 'Tools', count: system.data?.tools.length ?? null },
           { value: 'quality', label: 'Quality' },
           { value: 'processes', label: 'Processes' },
         ]}
       >
-        <div className="px-4 pt-4 sm:px-6">
+        <PageFrame className="pt-4">
           <TabPanel value="tools">
             {system.isError ? (
               <Panel>
@@ -105,7 +105,7 @@ function SystemPage() {
               onRetry={() => void processes.refetch()}
             />
           </TabPanel>
-        </div>
+        </PageFrame>
       </Tabs>
     </div>
   )
