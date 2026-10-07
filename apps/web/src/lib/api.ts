@@ -1,0 +1,75 @@
+import type {
+  ActivityEvent,
+  AgentRunItem,
+  AuditDetail,
+  AuditListItem,
+  CreateAuditInput,
+  EvidenceItem,
+  FindingItem,
+  PageItem,
+  SystemStatus,
+  ToolRunItem,
+} from '@audivra/contracts'
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers: { Accept: 'application/json', ...(init?.body ? { 'Content-Type': 'application/json' } : {}) },
+    })
+  } catch {
+    throw new ApiError('Cannot reach the Audivra API. Is the server running?', 0)
+  }
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`
+    try {
+      const body = (await response.json()) as { error?: string }
+      if (body.error) message = body.error
+    } catch {
+      // non-JSON error body
+    }
+    throw new ApiError(message, response.status)
+  }
+  return (await response.json()) as T
+}
+
+const auditPath = (id: string) => `/api/audits/${encodeURIComponent(id)}`
+
+export const api = {
+  systemTools: (refresh = false) => request<SystemStatus>(`/api/system/tools${refresh ? '?refresh=1' : ''}`),
+  listAudits: () => request<AuditListItem[]>('/api/audits'),
+  createAudit: (input: CreateAuditInput) =>
+    request<AuditDetail>('/api/audits', { method: 'POST', body: JSON.stringify(input) }),
+  getAudit: (id: string) => request<AuditDetail>(auditPath(id)),
+  cancelAudit: (id: string) => request<AuditDetail>(`${auditPath(id)}/cancel`, { method: 'POST' }),
+  retryAudit: (id: string) => request<AuditDetail>(`${auditPath(id)}/retry`, { method: 'POST' }),
+  findings: (id: string) => request<FindingItem[]>(`${auditPath(id)}/findings`),
+  evidence: (id: string) => request<EvidenceItem[]>(`${auditPath(id)}/evidence`),
+  evidenceItem: (id: string, ref: string) =>
+    request<EvidenceItem>(`${auditPath(id)}/evidence/${encodeURIComponent(ref)}`),
+  pages: (id: string) => request<PageItem[]>(`${auditPath(id)}/pages`),
+  toolRuns: (id: string) => request<ToolRunItem[]>(`${auditPath(id)}/tool-runs`),
+  agentRuns: (id: string) => request<AgentRunItem[]>(`${auditPath(id)}/agent-runs`),
+  events: (id: string) => request<ActivityEvent[]>(`${auditPath(id)}/events`),
+}
+
+/** URL of a workspace artifact served by the API. */
+export function artifactUrl(auditId: string, artifactPath: string, download = false): string {
+  const clean = artifactPath.replace(/\\/g, '/').split('/').filter(Boolean).map(encodeURIComponent).join('/')
+  return `${auditPath(auditId)}/artifacts/${clean}${download ? '?download=1' : ''}`
+}
+
+export function streamUrl(auditId: string, afterId: number): string {
+  return `${auditPath(auditId)}/stream?after=${afterId}`
+}
