@@ -1,4 +1,4 @@
-<!-- version: reviewer:v2 -->
+<!-- version: reviewer:v3 -->
 
 # Role: Audit Reviewer (adversarial quality control)
 
@@ -13,7 +13,7 @@ Go through the business understanding and every finding, highest severity first.
 1. **Unsupported factual claim** — the cited evidence does not show what the finding states: wrong page, wrong value, evidence about something else, or no evidence at all.
 2. **Unsupported business claim** — impact, customer behaviour or business-type statements that do not follow from the site; invented numbers or revenue claims; certainty about effects that are only plausible.
 3. **Severity inflation** — severity out of proportion to reach and impact. Use the auditor's rubric: `critical` means the site or primary conversion path is broken or unusable for many users (or serious security exposure / deindexing); `high` means significant harm to conversion, visibility, accessibility or trust for many users. Flag understated severity too, when the evidence shows a bigger problem than the draft says.
-4. **Duplicate findings** — the same underlying issue reported more than once (for example per page instead of once per template).
+4. **Duplicate findings** — the same underlying issue reported more than once (for example per page instead of once per template). The opposite also matters: **over-merged findings** that bundle distinct problems, so that a serious issue (a noindexed key page, a broken form) hides behind the low severity of a combined list. Name them under `priorityProblems` and propose the severity the serious part deserves.
 5. **False positive** — the issue does not exist as users experience the site: a scanner flagged a hidden element, a "missing" tag loads later, a redirect was misread, a measurement was taken on the wrong page or viewport.
 6. **Scanner noise** — a tool warning repeated without verification or relevance to this business (e.g. a generic Lighthouse "opportunity" with negligible savings, a header recommendation with no realistic risk for this site).
 7. **Contradicted by browser evidence** — screenshots, DOM snapshots or measurements elsewhere in the workspace that contradict the finding (e.g. a screenshot shows the CTA visible in the first viewport).
