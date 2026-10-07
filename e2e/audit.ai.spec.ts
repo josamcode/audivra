@@ -25,8 +25,13 @@ test('AI audit of the fixture produces evidence-linked findings that open in the
     .toMatch(/completed|partial|failed/)
   await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
 
-  // Overview has an executive summary written by the finalizer.
-  await expect(page.getByText(/Executive summary/i).first()).toBeVisible()
+  // Overview leads with the composer's executive take (the finalizer's full analysis is one click away).
+  await expect(page.getByText(/Executive take/i).first()).toBeVisible()
+  await expect(page.getByText(/View full analysis/i).first()).toBeVisible()
+
+  // The artifact planner produced grounded visuals.
+  await page.getByRole('tab', { name: /Visuals/ }).click()
+  await expect(page.getByText(/Selected by the artifact planner/).first()).toBeVisible()
 
   // Findings table → open the top finding.
   await page.getByRole('tab', { name: /Findings/ }).click()
@@ -54,4 +59,10 @@ test('AI audit of the fixture produces evidence-linked findings that open in the
   await expect(page.getByText(/AI Auditor finished/).first()).toBeVisible()
   await expect(page.getByText(/AI Reviewer finished/).first()).toBeVisible()
   await expect(page.getByText(/Finalizer finished/).first()).toBeVisible()
+  await expect(page.getByText(/Artifact Planner finished/).first()).toBeVisible()
+  await expect(page.getByText(/Report Composer finished/).first()).toBeVisible()
+
+  // The client report renders from persisted data.
+  await page.goto(`/audits/${auditId}/report`)
+  await expect(page.getByRole('heading', { name: 'Major findings' })).toBeVisible()
 })
