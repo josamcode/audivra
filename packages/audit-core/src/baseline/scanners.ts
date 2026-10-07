@@ -119,9 +119,9 @@ export async function runZapBaseline(ws: Workspace, url: string, options: ScanOp
     '-r',
     'zap.html',
     '-I',
-    // Passive only: the spider never fills in or submits forms.
+    // Passive only: the spider never fills in or submits forms, and uses one thread to stay gentle.
     '-z',
-    '-config spider.processform=false -config spider.postform=false',
+    '-config spider.processform=false -config spider.postform=false -config spider.thread=1',
   ]
   const result = await runProcess({
     command: 'docker',

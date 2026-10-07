@@ -458,8 +458,9 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
       }
     }
   })()
-  // Passive security scan (spider + passive rules, forms never submitted). Runs alongside the browser work.
-  const zapWork = (async () => {
+  // Passive security scan (spider + passive rules, forms never submitted). Runs after the browser and
+  // link work, never concurrently with other traffic-generating steps (see "Polite ordering" below).
+  const runZap = async () => {
     if (!(await scannerReady('zap', 'Passive security scan (OWASP ZAP baseline)'))) return
     const run = await ctx.toolRun('zap', 'OWASP ZAP baseline: 1-minute spider + passive rules (no active scan)', finalUrl, async () => {
       const { summary, command } = await runZapBaseline(ctx.ws, finalUrl, { auditId: ctx.auditId, signal: ctx.signal })
@@ -485,7 +486,7 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
         metadata: { kind: 'zap', riskCounts: z.riskCounts, alerts: z.alerts.slice(0, 40), reportJson: z.reportJson },
       })
     ).ref
-  })()
+  }
   // Deep TLS inspection for HTTPS targets: protocols, certificate, cipher preference (no vulnerability probes).
   const testsslWork = (async () => {
     if (!finalUrl.startsWith('https:')) return
@@ -519,7 +520,7 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
     ).ref
   })()
   // Extra discovery (JavaScript-referenced URLs) beyond the crawler; bounded and rate-limited.
-  const katanaWork = (async () => {
+  const runKatanaDiscovery = async () => {
     if (!(await scannerReady('katana', 'Extra URL discovery (Katana)'))) return
     const run = await ctx.toolRun('katana', 'Katana discovery (depth 2, JS parsing, 45 s, 2 req/s)', finalUrl, async () => {
       const { summary, command } = await runKatana(ctx.ws, finalUrl, { auditId: ctx.auditId, signal: ctx.signal })
@@ -553,7 +554,7 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
         metadata: { kind: 'katana', endpoints: k.endpoints, blocked: k.blocked, pageUrls: k.pageUrls.slice(0, 60), newUrls: fresh.slice(0, 60) },
       })
     ).ref
-  })()
+  }
   const linkWork = (async () => {
     if (!data.crawl) return
     const linkRun = await ctx.toolRun(
@@ -608,7 +609,14 @@ export async function runBaseline(ctx: AuditContext, options: BaselineOptions): 
       ).ref
     }
   })()
-  const settled = await Promise.allSettled([browserWork, linkWork, zapWork, testsslWork, katanaWork, httpxWork])
+  const settled = await Promise.allSettled([browserWork, linkWork, testsslWork, httpxWork])
+  // Polite ordering: the remaining traffic-generating scanners run one after another, after the
+  // measurements, so the target never sees overlapping bursts. Concurrent crawling can trip bot
+  // protection, which then blocks the audit itself (observed on a Vercel-hosted site).
+  for (const step of [runKatanaDiscovery, runZap]) {
+    if (ctx.signal.aborted) break
+    settled.push(await Promise.allSettled([step()]).then((r) => r[0]!))
+  }
   for (const outcome of settled) {
     if (outcome.status === 'rejected') {
       if (ctx.signal.aborted) ctx.throwIfCancelled()
