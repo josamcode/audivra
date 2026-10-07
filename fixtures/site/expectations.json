@@ -8,27 +8,197 @@
       "variant": "v1",
       "healthy": false,
       "issues": [
-        { "id": "mobile-overflow", "description": "Promo banner is 1200px wide and overflows the 390px mobile viewport", "deterministic": true, "match": "overflow|horizontal(ly)? scroll|wider than the (mobile )?viewport|1200 ?px|promo.banner", "severity": ["medium", "high"], "evidence": "overflow|mobile|390" },
-        { "id": "js-error", "description": "app.js throws ReferenceError: initBookingWidget is not defined on every page", "deterministic": true, "match": "initBookingWidget|ReferenceError|javascript error|js error|console error|script error", "severity": ["low", "medium", "high"], "evidence": "console|initBookingWidget|error" },
-        { "id": "broken-links", "description": "Links and resources return 404 (/services/old-page, /privacy-policy, team-photo.jpg, legacy-theme.css)", "deterministic": true, "match": "broken|404|not found|dead link|missing (image|stylesheet|resource)|old-page|privacy-policy|team-photo|legacy-theme", "severity": ["low", "medium", "high"], "evidence": "broken|404|link" },
-        { "id": "missing-alt", "description": "Hero and team images have no alt attribute", "deterministic": true, "match": "\\balt\\b|alternative text|alt text|alt attribute", "severity": ["low", "medium"], "evidence": "axe|alt|image" },
-        { "id": "cta-not-focusable", "description": "Primary CTA and form submit are clickable <div>s, not links/buttons (no keyboard access)", "deterministic": true, "match": "keyboard|focusable|not (a )?(real )?(link|button)|clickable div|<div|div element|non-semantic", "categories": ["Accessibility", "Conversion", "UX", "Broken Functionality", "Mobile"], "severity": ["medium", "high"] },
-        { "id": "form-labels", "description": "Contact and call-back form fields have no labels; the contact submit button is empty", "deterministic": true, "match": "label|empty (submit )?button|button (has )?no (text|accessible name)|accessible name", "severity": ["low", "medium", "high"], "evidence": "axe|label|form" },
-        { "id": "arabic-rtl", "description": "/ar/ declares lang=ar but not dir=rtl", "deterministic": true, "match": "\\bdir\\b|rtl|right-to-left|direction", "severity": ["medium", "high"], "evidence": "ar|direction|dir|rtl" },
-        { "id": "arabic-mixed-language", "description": "/ar/ shows the English CTA 'Book on WhatsApp' and English navigation", "deterministic": true, "match": "mixed[- ]language|english (cta|text|button|navigation|nav|labels?)|untranslated|not translated|in english on the arabic", "severity": ["low", "medium", "high"] },
-        { "id": "no-hreflang", "description": "No hreflang annotations between the English and Arabic pages", "deterministic": true, "match": "hreflang|alternate language", "severity": ["low", "medium"] },
-        { "id": "no-tracking", "description": "No analytics or conversion tracking at all although WhatsApp is the main conversion", "deterministic": true, "match": "analytics|tracking|conversion (events?|measurement)|measure", "severity": ["medium", "high"], "evidence": "tracking|analytics" },
-        { "id": "meta-issues", "description": "Homepage without meta description; duplicate titles and descriptions; /services has no H1; /about has two H1s", "deterministic": true, "match": "meta description|duplicate (title|description)|missing (title|description|h1)|\\bh1\\b|heading structure", "severity": ["low", "medium"], "evidence": "seo|title|description|h1" },
-        { "id": "wrong-canonical", "description": "/services/implants canonical points to http://localhost:9/services", "deterministic": true, "match": "canonical", "severity": ["medium", "high"] },
-        { "id": "sitemap-404", "description": "The sitemap lists /old-offers which returns 404", "deterministic": true, "match": "sitemap", "severity": ["low", "medium"] },
-        { "id": "low-contrast", "description": "Rating and founder text use #c7cbd1 on white (about 1.6:1)", "deterministic": true, "match": "contrast", "severity": ["low", "medium"] },
-        { "id": "security-headers", "description": "No security headers; X-Powered-By discloses the server", "deterministic": true, "match": "security headers?|content-security-policy|\\bcsp\\b|x-frame-options|x-content-type|x-powered-by|clickjacking", "severity": ["info", "low", "medium"] },
-        { "id": "trust-proof", "description": "Thin trust content (no reviews detail, credentials or before/after proof) — subjective", "deterministic": false, "match": "trust|social proof|testimonial|reviews?|credential", "severity": ["low", "medium"] }
+        {
+          "id": "mobile-overflow",
+          "description": "Promo banner is 1200px wide and overflows the 390px mobile viewport",
+          "deterministic": true,
+          "match": "overflow|horizontal(ly)? scroll|wider than the (mobile )?viewport|1200 ?px|promo.banner",
+          "severity": [
+            "medium",
+            "high"
+          ],
+          "evidence": "overflow|mobile|390"
+        },
+        {
+          "id": "js-error",
+          "description": "app.js throws ReferenceError: initBookingWidget is not defined on every page",
+          "deterministic": true,
+          "match": "initBookingWidget|ReferenceError|javascript error|js error|console error|script error",
+          "severity": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "evidence": "console|initBookingWidget|error"
+        },
+        {
+          "id": "broken-links",
+          "description": "Links and resources return 404 (/services/old-page, /privacy-policy, team-photo.jpg, legacy-theme.css)",
+          "deterministic": true,
+          "match": "broken|404|not found|dead link|missing (image|stylesheet|resource)|old-page|privacy-policy|team-photo|legacy-theme",
+          "severity": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "evidence": "broken|404|link"
+        },
+        {
+          "id": "missing-alt",
+          "description": "Hero and team images have no alt attribute",
+          "deterministic": true,
+          "match": "\\balt\\b|alternative text|alt text|alt attribute",
+          "severity": [
+            "low",
+            "medium"
+          ],
+          "evidence": "axe|alt|image"
+        },
+        {
+          "id": "cta-not-focusable",
+          "description": "Primary CTA and form submit are clickable <div>s, not links/buttons (no keyboard access)",
+          "deterministic": true,
+          "match": "keyboard|focusable|not (a )?(real )?(link|button)|clickable div|<div|div element|non-semantic",
+          "categories": [
+            "Accessibility",
+            "Conversion",
+            "UX",
+            "Broken Functionality",
+            "Mobile"
+          ],
+          "severity": [
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "form-labels",
+          "description": "Contact and call-back form fields have no labels; the contact submit button is empty",
+          "deterministic": true,
+          "match": "label|empty (submit )?button|button (has )?no (text|accessible name)|accessible name",
+          "severity": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "evidence": "axe|label|form"
+        },
+        {
+          "id": "arabic-rtl",
+          "description": "/ar/ declares lang=ar but not dir=rtl",
+          "deterministic": true,
+          "match": "\\bdir\\b|rtl|right-to-left|direction",
+          "severity": [
+            "medium",
+            "high"
+          ],
+          "evidence": "ar|direction|dir|rtl"
+        },
+        {
+          "id": "arabic-mixed-language",
+          "description": "/ar/ shows the English CTA 'Book on WhatsApp' and English navigation",
+          "deterministic": true,
+          "match": "mixed[- ]language|english (ui|cta|text|button|copy|navigation|nav|labels?)|(are|is|remains?|stays?|kept) in english|untranslated|not translated|in english on the arabic",
+          "severity": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "no-hreflang",
+          "description": "No hreflang annotations between the English and Arabic pages",
+          "deterministic": true,
+          "match": "hreflang|alternate language",
+          "severity": [
+            "low",
+            "medium"
+          ]
+        },
+        {
+          "id": "no-tracking",
+          "description": "No analytics or conversion tracking at all although WhatsApp is the main conversion",
+          "deterministic": true,
+          "match": "analytics|tracking|conversion (events?|measurement)|measure",
+          "severity": [
+            "medium",
+            "high"
+          ],
+          "evidence": "tracking|analytics"
+        },
+        {
+          "id": "meta-issues",
+          "description": "Homepage without meta description; duplicate titles and descriptions; /services has no H1; /about has two H1s",
+          "deterministic": true,
+          "match": "meta description|duplicate (title|description)|missing (title|description|h1)|\\bh1\\b|heading structure",
+          "severity": [
+            "low",
+            "medium"
+          ],
+          "evidence": "seo|title|description|h1"
+        },
+        {
+          "id": "wrong-canonical",
+          "description": "/services/implants canonical points to http://localhost:9/services",
+          "deterministic": true,
+          "match": "canonical",
+          "severity": [
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "sitemap-404",
+          "description": "The sitemap lists /old-offers which returns 404",
+          "deterministic": true,
+          "match": "sitemap",
+          "severity": [
+            "low",
+            "medium"
+          ]
+        },
+        {
+          "id": "low-contrast",
+          "description": "Rating and founder text use #c7cbd1 on white (about 1.6:1)",
+          "deterministic": true,
+          "match": "contrast",
+          "severity": [
+            "low",
+            "medium"
+          ]
+        },
+        {
+          "id": "security-headers",
+          "description": "No security headers; X-Powered-By discloses the server",
+          "deterministic": true,
+          "match": "security headers?|content-security-policy|\\bcsp\\b|x-frame-options|x-content-type|x-powered-by|clickjacking",
+          "severity": [
+            "info",
+            "low",
+            "medium"
+          ]
+        },
+        {
+          "id": "trust-proof",
+          "description": "Thin trust content (no reviews detail, credentials or before/after proof) — subjective",
+          "deterministic": false,
+          "match": "trust|social proof|testimonial|reviews?|credential",
+          "severity": [
+            "low",
+            "medium"
+          ]
+        }
       ],
       "absent": [
-        { "id": "slow-performance", "description": "The fixture is a tiny local site; it is not slow", "match": "\\bslow\\b|largest contentful paint is|lcp (of|is|above)|poor performance|page weight is (high|large)|heavy page" }
+        {
+          "id": "slow-performance",
+          "description": "The fixture is a tiny local site; it is not slow",
+          "match": "\\bslow\\b|largest contentful paint is|lcp (of|is|above)|poor performance|page weight is (high|large)|heavy page"
+        }
       ],
-      "tolerated": ["https|\\btls\\b|\\bssl\\b|hsts|certificate|plain http|unencrypted|localhost|127\\.0\\.0\\.1"]
+      "tolerated": [
+        "https|\\btls\\b|\\bssl\\b|hsts|certificate|plain http|unencrypted|localhost|127\\.0\\.0\\.1"
+      ]
     },
     {
       "id": "v2",
@@ -36,22 +206,129 @@
       "variant": "v2",
       "healthy": false,
       "issues": [
-        { "id": "mobile-overflow", "description": "Promo banner still overflows the mobile viewport", "deterministic": true, "match": "overflow|horizontal(ly)? scroll|wider than the (mobile )?viewport|1200 ?px|promo.banner", "severity": ["medium", "high"], "evidence": "overflow|mobile|390" },
-        { "id": "contact-noindex", "description": "NEW: /contact carries <meta name=robots content=noindex, nofollow>", "deterministic": true, "match": "noindex|no-index|nofollow|excluded from (search|index)|not indexed", "severity": ["medium", "high"], "evidence": "noindex|robots|seo" },
-        { "id": "heavy-hero", "description": "NEW: the homepage hero is an uncompressed ~4.3 MB BMP", "deterministic": true, "match": "bmp|hero image|heavy|page weight|image (size|weight|optimi[sz])|uncompressed|4\\.\\d ?mb|megabyte|lcp|largest contentful", "severity": ["medium", "high"], "evidence": "lighthouse|weight|hero|bmp|image" },
-        { "id": "cta-not-focusable", "description": "Primary CTA is still a clickable <div>", "deterministic": true, "match": "keyboard|focusable|not (a )?(real )?(link|button)|clickable div|<div|div element|non-semantic", "categories": ["Accessibility", "Conversion", "UX", "Broken Functionality", "Mobile"], "severity": ["medium", "high"] },
-        { "id": "form-labels", "description": "Form fields still have no labels", "deterministic": true, "match": "label|empty (submit )?button|button (has )?no (text|accessible name)|accessible name", "severity": ["low", "medium", "high"] },
-        { "id": "arabic-rtl", "description": "/ar/ still lacks dir=rtl", "deterministic": true, "match": "\\bdir\\b|rtl|right-to-left|direction", "severity": ["medium", "high"] },
-        { "id": "no-tracking", "description": "Still no analytics or conversion tracking", "deterministic": true, "match": "analytics|tracking|conversion (events?|measurement)|measure", "severity": ["medium", "high"] },
-        { "id": "wrong-canonical", "description": "/services/implants canonical still points elsewhere", "deterministic": true, "match": "canonical", "severity": ["medium", "high"] },
-        { "id": "broken-privacy", "description": "The footer privacy-policy link still returns 404", "deterministic": true, "match": "privacy|broken|404|not found", "severity": ["low", "medium", "high"] }
+        {
+          "id": "mobile-overflow",
+          "description": "Promo banner still overflows the mobile viewport",
+          "deterministic": true,
+          "match": "overflow|horizontal(ly)? scroll|wider than the (mobile )?viewport|1200 ?px|promo.banner",
+          "severity": [
+            "medium",
+            "high"
+          ],
+          "evidence": "overflow|mobile|390"
+        },
+        {
+          "id": "contact-noindex",
+          "description": "NEW: /contact carries <meta name=robots content=noindex, nofollow>",
+          "deterministic": true,
+          "match": "noindex|no-index|nofollow|excluded from (search|index)|not indexed",
+          "severity": [
+            "medium",
+            "high"
+          ],
+          "evidence": "noindex|robots|seo"
+        },
+        {
+          "id": "heavy-hero",
+          "description": "NEW: the homepage hero is an uncompressed ~4.3 MB BMP",
+          "deterministic": true,
+          "match": "bmp|hero image|heavy|page weight|image (size|weight|optimi[sz])|uncompressed|4\\.\\d ?mb|megabyte|lcp|largest contentful",
+          "severity": [
+            "medium",
+            "high"
+          ],
+          "evidence": "lighthouse|weight|hero|bmp|image"
+        },
+        {
+          "id": "cta-not-focusable",
+          "description": "Primary CTA is still a clickable <div>",
+          "deterministic": true,
+          "match": "keyboard|focusable|not (a )?(real )?(link|button)|clickable div|<div|div element|non-semantic",
+          "categories": [
+            "Accessibility",
+            "Conversion",
+            "UX",
+            "Broken Functionality",
+            "Mobile"
+          ],
+          "severity": [
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "form-labels",
+          "description": "Form fields still have no labels",
+          "deterministic": true,
+          "match": "label|empty (submit )?button|button (has )?no (text|accessible name)|accessible name",
+          "severity": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "arabic-rtl",
+          "description": "/ar/ still lacks dir=rtl",
+          "deterministic": true,
+          "match": "\\bdir\\b|rtl|right-to-left|direction",
+          "severity": [
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "no-tracking",
+          "description": "Still no analytics or conversion tracking",
+          "deterministic": true,
+          "match": "analytics|tracking|conversion (events?|measurement)|measure",
+          "severity": [
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "wrong-canonical",
+          "description": "/services/implants canonical still points elsewhere",
+          "deterministic": true,
+          "match": "canonical",
+          "severity": [
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "id": "broken-privacy",
+          "description": "The footer privacy-policy link still returns 404",
+          "deterministic": true,
+          "match": "privacy|broken|404|not found",
+          "severity": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
       ],
       "absent": [
-        { "id": "js-error-fixed", "description": "The initBookingWidget error was fixed in v2", "match": "initBookingWidget|ReferenceError" },
-        { "id": "home-description-fixed", "description": "The homepage meta description exists in v2", "match": "homepage (has no|is missing a|lacks a) meta description|no meta description on the homepage" },
-        { "id": "old-page-fixed", "description": "The /services/old-page link was removed in v2", "match": "old-page|team-photo\\.jpg|legacy-theme" }
+        {
+          "id": "js-error-fixed",
+          "description": "The initBookingWidget error was fixed in v2",
+          "match": "initBookingWidget|ReferenceError"
+        },
+        {
+          "id": "home-description-fixed",
+          "description": "The homepage meta description exists in v2",
+          "match": "homepage (has no|is missing a|lacks a) meta description|no meta description on the homepage"
+        },
+        {
+          "id": "old-page-fixed",
+          "description": "The /services/old-page link was removed in v2",
+          "match": "old-page|team-photo\\.jpg|legacy-theme"
+        }
       ],
-      "tolerated": ["https|\\btls\\b|\\bssl\\b|hsts|certificate|plain http|unencrypted|localhost|127\\.0\\.0\\.1"]
+      "tolerated": [
+        "https|\\btls\\b|\\bssl\\b|hsts|certificate|plain http|unencrypted|localhost|127\\.0\\.0\\.1"
+      ]
     },
     {
       "id": "healthy",
@@ -60,18 +337,66 @@
       "healthy": true,
       "issues": [],
       "absent": [
-        { "id": "broken-links", "description": "No broken links or resources", "match": "broken link|dead link|returns? (a )?404|404 (error|page)|missing (image|stylesheet|resource)" },
-        { "id": "js-errors", "description": "No JavaScript at all", "match": "javascript error|js error|console error|uncaught|ReferenceError|TypeError" },
-        { "id": "overflow", "description": "No horizontal overflow on mobile", "match": "horizontal(ly)? (overflow|scroll)|overflows the (mobile )?viewport|wider than the (mobile )?viewport" },
-        { "id": "alt", "description": "All images have meaningful alt text", "match": "missing alt|no alt|without alt|alt attribute|alternative text" },
-        { "id": "labels", "description": "All form fields have labels", "match": "missing (form )?labels?|no labels?|unlabel+ed|without (a )?labels?" },
-        { "id": "rtl", "description": "Arabic pages declare dir=rtl", "match": "missing dir|no dir=|without dir|not (set to )?rtl|direction (is )?(missing|wrong|incorrect)" },
-        { "id": "hreflang", "description": "Reciprocal hreflang pairs exist", "match": "missing hreflang|no hreflang|hreflang (is )?(missing|absent|not (set|implemented))" },
-        { "id": "metadata", "description": "Unique titles and descriptions, one H1 per page", "match": "duplicate (title|description)|missing (meta )?(title|description)|missing h1|multiple h1" },
-        { "id": "canonical", "description": "Self-referencing canonicals", "match": "canonical (points|is wrong|mismatch)|wrong canonical|incorrect canonical" },
-        { "id": "contrast", "description": "Text contrast meets WCAG AA", "match": "low contrast|insufficient contrast|contrast ratio (of|below)" },
-        { "id": "security-headers", "description": "CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and Permissions-Policy are set", "match": "missing (security )?headers?|no content-security-policy|csp (is )?missing|x-frame-options (is )?missing|clickjacking" },
-        { "id": "slow", "description": "The site is tiny and fast", "match": "\\bslow\\b|poor performance|heavy page|page weight is (high|large)" }
+        {
+          "id": "broken-links",
+          "description": "No broken links or resources",
+          "match": "broken link|dead link|returns? (a )?404|404 (error|page)|missing (image|stylesheet|resource)"
+        },
+        {
+          "id": "js-errors",
+          "description": "No JavaScript at all",
+          "match": "javascript error|js error|console error|uncaught|ReferenceError|TypeError"
+        },
+        {
+          "id": "overflow",
+          "description": "No horizontal overflow on mobile",
+          "match": "horizontal(ly)? (overflow|scroll)|overflows the (mobile )?viewport|wider than the (mobile )?viewport"
+        },
+        {
+          "id": "alt",
+          "description": "All images have meaningful alt text",
+          "match": "missing alt|no alt|without alt|alt attribute|alternative text"
+        },
+        {
+          "id": "labels",
+          "description": "All form fields have labels",
+          "match": "missing (form )?labels?|no labels?|unlabel+ed|without (a )?labels?"
+        },
+        {
+          "id": "rtl",
+          "description": "Arabic pages declare dir=rtl",
+          "match": "missing dir|no dir=|without dir|not (set to )?rtl|direction (is )?(missing|wrong|incorrect)"
+        },
+        {
+          "id": "hreflang",
+          "description": "Reciprocal hreflang pairs exist",
+          "match": "missing hreflang|no hreflang|hreflang (is )?(missing|absent|not (set|implemented))"
+        },
+        {
+          "id": "metadata",
+          "description": "Unique titles and descriptions, one H1 per page",
+          "match": "duplicate (title|description)|missing (meta )?(title|description)|missing h1|multiple h1"
+        },
+        {
+          "id": "canonical",
+          "description": "Self-referencing canonicals",
+          "match": "canonical (points|is wrong|mismatch)|wrong canonical|incorrect canonical"
+        },
+        {
+          "id": "contrast",
+          "description": "Text contrast meets WCAG AA",
+          "match": "low contrast|insufficient contrast|contrast ratio (of|below)"
+        },
+        {
+          "id": "security-headers",
+          "description": "CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy and Permissions-Policy are set",
+          "match": "missing (security )?headers?|no content-security-policy|csp (is )?missing|x-frame-options (is )?missing|clickjacking"
+        },
+        {
+          "id": "slow",
+          "description": "The site is tiny and fast",
+          "match": "\\bslow\\b|poor performance|heavy page|page weight is (high|large)"
+        }
       ],
       "tolerated": [
         "https|\\btls\\b|\\bssl\\b|hsts|certificate|plain http|unencrypted|localhost|127\\.0\\.0\\.1",

@@ -457,6 +457,36 @@ ${body}
       'cache-control': 'public, max-age=300',
     },
     resolvePage: (path) => pages[path] ?? pages[path.replace(/\/$/, '')] ?? (path === '/ar' ? pages['/ar/'] : undefined),
+    // A branded, localized "not found" page with a way back (not indexed).
+    notFound: (path) => {
+      const lang = path.startsWith('/ar') ? 'ar' : 'en'
+      const l = t[lang]
+      return `<!doctype html>
+<html lang="${lang}" dir="${l.dir}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${lang === 'ar' ? 'الصفحة غير موجودة | أطلس للعلاج الطبيعي' : 'Page not found | Atlas Physio'}</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico" sizes="16x16">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <a href="${pairs.home[lang]}"><strong>${l.name}</strong></a>
+  <nav aria-label="${lang === 'ar' ? 'القائمة الرئيسية' : 'Main navigation'}">${l.nav.map(([href, label]) => `<a href="${href}">${label}</a>`).join('')}</nav>
+</header>
+<main>
+${lang === 'ar'
+  ? `<h1>الصفحة غير موجودة</h1><p>ربما تغيّر الرابط. يمكنك العودة إلى <a href="/ar/">الصفحة الرئيسية</a> أو <a href="/ar/contact">حجز موعد</a>.</p>`
+  : `<h1>Page not found</h1><p>The link may have changed. Go back to the <a href="/">homepage</a> or <a href="/contact">book an appointment</a>.</p>`}
+</main>
+<footer>
+  <p>${l.footer} · <a href="tel:+203000000000" dir="ltr">+20 3 000 0000</a> · <a href="https://wa.me/203000000000">WhatsApp</a></p>
+</footer>
+</body>
+</html>`
+    },
   }
 }
 
@@ -499,7 +529,7 @@ ${s.sitemapUrls.map((u) => `  <url><loc>http://127.0.0.1:${port}${u}</loc></url>
       return res.end(req.method === 'HEAD' ? undefined : page())
     }
     res.writeHead(404, { 'content-type': 'text/html; charset=utf-8', ...s.headers })
-    res.end('<!doctype html><html lang="en"><title>Not found</title><h1>404</h1>')
+    res.end(s.notFound ? s.notFound(path) : '<!doctype html><html lang="en"><title>Not found</title><h1>404</h1>')
   }
 }
 
