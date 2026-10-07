@@ -27,7 +27,9 @@ import {
   type QueueName,
 } from '@audivra/database'
 import { getSystemStatus } from '@audivra/tool-runtime'
+import { loadAuditData } from '@audivra/insights'
 import type { EventHub } from './events-hub.ts'
+import { registerV1Routes } from './routes-v1.ts'
 
 export interface AppDeps {
   db: Db
@@ -45,6 +47,7 @@ const STAGE_QUEUES: Partial<Record<AuditStage, QueueName>> = {
   review: QUEUES.review,
   revision: QUEUES.revision,
   finalizing: QUEUES.finalize,
+  presenting: QUEUES.present,
 }
 
 /** `send` rejects backslash separators (Windows), so relative file paths are converted to forward slashes. */
@@ -103,7 +106,13 @@ export async function buildApp(deps: AppDeps) {
 
   app.get<{ Params: { id: string } }>('/api/audits/:id', async (request, reply) => {
     const detail = await getAuditDetail(db, request.params.id)
-    return detail ?? reply.status(404).send({ error: 'Audit not found' })
+    if (!detail) return reply.status(404).send({ error: 'Audit not found' })
+    // Audits from before explicit coverage existed get it computed (and stored) on first read.
+    if (detail.coverage.length === 0 && ['completed', 'partial', 'failed', 'cancelled'].includes(detail.status)) {
+      const data = await loadAuditData(db, detail.id)
+      if (data) detail.coverage = data.coverage
+    }
+    return detail
   })
 
   app.post<{ Params: { id: string } }>('/api/audits/:id/cancel', async (request, reply) => {
@@ -244,6 +253,8 @@ export async function buildApp(deps: AppDeps) {
       })
     },
   )
+
+  registerV1Routes(app, { db, boss })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {

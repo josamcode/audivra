@@ -10,9 +10,12 @@
     "dev:watch": "tsx watch --clear-screen=false --include \"../../packages/*/src/**/*.ts\" src/main.ts"
   },
   "dependencies": {
+    "@audivra/ai-runtime": "workspace:*",
     "@audivra/config": "workspace:*",
     "@audivra/contracts": "workspace:*",
     "@audivra/database": "workspace:*",
+    "@audivra/insights": "workspace:*",
+    "@audivra/reporting": "workspace:*",
     "@audivra/tool-runtime": "workspace:*",
     "@fastify/static": "^10.1.5",
     "fastify": "^5.12.5",
