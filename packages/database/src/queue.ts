@@ -1,0 +1,49 @@
+import { PgBoss } from 'pg-boss'
+
+/** Each audit stage is its own durable job; a stage enqueues the next one when it finishes. */
+export const QUEUES = {
+  baseline: 'audit-baseline',
+  investigation: 'audit-investigation',
+  review: 'audit-review',
+  revision: 'audit-revision',
+  finalize: 'audit-finalize',
+} as const
+export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
+
+export interface StageJob {
+  auditId: string
+}
+
+const HOUR = 3600
+
+/** Queue policies: AI stages are long-running and rely on heartbeats rather than short expirations. */
+const QUEUE_OPTIONS: Record<QueueName, { expireInSeconds: number; retryLimit: number; retryDelay: number }> =
+  {
+    [QUEUES.baseline]: { expireInSeconds: 1 * HOUR, retryLimit: 1, retryDelay: 10 },
+    [QUEUES.investigation]: { expireInSeconds: 4 * HOUR, retryLimit: 1, retryDelay: 30 },
+    [QUEUES.review]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
+    [QUEUES.revision]: { expireInSeconds: 3 * HOUR, retryLimit: 1, retryDelay: 30 },
+    [QUEUES.finalize]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
+  }
+
+export const HEARTBEAT_SECONDS = 60
+
+export function createBoss(url: string): PgBoss {
+  return new PgBoss({ connectionString: url, schema: 'pgboss' })
+}
+
+export async function ensureQueues(boss: PgBoss): Promise<void> {
+  for (const [name, options] of Object.entries(QUEUE_OPTIONS)) {
+    const existing = await boss.getQueue(name)
+    const desired = { ...options, heartbeatSeconds: HEARTBEAT_SECONDS }
+    if (existing) await boss.updateQueue(name, desired)
+    else await boss.createQueue(name, desired)
+  }
+}
+
+export async function enqueueStage(boss: PgBoss, queue: QueueName, auditId: string): Promise<string | null> {
+  // singletonKey prevents duplicate concurrent jobs for the same audit stage.
+  return boss.send(queue, { auditId } satisfies StageJob, { singletonKey: auditId })
+}
+
+export type { PgBoss }
