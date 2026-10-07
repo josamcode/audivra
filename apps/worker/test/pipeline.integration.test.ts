@@ -183,7 +183,7 @@ describe('audit pipeline', () => {
       role: 'auditor',
       status: 'failed',
       error: 'simulated provider outage',
-      promptVersion: 'auditor:v3',
+      promptVersion: 'auditor:v4',
     })
     // A failed AI stage still leaves the audit presentable: deterministic visuals and coverage.
     expect(detail.steps.find((s) => s.stage === 'presenting')?.status).toBe('completed')
@@ -363,7 +363,7 @@ describe('audit pipeline', () => {
 
     const runs = await listAgentRuns(db, audit.id)
     expect(runs.map((r) => r.role)).toEqual(['auditor', 'reviewer', 'finalizer', 'planner', 'composer'])
-    expect(runs.map((r) => r.promptVersion)).toEqual(['auditor:v3', 'reviewer:v2', 'finalizer:v3', 'planner:v1', 'composer:v1'])
+    expect(runs.map((r) => r.promptVersion)).toEqual(['auditor:v4', 'reviewer:v3', 'finalizer:v4', 'planner:v1', 'composer:v1'])
     expect(JSON.stringify(runs[0]!.validation)).toMatch(/EV-9999/)
     expect(provider.calls[0]!.allowedTools).toContain('mcp__browser')
     expect(provider.calls[0]!.disallowedTools).toEqual(

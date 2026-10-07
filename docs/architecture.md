@@ -82,10 +82,10 @@ claude -p --output-format stream-json --verbose
 
 | Role              | Tools                                                              | MCP                  | Output         | Prompt         |
 | ----------------- | ------------------------------------------------------------------ | -------------------- | -------------- | -------------- |
-| Auditor           | Bash, Read/Write/Edit (workspace), Glob, Grep, WebFetch, TodoWrite | browser, audit       | `AuditDraft`   | `auditor:v3`   |
-| Reviewer          | Read (workspace), Glob, Grep                                       | audit (read + notes) | `ReviewResult` | `reviewer:v2`  |
-| Verification pass | as Auditor                                                         | browser, audit       | `AuditDraft`   | `auditor:v3`   |
-| Finalizer         | none                                                               | none                 | `FinalAudit`   | `finalizer:v3` |
+| Auditor           | Bash, Read/Write/Edit (workspace), Glob, Grep, WebFetch, TodoWrite | browser, audit       | `AuditDraft`   | `auditor:v4`   |
+| Reviewer          | Read (workspace), Glob, Grep                                       | audit (read + notes) | `ReviewResult` | `reviewer:v3`  |
+| Verification pass | as Auditor                                                         | browser, audit       | `AuditDraft`   | `auditor:v4`   |
+| Finalizer         | none                                                               | none                 | `FinalAudit`   | `finalizer:v4` |
 | Artifact Planner  | Read (workspace), Glob, Grep                                       | audit (read)         | `ArtifactPlan` | `planner:v1`   |
 | Report Composer   | none                                                               | none                 | `ReportPlan`   | `composer:v1`  |
 

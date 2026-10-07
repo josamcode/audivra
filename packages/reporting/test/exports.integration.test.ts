@@ -192,7 +192,8 @@ describe('exports', () => {
     expect(html).toContain('Promo banner overflows the mobile viewport')
     expect(html).toContain('data:image/jpeg;base64,')
     // The client report never exposes internal run data.
-    for (const secret of ['session-secret-123', 'scripted-model', 'auditor:v3', 'promptVersion', auditId]) expect(html).not.toContain(secret)
+    for (const secret of ['session-secret-123', 'scripted-model', 'promptVersion', auditId]) expect(html).not.toContain(secret)
+    expect(html).not.toMatch(/(auditor|reviewer|finalizer|planner|composer):v\d/)
 
     const json = JSON.parse(readFileSync(files.get('json')!, 'utf8'))
     expect(json.schema).toBe(AUDIT_EXPORT_SCHEMA_VERSION)
