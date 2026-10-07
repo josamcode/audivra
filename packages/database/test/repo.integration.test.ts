@@ -1,0 +1,149 @@
+import pg from 'pg'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import {
+  createAuditRecord,
+  createEvidence,
+  EVENTS_CHANNEL,
+  findingCounts,
+  getAuditDetail,
+  listAudits,
+  listFindings,
+  recordEvent,
+  replaceFindings,
+  type NewFinding,
+} from '../src/index.ts'
+import { resetDb, testDb } from '../../../test/helpers.ts'
+
+const handle = testDb()
+const { db } = handle
+
+afterAll(() => handle.close())
+beforeEach(() => resetDb(handle))
+
+const newAudit = () =>
+  createAuditRecord(db, {
+    url: 'example.com',
+    normalizedUrl: 'https://example.com/',
+    domain: 'example.com',
+    aiEnabled: true,
+  })
+
+function finding(overrides: Partial<NewFinding>): NewFinding {
+  return {
+    ref: 'F1',
+    rank: 1,
+    title: 'Title',
+    category: 'SEO',
+    severity: 'high',
+    type: 'verified',
+    description: 'd',
+    observed: 'o',
+    affectedUrls: [],
+    confidence: 0.9,
+    verificationStatus: 'reviewer-approved',
+    whyItMatters: 'w',
+    businessImpact: 'b',
+    businessImpactLevel: 'medium',
+    recommendation: 'r',
+    effort: 'low',
+    opportunity: null,
+    createdBy: 'ai-auditor',
+    sourceRefs: ['D1'],
+    evidenceIds: [],
+    ...overrides,
+  }
+}
+
+describe('audit persistence', () => {
+  it('creates audits with all pipeline steps pending', async () => {
+    const audit = await newAudit()
+    const detail = await getAuditDetail(db, audit.id)
+    expect(detail?.status).toBe('queued')
+    expect(detail?.steps.map((s) => s.stage)).toEqual([
+      'preparing',
+      'baseline',
+      'investigation',
+      'review',
+      'revision',
+      'finalizing',
+    ])
+    expect(detail?.steps.every((s) => s.status === 'pending')).toBe(true)
+  })
+
+  it('assigns sequential, per-audit evidence references even under concurrency', async () => {
+    const a = await newAudit()
+    const b = await newAudit()
+    const created = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        createEvidence(db, {
+          auditId: a.id,
+          source: 'baseline',
+          type: 'metric',
+          title: `m${i}`,
+          summary: 's',
+        }),
+      ),
+    )
+    const other = await createEvidence(db, {
+      auditId: b.id,
+      source: 'auditor',
+      type: 'screenshot',
+      title: 'x',
+      summary: 's',
+    })
+    expect(created.map((e) => e.ref).sort()).toEqual(
+      Array.from({ length: 10 }, (_, i) => `EV-${i + 1}`).sort(),
+    )
+    expect(other.ref).toBe('EV-1')
+  })
+
+  it('links findings to evidence and aggregates severity counts', async () => {
+    const audit = await newAudit()
+    const ev1 = await createEvidence(db, {
+      auditId: audit.id,
+      source: 'baseline',
+      type: 'metric',
+      title: 'a',
+      summary: 's',
+    })
+    const ev2 = await createEvidence(db, {
+      auditId: audit.id,
+      source: 'auditor',
+      type: 'screenshot',
+      title: 'b',
+      summary: 's',
+    })
+    await replaceFindings(db, audit.id, [
+      finding({ ref: 'F1', rank: 1, severity: 'critical', evidenceIds: [ev2.id, ev1.id, ev1.id] }),
+      finding({ ref: 'F2', rank: 2, severity: 'low', category: 'Performance' }),
+    ])
+    const findings = await listFindings(db, audit.id)
+    expect(findings.map((f) => f.ref)).toEqual(['F1', 'F2'])
+    expect(findings[0]!.evidenceRefs).toEqual(['EV-1', 'EV-2'])
+
+    const counts = (await findingCounts(db, [audit.id])).get(audit.id)!
+    expect(counts.total).toBe(2)
+    expect(counts.severity.critical).toBe(1)
+    expect(counts.categories).toEqual({ SEO: 1, Performance: 1 })
+
+    // Finalization can be retried: findings are replaced, not duplicated.
+    await replaceFindings(db, audit.id, [finding({ ref: 'F1', rank: 1 })])
+    expect(await listFindings(db, audit.id)).toHaveLength(1)
+    const listed = (await listAudits(db)).find((x) => x.id === audit.id)!
+    expect(listed.findingCount).toBe(1)
+  })
+
+  it('notifies listeners when events are recorded', async () => {
+    const audit = await newAudit()
+    const client = new pg.Client({ connectionString: process.env.DATABASE_URL })
+    await client.connect()
+    await client.query(`LISTEN ${EVENTS_CHANNEL}`)
+    const received = new Promise<{ auditId: string; id: number }>((resolve) => {
+      client.on('notification', (msg) => resolve(JSON.parse(msg.payload!) as { auditId: string; id: number }))
+    })
+    const event = await recordEvent(db, { auditId: audit.id, type: 'audit.started', message: 'go' })
+    const payload = await received
+    await client.end()
+    expect(payload).toEqual({ auditId: audit.id, id: event.id })
+  })
+})
