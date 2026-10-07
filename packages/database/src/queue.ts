@@ -7,6 +7,8 @@ export const QUEUES = {
   review: 'audit-review',
   revision: 'audit-revision',
   finalize: 'audit-finalize',
+  present: 'audit-present',
+  benchmark: 'benchmark-run',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -24,6 +26,9 @@ const QUEUE_OPTIONS: Record<QueueName, { expireInSeconds: number; retryLimit: nu
     [QUEUES.review]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
     [QUEUES.revision]: { expireInSeconds: 3 * HOUR, retryLimit: 1, retryDelay: 30 },
     [QUEUES.finalize]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
+    [QUEUES.present]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
+    // A benchmark runs several full AI audits sequentially; never retried automatically.
+    [QUEUES.benchmark]: { expireInSeconds: 8 * HOUR, retryLimit: 0, retryDelay: 0 },
   }
 
 export const HEARTBEAT_SECONDS = 60

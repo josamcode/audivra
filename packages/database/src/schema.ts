@@ -18,14 +18,20 @@ import type {
   AuditStage,
   AuditStatus,
   AuditSummary,
+  ArtifactPlacement,
+  ArtifactType,
   BaselineStats,
+  BenchmarkFixtureResult,
+  BenchmarkRunItem,
   Category,
+  CoverageItem,
   EffortLevel,
   EvidenceSource,
   EvidenceType,
   FindingType,
   ImpactLevel,
   Opportunity,
+  ReportPlan,
   Severity,
   StepStatus,
   ToolRunStatus,
@@ -41,6 +47,8 @@ export const audits = pgTable(
     url: text('url').notNull(),
     normalizedUrl: text('normalized_url').notNull(),
     domain: text('domain').notNull(),
+    /** Canonical site identity for history/comparison: host without "www." plus non-default port. */
+    siteKey: text('site_key').notNull().default(''),
     clientName: text('client_name'),
     status: text('status').$type<AuditStatus>().notNull().default('queued'),
     stage: text('stage').$type<AuditStage>().notNull().default('preparing'),
@@ -49,13 +57,17 @@ export const audits = pgTable(
     summary: jsonb('summary').$type<AuditSummary>(),
     baseline: jsonb('baseline').$type<BaselineStats>(),
     error: jsonb('error').$type<AuditError>(),
+    coverage: jsonb('coverage').$type<CoverageItem[]>(),
+    reportPlan: jsonb('report_plan').$type<ReportPlan>(),
+    benchmark: boolean('benchmark').notNull().default(false),
     evidenceSeq: integer('evidence_seq').notNull().default(0),
+    artifactSeq: integer('artifact_seq').notNull().default(0),
     cancelRequested: boolean('cancel_requested').notNull().default(false),
     createdAt: ts('created_at').notNull().defaultNow(),
     startedAt: ts('started_at'),
     finishedAt: ts('finished_at'),
   },
-  (t) => [index('audits_created_idx').on(t.createdAt)],
+  (t) => [index('audits_created_idx').on(t.createdAt), index('audits_site_idx').on(t.siteKey, t.createdAt)],
 )
 
 export const auditSteps = pgTable(
@@ -88,6 +100,7 @@ export const pages = pgTable(
     depth: integer('depth').notNull().default(0),
     source: text('source').notNull(),
     inspectedInBrowser: boolean('inspected_in_browser').notNull().default(false),
+    pageType: text('page_type'),
     data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
   },
   (t) => [uniqueIndex('pages_audit_url_idx').on(t.auditId, t.url)],
@@ -110,6 +123,7 @@ export const toolRuns = pgTable(
     error: text('error'),
     artifactPaths: jsonb('artifact_paths').$type<string[]>().notNull().default([]),
     result: jsonb('result').$type<Record<string, unknown>>(),
+    via: text('via'),
     startedAt: ts('started_at').notNull().defaultNow(),
     finishedAt: ts('finished_at'),
   },
@@ -136,6 +150,8 @@ export const agentRuns = pgTable(
     output: jsonb('output'),
     validation: jsonb('validation').$type<Record<string, unknown>>(),
     usage: jsonb('usage').$type<Record<string, unknown>>(),
+    terminationReason: text('termination_reason'),
+    toolCalls: jsonb('tool_calls').$type<Record<string, number>>(),
     startedAt: ts('started_at').notNull().defaultNow(),
     finishedAt: ts('finished_at'),
   },
@@ -192,6 +208,7 @@ export const findings = pgTable(
     recommendation: text('recommendation').notNull(),
     effort: text('effort').$type<EffortLevel>().notNull(),
     opportunity: jsonb('opportunity').$type<Opportunity | null>(),
+    issueKey: text('issue_key'),
     createdBy: text('created_by').notNull(),
     sourceRefs: jsonb('source_refs').$type<string[]>().notNull().default([]),
     createdAt: ts('created_at').notNull().defaultNow(),
@@ -229,3 +246,69 @@ export const auditEvents = pgTable(
   },
   (t) => [index('audit_events_audit_idx').on(t.auditId, t.id)],
 )
+
+/** Validated, resolved visual artifacts (see contracts/artifacts.ts). */
+export const artifacts = pgTable(
+  'artifacts',
+  {
+    id: text('id').primaryKey(),
+    auditId: text('audit_id')
+      .notNull()
+      .references(() => audits.id, { onDelete: 'cascade' }),
+    ref: text('ref').notNull(),
+    type: text('type').$type<ArtifactType>().notNull(),
+    title: text('title').notNull(),
+    subtitle: text('subtitle'),
+    question: text('question').notNull(),
+    description: text('description').notNull(),
+    evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+    findingRefs: jsonb('finding_refs').$type<string[]>().notNull().default([]),
+    category: text('category').$type<Category>(),
+    priority: integer('priority').notNull().default(3),
+    placement: text('placement').$type<ArtifactPlacement>().notNull(),
+    data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+    createdBy: text('created_by').$type<'planner' | 'system'>().notNull(),
+    agentRunId: text('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('artifacts_audit_ref_idx').on(t.auditId, t.ref), index('artifacts_audit_idx').on(t.auditId)],
+)
+
+/**
+ * Every external process Audivra starts. Only processes recorded here (and verified to be the same
+ * OS process by PID + creation time) are ever terminated by Audivra.
+ */
+export const ownedProcesses = pgTable(
+  'owned_processes',
+  {
+    id: text('id').primaryKey(),
+    pid: integer('pid').notNull(),
+    /** OS-reported process creation time, used to defeat PID reuse. */
+    processStartedAt: ts('process_started_at'),
+    image: text('image'),
+    tool: text('tool').notNull(),
+    auditId: text('audit_id').references(() => audits.id, { onDelete: 'set null' }),
+    ownerId: text('owner_id').notNull(),
+    parentPid: integer('parent_pid').notNull(),
+    command: text('command').notNull(),
+    cwd: text('cwd'),
+    containerName: text('container_name'),
+    status: text('status').$type<'running' | 'exited' | 'killed' | 'reaped' | 'gone'>().notNull(),
+    exitCode: integer('exit_code'),
+    startedAt: ts('started_at').notNull().defaultNow(),
+    endedAt: ts('ended_at'),
+  },
+  (t) => [index('owned_processes_status_idx').on(t.status), index('owned_processes_audit_idx').on(t.auditId)],
+)
+
+export const benchmarkRuns = pgTable('benchmark_runs', {
+  id: text('id').primaryKey(),
+  status: text('status').$type<BenchmarkRunItem['status']>().notNull(),
+  model: text('model'),
+  promptVersions: jsonb('prompt_versions').$type<Record<string, string>>().notNull().default({}),
+  fixtures: jsonb('fixtures').$type<BenchmarkFixtureResult[]>().notNull().default([]),
+  totals: jsonb('totals').$type<BenchmarkRunItem['totals']>(),
+  error: text('error'),
+  startedAt: ts('started_at').notNull().defaultNow(),
+  finishedAt: ts('finished_at'),
+})

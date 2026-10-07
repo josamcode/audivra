@@ -10,6 +10,7 @@ export interface StartToolRunInput {
   purpose: string
   url?: string | null
   command?: string | null
+  via?: string | null
 }
 
 export async function startToolRun(db: Db, input: StartToolRunInput): Promise<string> {
@@ -22,6 +23,7 @@ export async function startToolRun(db: Db, input: StartToolRunInput): Promise<st
     status: 'running',
     url: input.url ?? null,
     command: input.command ?? null,
+    via: input.via ?? null,
   })
   return id
 }
@@ -67,6 +69,7 @@ export async function listToolRuns(db: Db, auditId: string): Promise<ToolRunItem
     durationMs: row.durationMs,
     error: row.error,
     artifactPaths: row.artifactPaths,
+    via: row.via ?? null,
   }))
 }
 
@@ -98,6 +101,8 @@ export async function updateAgentRun(
     output: unknown
     validation: Record<string, unknown> | null
     usage: Record<string, unknown> | null
+    terminationReason: string | null
+    toolCalls: Record<string, number> | null
     finishedAt: Date | null
   }>,
 ): Promise<void> {
@@ -145,6 +150,9 @@ export async function listAgentRuns(db: Db, auditId: string): Promise<AgentRunIt
     finishedAt: row.finishedAt?.toISOString() ?? null,
     numTurns: row.numTurns,
     costUsd: row.costUsd,
+    durationMs: row.durationMs,
+    terminationReason: row.terminationReason ?? null,
+    toolCalls: row.toolCalls ?? null,
     error: row.error,
     validation: row.validation ?? null,
     output: row.output ?? null,

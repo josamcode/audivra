@@ -35,6 +35,8 @@ export async function updateStep(
   extra: { message?: string | null; error?: AuditError | null } = {},
 ): Promise<void> {
   const now = new Date()
+  // Audits created before a stage existed have no row for it yet.
+  await initSteps(db, auditId)
   await db
     .update(auditSteps)
     .set({

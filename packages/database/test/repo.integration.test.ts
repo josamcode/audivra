@@ -66,6 +66,7 @@ describe('audit persistence', () => {
       'review',
       'revision',
       'finalizing',
+      'presenting',
     ])
     expect(detail?.steps.every((s) => s.status === 'pending')).toBe(true)
   })

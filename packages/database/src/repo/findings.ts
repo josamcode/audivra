@@ -13,7 +13,7 @@ import {
 } from '@audivra/contracts'
 import type { Db } from '../client.ts'
 import { newId } from '../ids.ts'
-import { evidence, findingEvidence, findings } from '../schema.ts'
+import { artifacts, evidence, findingEvidence, findings } from '../schema.ts'
 
 export interface NewFinding {
   ref: string
@@ -35,6 +35,8 @@ export interface NewFinding {
   opportunity: Opportunity | null
   createdBy: string
   sourceRefs: string[]
+  /** Stable issue identity used to compare audits of the same site. */
+  issueKey?: string | null
   /** Database evidence IDs (already validated to belong to the audit). */
   evidenceIds: string[]
 }
@@ -81,6 +83,16 @@ export async function listFindings(db: Db, auditId: string): Promise<FindingItem
     list.push(link.ref)
     refsByFinding.set(link.findingId, list)
   }
+  const artifactRows = await db
+    .select({ ref: artifacts.ref, findingRefs: artifacts.findingRefs })
+    .from(artifacts)
+    .where(eq(artifacts.auditId, auditId))
+  const artifactsByFinding = new Map<string, string[]>()
+  for (const artifact of artifactRows) {
+    for (const findingRef of artifact.findingRefs) {
+      artifactsByFinding.set(findingRef, [...(artifactsByFinding.get(findingRef) ?? []), artifact.ref])
+    }
+  }
   const refNumber = (ref: string) => Number(ref.replace(/\D/g, '')) || 0
   return rows.map((row) => ({
     id: row.id,
@@ -102,6 +114,8 @@ export async function listFindings(db: Db, auditId: string): Promise<FindingItem
     effort: row.effort,
     opportunity: row.opportunity ?? null,
     evidenceRefs: (refsByFinding.get(row.id) ?? []).sort((a, b) => refNumber(a) - refNumber(b)),
+    issueKey: row.issueKey ?? null,
+    artifactRefs: (artifactsByFinding.get(row.ref) ?? []).sort((a, b) => refNumber(a) - refNumber(b)),
     createdBy: row.createdBy,
     rank: row.rank,
   }))
