@@ -96,6 +96,15 @@ describe('redaction', () => {
     expect(secret.reveal()).toBe('s3cr3t-value')
   })
 
+  it('copies shared references instead of mistaking them for cycles', () => {
+    const limits = { maxRequests: 10 }
+    expect(redactSensitive({ ceilings: limits, bounded: limits, list: [limits, limits] }).value).toEqual({
+      ceilings: { maxRequests: 10 },
+      bounded: { maxRequests: 10 },
+      list: [{ maxRequests: 10 }, { maxRequests: 10 }],
+    })
+  })
+
   it('handles cycles and errors without leaking', () => {
     const node: Record<string, unknown> = { password: 'x' }
     node.self = node

@@ -123,7 +123,8 @@ const MAX_DEPTH = 24
 /** Deep copy of `input` with sensitive keys and recognizable secrets replaced by `[REDACTED]`. */
 export function redactSensitive<T>(input: T): RedactionResult<T> {
   let redactions = 0
-  const seen = new WeakSet<object>()
+  /** Objects on the current path: a shared (non-cyclic) reference is copied, only a real cycle is cut. */
+  const ancestors = new WeakSet<object>()
 
   /** `secretField`: the value sits under a sensitive key, so any string in it is a secret. */
   const visit = (value: unknown, depth: number, secretField = false): unknown => {
@@ -143,18 +144,20 @@ export function redactSensitive<T>(input: T): RedactionResult<T> {
     if (value === null || typeof value !== 'object') return value
     if (value instanceof Date) return value
     if (depth >= MAX_DEPTH) return '[Truncated]'
-    if (seen.has(value)) return '[Circular]'
-    seen.add(value)
-    if (value instanceof Error) {
-      return { name: value.name, message: visit(value.message, depth + 1) }
+    if (ancestors.has(value)) return '[Circular]'
+    if (value instanceof Error) return { name: value.name, message: visit(value.message, depth + 1) }
+    ancestors.add(value)
+    try {
+      // Arrays inherit the field's sensitivity (e.g. several Set-Cookie headers); objects are judged per key.
+      if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1, secretField))
+      const out: Record<string, unknown> = {}
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = visit(item, depth + 1, isSensitiveKey(key))
+      }
+      return out
+    } finally {
+      ancestors.delete(value)
     }
-    // Arrays inherit the field's sensitivity (e.g. several Set-Cookie headers); objects are judged per key.
-    if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1, secretField))
-    const out: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = visit(item, depth + 1, isSensitiveKey(key))
-    }
-    return out
   }
 
   return { value: visit(input, 0) as T, redactions }
