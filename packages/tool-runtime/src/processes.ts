@@ -136,17 +136,19 @@ export function registerOwned(pid: number | undefined, meta: OwnedProcessMeta): 
   }
   const entry: LiveEntry = { record, persist: meta.persist !== false, killed: false }
   live.set(record.id, entry)
+  // The insert waits for the OS identity lookup; the finish write is ordered after it, so a process that
+  // exits quickly never leaves a record stuck at "running".
+  let inserted: Promise<unknown> = Promise.resolve()
   if (entry.persist) {
-    track(
-      (async () => {
-        const identity = await processIdentity(pid)
-        if (identity) {
-          record.processStartedAt = identity.startedAt
-          record.image = identity.image
-        }
-        await store?.insert(record)
-      })(),
-    )
+    inserted = (async () => {
+      const identity = await processIdentity(pid)
+      if (identity) {
+        record.processStartedAt = identity.startedAt
+        record.image = identity.image
+      }
+      await store?.insert(record)
+    })()
+    track(inserted)
   }
   return {
     id: record.id,
@@ -154,7 +156,7 @@ export function registerOwned(pid: number | undefined, meta: OwnedProcessMeta): 
     finish(exitCode) {
       if (!live.has(record.id)) return
       live.delete(record.id)
-      if (entry.persist) track(store?.finish(record.id, entry.killed ? 'killed' : 'exited', exitCode) ?? Promise.resolve())
+      if (entry.persist) track(inserted.catch(() => undefined).then(() => store?.finish(record.id, entry.killed ? 'killed' : 'exited', exitCode)))
     },
     async kill() {
       await killEntry(entry)

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  flushProcessStore,
   killOwnedForAudit,
   liveOwnedProcesses,
   OWNER_ID,
@@ -77,6 +78,31 @@ describe('process ownership registry', () => {
     expect(store.inserted[0]!.processStartedAt).toBeInstanceOf(Date)
     await handle.kill()
     expect(await exited(child)).toBe(true)
+  }, 60_000)
+
+  it('records the finish of a process that exits before its identity lookup completes after its insert', async () => {
+    const order: string[] = []
+    const store = new MemoryStore()
+    setProcessStore({
+      insert: async (record) => {
+        order.push('insert')
+        await store.insert(record)
+      },
+      finish: async (id, status, exitCode) => {
+        order.push(`finish:${status}`)
+        await store.finish(id, status)
+        void exitCode
+      },
+      listStale: async () => [],
+    })
+    const child = idleChild()
+    const handle = registerOwned(child.pid, { tool: 'quick', securityExecutionId: 'sx_quick00000000a', command: 'quick' })!
+    // Finished immediately — long before the OS identity lookup that precedes the insert returns.
+    handle.finish(0)
+    await flushProcessStore()
+    expect(order).toEqual(['insert', 'finish:exited'])
+    expect(store.inserted[0]).toMatchObject({ securityExecutionId: 'sx_quick00000000a' })
+    child.kill()
   }, 60_000)
 
   it('after a restart, reaps only verified leftovers and never touches live owners or reused PIDs', async () => {
