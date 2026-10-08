@@ -31,7 +31,9 @@ scope, an environment and a pinned policy profile, decided by the capability bro
 in an append-only audit trail. Phase 1 builds that control plane only and runs no security tests; the existing
 audit tools listed here are not security capabilities and must not be used as such. See
 [security-engagements.md](security-engagements.md), including which guarantees are enforced today and which need
-the planned isolation and mediated-egress layer.
+the planned isolation and mediated-egress layer. Phase 2A runs allowed requests as durable executions with an
+immutable trusted snapshot, Audivra-enforced timeouts and limits, exact process ownership per execution and crash
+reconciliation ([security-executions.md](security-executions.md)).
 
 ## Known limits
 

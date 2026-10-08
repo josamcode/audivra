@@ -155,8 +155,10 @@ preview cannot drift from the exported files.
   deliberately); an engagement has Overview (readiness checklist computed from requirements, capability catalog),
   Scope (structured editor validated by the shared schema, *Check a URL* by name and resolved address), Authorization
   (records, revoke, every method with its availability), Policy (environment, profile, effective risk/mutation classes
-  and limits) and Audit trail (append-only events; decisions expand into their checks). There is no action that runs
-  a test or a capability.
+  and limits), Executions (durable runs: table with status, capability, environment, created, duration and failure;
+  detail with timestamps, the configuration it was approved under, limits, failure, evidence and artifact links,
+  events, and *Cancel execution* with confirmation while it can be cancelled) and Audit trail (append-only events;
+  decisions expand into their checks). There is no action that runs a test or starts a capability.
 - **System** — Tools (state, version, how provided, detail, re-check), Quality (benchmark runs, per
   fixture detail, run with confirmation), Processes (processes and containers Audivra owns).
 

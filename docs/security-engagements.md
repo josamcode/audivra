@@ -11,6 +11,10 @@ Engagement → Authorization → Scope → Environment policy → Capability →
 > enforces *who may assess what, where and how*. The only capability is a passive, read-only
 > observation (`discovery.http-observe`) that exists to prove the pipeline end to end against local
 > fixtures. There is no "run a test" action in the UI or the API.
+>
+> **Phase 2A** adds the durable execution runtime that carries out allowed requests — persisted executions with an
+> immutable trusted snapshot, the pg-boss worker, cancellation, timeouts, limits and crash recovery. It still runs no
+> security tests; see [security-executions.md](security-executions.md).
 
 The rule underneath everything:
 
@@ -28,6 +32,7 @@ Website Audits are unaffected: they neither need nor consult security engagement
 | API | `apps/server/src/routes-security.ts` (`/api/security/*`) |
 | UI | `apps/web` — *Security* in the sidebar: list, new engagement, engagement (Overview · Scope · Authorization · Policy · Audit trail) |
 | Fixture | `fixtures/scope/server.mjs` — allowed routes, in/out-of-scope redirects, alternate port, other host names |
+| Executions (Phase 2A) | table `security_executions`, `packages/security/src/execution/`, worker `apps/worker/src/security-executions.ts` — see [security-executions.md](security-executions.md) |
 
 ## Security engagement
 
@@ -154,10 +159,12 @@ scope version/hash/manifest, policy, capability, effective limits, actor, allowe
 - `http` — the **scoped HTTP client**: safe methods only; every request and redirect hop is scope-checked,
   its host resolved and the addresses evaluated, and the connection is pinned to an evaluated address
   (no second DNS lookup); request count, rate and concurrency budgets are enforced; every attempt is logged.
-- `workspace` — `.local-data/security/<engagement>/executions/<execution>/`.
+- `workspace` — `.local-data/security/<engagement>/executions/<execution>/` with `inputs/`, `outputs/`,
+  `artifacts/` and `tmp/` areas; every path is confined to the execution directory.
 - `evidence` — records evidence with provenance filled in by the broker.
-- `processOwner` — ownership metadata for `runProcess`: processes are registered by PID + creation time
-  under the execution id and terminated exactly (never by name or pattern) when it is cancelled or times out.
+- `processes` — starts a process owned by the execution: registered by PID + creation time under the
+  execution id, confined to the workspace, counted against the process limit and terminated exactly (never by name
+  or pattern) when it is cancelled or times out. (`processOwner` is the same ownership metadata for `runProcess`.)
 
 ### Limits and resources
 
@@ -175,7 +182,8 @@ manifest, version and hash), `policy.changed`, `authorization.requested`, `autho
 `lifecycle.changed` and, per capability request, `capability.requested`, `capability.allowed` /
 `capability.denied` (with the complete `PolicyDecision`: every check, rule and reason, the scope
 evaluations, authorization state, policy and limits), `capability.started`, `capability.completed`,
-`capability.failed`, `capability.cancelled`.
+`capability.failed`, `capability.cancelled`, and for durable executions the `execution.*` lifecycle events
+([security-executions.md](security-executions.md#events)).
 
 Security evidence uses the existing `evidence` table: a row is owned by exactly one audit **or** one
 engagement (check constraint `evidence_single_owner`), engagement evidence has its own `EV-n` sequence and
@@ -229,6 +237,6 @@ Logs redact credential fields structurally (pino `redact`). The credential vault
   containment needs the isolation layer.
 - Public-suffix rules are approximated (a single-label name cannot include subdomains); a full public
   suffix list is not bundled.
-- No pg-boss queue runs security executions yet; the broker is a library invoked by platform code and
-  tests. Future runs will be jobs that call it with the job's cancellation signal.
+- Durable executions (Phase 2A) run through the `security-execution` pg-boss queue; `CapabilityBroker.execute()`
+  remains the in-process path for tests and the agent gateway. See [security-executions.md](security-executions.md).
 - Audivra is single-user and local: the actor for configuration changes is the local user.

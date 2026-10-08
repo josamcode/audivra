@@ -24,8 +24,10 @@ deterministic baseline only gathers cheap facts, which the prompts explicitly tr
 | Scanners    | children of the worker               | Lighthouse, Pa11y, httpx, Katana; ZAP and testssl.sh as named containers   |
 
 Security engagements are a separate domain on the same infrastructure (`packages/security`, `/api/security/*`,
-tables `security_engagements`, `security_authorizations`, `security_events`, engagement-owned `evidence` rows). They
-do not touch the audit pipeline; see [security-engagements.md](security-engagements.md).
+tables `security_engagements`, `security_authorizations`, `security_events`, `security_executions`, engagement-owned
+`evidence` rows). Allowed capability requests run as durable executions on the worker's `security-execution` queue.
+They do not touch the audit pipeline; see [security-engagements.md](security-engagements.md) and
+[security-executions.md](security-executions.md).
 
 ## Pipeline (durable)
 
