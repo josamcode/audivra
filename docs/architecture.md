@@ -22,6 +22,7 @@ deterministic baseline only gathers cheap facts, which the prompts explicitly tr
 | Agent runs  | `claude -p …` children of the worker | Auditor / Reviewer / verification pass / Finalizer / Planner / Change analyst / Composer; on demand: Journey analyst, Brief writer |
 | MCP servers | children of each agent run           | `browser` (official Playwright MCP) and `audit` (evidence + activity notes) |
 | Scanners    | children of the worker               | Lighthouse, Pa11y, httpx, Katana; ZAP and testssl.sh as named containers   |
+| Execution containers | created by the worker (docker CLI) | isolated security executions: one container per execution, `audivra-<execution id>`, no network |
 
 Security engagements are a separate domain on the same infrastructure (`packages/security`, `/api/security/*`,
 tables `security_engagements`, `security_authorizations`, `security_events`, `security_executions`, engagement-owned

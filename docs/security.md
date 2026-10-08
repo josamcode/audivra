@@ -33,7 +33,9 @@ audit tools listed here are not security capabilities and must not be used as su
 [security-engagements.md](security-engagements.md), including which guarantees are enforced today and which need
 the planned isolation and mediated-egress layer. Phase 2A runs allowed requests as durable executions with an
 immutable trusted snapshot, Audivra-enforced timeouts and limits, exact process ownership per execution and crash
-reconciliation ([security-executions.md](security-executions.md)).
+reconciliation; Phase 2B runs capabilities that declare it in an execution-scoped container — non-root, no
+capabilities, read-only root, no network, only the execution's workspace mounted, never the Docker socket
+([security-executions.md](security-executions.md)). There is no network-egress layer yet.
 
 ## Known limits
 

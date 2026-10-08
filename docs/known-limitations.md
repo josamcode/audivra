@@ -32,10 +32,13 @@ Honest boundaries of the current version.
   scoped HTTP client. OS/network-level containment (sandboxed execution, mediated egress) is a later phase.
 - Public-suffix rules are approximated; the audit-trail trigger protects against application writes, not a database
   owner. Details: [security-engagements.md](security-engagements.md).
-- Durable executions (Phase 2A) run reviewed capability code in the worker process: not a sandbox. Code that ignores
+- In-process executions (Phase 2A) run reviewed capability code in the worker process: not a sandbox. Code that ignores
   the stop signal is abandoned (handles revoked, owned processes terminated) rather than pre-empted. Execution
-  concurrency is a platform-wide setting, not yet a per-engagement policy limit. Details:
-  [security-executions.md](security-executions.md#known-limitations).
+  concurrency is a platform-wide setting, not yet a per-engagement policy limit.
+- Isolated executions (Phase 2B) run in a container with no network, a read-only root and only their workspace
+  mounted; there is **no controlled network-egress layer yet**, so capabilities that need the network cannot be
+  isolated. Containers share the Docker VM kernel; the artifact budget of a bind-mounted workspace is enforced by
+  polling. Details: [security-executions.md](security-executions.md#phase-2b-limitations).
 
 ## Platform and safety
 

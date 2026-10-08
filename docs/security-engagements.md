@@ -13,8 +13,9 @@ Engagement → Authorization → Scope → Environment policy → Capability →
 > fixtures. There is no "run a test" action in the UI or the API.
 >
 > **Phase 2A** adds the durable execution runtime that carries out allowed requests — persisted executions with an
-> immutable trusted snapshot, the pg-boss worker, cancellation, timeouts, limits and crash recovery. It still runs no
-> security tests; see [security-executions.md](security-executions.md).
+> immutable trusted snapshot, the pg-boss worker, cancellation, timeouts, limits and crash recovery. **Phase 2B** adds
+> the isolated container backend for capabilities that declare it. Neither runs security tests, and there is no
+> network egress layer yet; see [security-executions.md](security-executions.md).
 
 The rule underneath everything:
 

@@ -1,12 +1,19 @@
-# Security executions (Phase 2A: the durable execution runtime)
+# Security executions (Phase 2A: the durable runtime · Phase 2B: the isolated backend)
 
 Phase 1 ([security-engagements.md](security-engagements.md)) decides *whether* a capability may run. Phase 2A
 adds the platform that runs an allowed request **durably**: persisted with an immutable snapshot of the trusted
 configuration it was approved under, carried out by the existing pg-boss worker, cancellable, bounded by
-Audivra's own timeout and limits, and reconciled after a crash.
+Audivra's own timeout and limits, and reconciled after a crash. Phase 2B adds the **isolated container backend**
+behind the same lifecycle: capabilities that declare it run in an approved, execution-scoped container
+([below](#phase-2b-the-isolated-container-backend)).
 
-> Phase 2A is runtime engineering only. It adds no scanner, no vulnerability test, no active network testing and no
-> new security tooling. The only new capability, `diagnostic.runtime-check`, never contacts the target.
+> Phases 2A and 2B are runtime engineering only. They add no scanner, no vulnerability test, no active network
+> testing and no new security tooling. The only new capabilities, `diagnostic.runtime-check` (in-process) and
+> `diagnostic.isolated-check` (isolated), never contact the target.
+>
+> **Phase 2B provides execution/container isolation, but does not yet implement the later controlled
+> network-egress layer.** Isolated containers have no network at all, and a capability that needs the network
+> cannot be declared isolated yet.
 
 ```
 request ─► Capability Broker ─► decision (persisted) ─► [allowed] execution + trusted snapshot (persisted, hashed)
@@ -23,7 +30,8 @@ request ─► Capability Broker ─► decision (persisted) ─► [allowed] ex
 | Persistence | `security_executions` (migration `0004_security_executions`), `packages/database/src/repo/security-executions.ts`, queue `security-execution` in `queue.ts` |
 | Runtime | `packages/security/src/execution/` — `snapshot`, `runtime`, `backend`, `workspace`, `artifacts`, `processes`, `handles`, `control` (cancellation), `service` (API reads), `store`, `submit` |
 | Broker | `CapabilityBroker.submit()` in `packages/security/src/broker.ts` |
-| Capability | `packages/security/src/capabilities/runtime-check.ts`; `createRuntimeRegistry()` in `catalog.ts` |
+| Capability | `packages/security/src/capabilities/runtime-check.ts`, `isolated-check.ts`; `createRuntimeRegistry()` in `catalog.ts` |
+| Isolated backend (2B) | `packages/security/src/execution/container-backend.ts`, approved runtimes in `runtimes.ts`, reviewed executor programs in `packages/security/executors/` (`executors.ts`) |
 | Worker | `apps/worker/src/security-executions.ts`, wired in `apps/worker/src/main.ts` |
 | Process ownership | `reapStaleProcessesForExecution`, `liveOwnedForExecution` in `packages/tool-runtime/src/processes.ts` |
 | API | `apps/server/src/routes-security.ts` (inspect and cancel only) |
@@ -84,8 +92,13 @@ creation time) can never be updated, and a row in a final state can never be upd
 | `worker-interrupted` | The worker stopped while it ran | `runtime.worker-interrupted`, `runtime.shutdown` |
 | `cleanup-failed` | Owned resources could not be stopped or the workspace not cleaned | `cleanup.failed` |
 | `internal` | Unexpected platform error | `runtime.internal-error`, `execution.enqueue-failed` |
+| `runtime-unavailable` | The backend the execution requires is not available — never replaced by another | `runtime.backend-unavailable`, `runtime.image-unavailable`, `runtime.docker-unavailable`, `resources.runtime-unavailable` |
+| `runtime-failed` | The isolated runtime could not prepare, start or observe the container | `container.create-failed`, `container.start-failed`, `container.observe-failed`, `container.name-conflict` |
+| `resource-limit` | A limit enforced at the container boundary was hit | `container.memory-limit` |
 
-The list is extensible: a later isolated backend adds its own kinds (sandbox, egress) without changing these.
+A non-zero exit of the executor is `executor-failed` (`container.exit-code`), an invalid result
+`container.result-invalid`; a runtime registry change after the decision is `preflight-failed`
+(`execution.runtime-changed`). The list stays extensible (an egress layer will add its own kinds).
 Failure messages are redacted and bounded before they are stored.
 
 ## The trusted snapshot
@@ -135,20 +148,24 @@ Heavy work never runs in a Fastify request: the API only reads and requests canc
 out. The runtime owns everything that must not depend on it — snapshot, lifecycle, timeout, cancellation, limits,
 evidence, events, recovery — and asks the backend to:
 
-| Step | In-process backend (first implementation) |
-| --- | --- |
-| `prepare` | create the workspace areas, write `inputs/input.json` |
-| `start` | call the reviewed capability implementation with the frozen context and handles |
-| `observe` | resolve with its result or error |
-| `cancel` | abort the execution's stop signal (graceful) |
-| `terminate` | abort and terminate the execution's owned processes, exactly |
-| `cleanup` | remove scratch space (idempotent) |
+| Step | `InProcessBackend` | `IsolatedContainerBackend` (2B) |
+| --- | --- | --- |
+| `prepare` | create the workspace areas, write `inputs/input.json` | check the pinned image (never pull), stage `inputs/` (program input + reviewed program), `docker create` |
+| `start` | call the reviewed `execute` with the frozen context and handles | `docker start`; an owned `docker wait` helper observes the exit |
+| `observe` | resolve with its result or error | inspect the exit, cap the output, read `outputs/result.json` (bounded), run the host-side `collect` |
+| `cancel` | abort the execution's stop signal | SIGTERM through the container's init (the program may flush) |
+| `terminate` | abort and terminate the owned processes, exactly | SIGKILL the exact container (if still running) |
+| `cleanup` | remove scratch space (idempotent) | remove the exact container, verify it is gone, remove scratch space (idempotent; throws if anything remains) |
+| `resume` | nothing outlives the worker | recovery: report the container's state without starting, reading or changing anything |
+
+Phase 2B extended the interface only where recovery and observability needed it: a `resume` step, optional
+`ownedResources` / `removeOwnedResource` for reconciling containers of final executions, an event sink in the spec
+and container facts on the exit. The lifecycle is the Phase 2A one; there is no second lifecycle.
 
 The in-process backend cannot pre-empt JavaScript that ignores the stop signal. The runtime then **abandons** it after
 the grace period: its owned processes are terminated, its handles are revoked (no further evidence, processes or
-network), and the execution is finished and marked `abandoned` in its exit information. A later isolated backend
-(container or VM with the workspace mounted and mediated egress) implements the same six steps with hard
-termination, without changes to the execution model.
+network), and the execution is finished and marked `abandoned` in its exit information. An isolated execution has
+no such gap: its container is killed.
 
 ## Workspace
 
@@ -260,7 +277,9 @@ Appended to the Phase 1 `security_events` with the execution id: `capability.req
 `capability.denied` (the decision), then `execution.requested` (snapshot hash, limits, targets), `execution.queued`
 (job id), `execution.preparing`, `execution.started`, `execution.cancel-requested` (with the actor),
 `execution.cleanup-started`, `execution.cleanup-completed`, and one of `execution.completed`, `execution.failed`,
-`execution.timed-out`, `execution.cancelled`; `execution.recovered` for reconciliation. Events carry identifiers,
+`execution.timed-out`, `execution.cancelled`; `execution.recovered` for reconciliation. Isolated executions add one
+event per container step: `execution.container-preparing`, `-created`, `-started`, `-exited` (exit code, memory
+limit, duration), `-stop-requested`, `-terminated`, `-removed` and `-cleanup-failed`. Events carry identifiers,
 states and short summaries — never raw logs — and are redacted at the persistence boundary.
 
 ## API and UI
@@ -275,9 +294,12 @@ states and short summaries — never raw logs — and are redacted at the persis
 | `POST /api/security/executions/:id/cancel` | request cancellation (idempotent) |
 
 There is deliberately no endpoint that creates, runs, retries or changes an execution, and none that takes a command,
-an executable or an image (tested). The *Executions* tab lists an engagement's executions and shows one in detail —
-status, environment, timestamps, duration, the configuration it was approved under, limits, failure reason, events,
-evidence with artifact links — with *Cancel execution* while it can be cancelled. It has no way to start anything.
+an executable, an image or a container option (tested). The *Executions* tab lists an engagement's executions and
+shows one in detail — status, environment, the runtime (in-process, or isolated container with its runtime and
+resource profile), the container's outcome and whether cleanup removed it, timestamps, duration, the configuration
+it was approved under, limits, failure reason, events, evidence with artifact links — with *Cancel execution* while it
+can be cancelled. It has no way to start anything. The detail's `trusted.isolation` reports the mode, runtime id and
+version, network and container limits.
 
 ## The runtime check
 
@@ -293,19 +315,196 @@ result (the worker must be running).
 
 ## Guarantees today vs. later
 
-| Guarantee | Phase 2A | Needs the isolation / mediated-egress layer |
+| Guarantee | Phases 2A / 2B | Needs a later layer |
 | --- | --- | --- |
-| An execution runs only what was decided, under the configuration it was approved for | Snapshot persisted, hashed, immutable (trigger), verified and revalidated before start | — |
+| An execution runs only what was decided, under the configuration it was approved for | Snapshot persisted, hashed, immutable (trigger), verified and revalidated before start; it records the execution mode, the pinned image and the container limits | — |
 | Execution and decision cannot be created over HTTP or by a model | Only `CapabilityBroker.submit()` creates executions; job payloads carry an id only | — |
-| Timeout and cancellation are Audivra's | Runtime timer and stop path; owned processes terminated exactly | Pre-emption of non-cooperative code (in-process code can only be abandoned) |
-| Processes are attributable and terminated exactly | Registry by execution id, PID + creation time; no pattern kills | Sandboxed execution |
-| Files stay in the execution workspace | For everything mediated by the runtime (areas, process cwd/output files, evidence) | OS-level confinement of code that writes elsewhere |
-| A crashed worker leaves no running execution or orphaned owned process behind | Start-up and redelivery reconciliation, conservative and idempotent | — |
+| An isolated capability never runs outside its container | No in-process implementation exists for it; selection from the snapshot only; no fallback; in-process path refuses it | — |
+| Timeout and cancellation are Audivra's | Runtime timer and stop path; owned processes and the exact container terminated | Pre-emption of non-cooperative *in-process* code (it can only be abandoned) |
+| Processes and containers are attributable and terminated exactly | Registry by execution id (PID + creation time); containers by derived name + labels; no pattern kills, no pruning | — |
+| Files stay in the execution workspace | In-process: everything mediated by the runtime. Isolated: enforced by the container — only the execution's areas are mounted | OS-level confinement of in-process code |
+| Network access is in scope | In-process: the scoped HTTP client. Isolated: no network at all | The controlled egress layer (isolated capabilities that need the network) |
+| A crashed worker leaves no running execution, orphaned process or container behind | Start-up and redelivery reconciliation, conservative and idempotent | — |
+
+## Phase 2B: the isolated container backend
+
+### Execution modes and backend selection
+
+A capability declares how it must be carried out — `execution: { mode, runtime }` in its metadata:
+
+| Mode | Backend | For |
+| --- | --- | --- |
+| `in-process` (default when omitted) | `InProcessBackend` | trusted, lightweight **platform** capabilities: reviewed code that needs Audivra's in-process handles, e.g. `discovery.http-observe` (whose network access *is* the scoped HTTP client) and `diagnostic.runtime-check` |
+| `isolated-container` | `IsolatedContainerBackend` | anything that runs tool or target-facing code later phases add; the capability names an **approved runtime id** (`node-sandbox`), never an image, path or option |
+
+The implementation must match the mode exactly (checked at registration): an in-process capability provides
+`execute`; an isolated one provides a reviewed executor `program` (a file in `packages/security/executors/`),
+`programInput` and a host-side `collect` — and **no** `execute`, so it cannot run in-process at all. Isolated
+capabilities must name an approved runtime, may not require the network (no egress layer yet), may not name an
+image and start no host processes.
+
+**Selection is deterministic and cannot be downgraded.** The broker records the mode, the approved runtime with its
+digest-pinned image and the container limits in the trusted snapshot. The worker picks the backend from the verified
+snapshot, checks that the registered capability still declares the same mode and that the approved runtime is
+unchanged, and otherwise refuses (`execution.capability-changed`, `execution.runtime-changed`). A mode the worker has
+no backend for fails with `runtime-unavailable` — it is never run another way. Requests have no field for a backend
+(strict schemas), and `CapabilityBroker.execute()` (the in-process path used by tests and the agent gateway) refuses
+isolated capabilities at the decision (`runtime.isolation-required`). All of this is tested.
+
+### Approved runtimes
+
+`packages/security/src/execution/runtimes.ts` is the whole registry — versioned code, like policy profiles:
+
+| Id | Image | Purpose | Limits |
+| --- | --- | --- | --- |
+| `node-sandbox` v1 | `node:24-alpine` pinned `node@sha256:ebfe2f90…ec1c1` (≈ 242 MB, already present for the egress spike) | runs Audivra's reviewed Node.js executor programs | 256 MB memory, no swap · 0.5 CPU · 64 PIDs · 16 MB `/tmp` |
+
+Images are never pulled. The broker's resource preflight refuses an isolated capability whose pinned image is not
+present (`resources.runtime-unavailable`, with the explicit `docker pull …@sha256:…` command and a reminder to check
+free disk first), and the backend checks again before creating anything.
+
+### Container identity and ownership
+
+Each isolated execution gets exactly one container, named `audivra-<execution id>` (e.g. `audivra-sx-4igqx3var89wxv`)
+— derived, never chosen, so it needs no storage — with labels `audivra.owner=security-execution`,
+`audivra.execution`, `audivra.engagement`, `audivra.capability` and `audivra.runtime` (identifiers only; no secrets in
+names, labels or the environment — the container gets no environment from Audivra). A container is treated as an
+execution's only when its exact name **and** its labels match that execution **and** this database has that
+execution; everything else (other installations sharing the Docker daemon, unrelated containers) is left alone.
+
+The worker alone talks to Docker, through the docker CLI as owned helper processes of the execution (tool
+`runtime:docker`; the long-running `docker wait` is persisted in `owned_processes`, short commands stay in the
+in-memory registry). Helper processes are not capability processes: they are excluded from the execution's process
+counts, and killing one never touches the container.
+
+### Filesystem boundary
+
+```
+.local-data/security/<engagement>/executions/<execution>/       (the Phase 2A workspace — no other location)
+  inputs/     → /audivra/inputs     read-only   program input (input.json) and the reviewed program
+  outputs/    → /audivra/outputs    read-write  result.json, container.log, anything the program writes
+  artifacts/  → /audivra/artifacts  read-write  files meant to become evidence
+  tmp/        (not mounted; the container gets a private 16 MB tmpfs at /tmp)
+```
+
+Nothing else is mounted: not the repository, the user's home, other executions' or engagements' workspaces, unrelated
+Audivra data, the host root or the Docker socket. The root filesystem is read-only. Inputs are staged before start
+and only contain what the program needs (`programInput`, e.g. `{ marker, holdSeconds, note }`) — never the trusted
+snapshot, authorization, scope, policy, engagement state or any credential; the control plane stays outside.
+
+### Container security profile
+
+| Setting | Value |
+| --- | --- |
+| user | non-root: the worker's own uid:gid on POSIX hosts (65534 if the worker is root), `1000:1000` on Windows; root is refused |
+| capabilities | `--cap-drop ALL` (effective set 0), no `--cap-add` |
+| privilege escalation | `--security-opt no-new-privileges`; Docker's default seccomp profile stays on; never `--privileged` |
+| namespaces | private PID and IPC (`--ipc private`), no host PID/IPC/UTS/user namespace, `--hostname audivra-executor` |
+| network | `--network none` (only `lo`) |
+| filesystem | `--read-only` root, `--tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m`, the three bind mounts above |
+| process | `--init` (signals reach the program; zombies are reaped), `--restart no` |
+| output | `json-file` log driver capped at 1 MB × 1 file |
+| image | digest-pinned reference of the approved runtime |
+
+Every value comes from `containerCreateArgs()`, one function, unit-tested flag by flag. The integration test reads
+the same profile back from `docker inspect` and from inside the container (uid, read-only root and inputs, writable
+`/tmp` and outputs, no Docker socket or host paths, only `lo`, cgroup `memory.max` / `pids.max` / `cpu.max`,
+capabilities and `NoNewPrivs`).
+
+### Resource limits
+
+```
+policy profile → effective limits ┐
+approved runtime profile ─────────┴→ trusted snapshot (runtime + isolation.container) → runtime → container
+```
+
+| Limit | Source | Enforced by |
+| --- | --- | --- |
+| wall-clock timeout | `limits.executionTimeoutSeconds` | the runtime: SIGTERM, grace, SIGKILL of the exact container |
+| memory (no swap) | runtime profile | Docker cgroup (`--memory`, `--memory-swap`); an OOM kill is `resource-limit` |
+| CPU | runtime profile | Docker cgroup (`--cpus`) |
+| PIDs | runtime profile | Docker cgroup (`--pids-limit`) |
+| `/tmp` size | runtime profile | tmpfs size |
+| artifact budget | `limits.maxArtifactMb` | the runtime — bind mounts cannot be quota'd by Docker Desktop, so a watchdog measures the workspace every few seconds and stops an execution that outgrows its budget (`artifact.budget-exceeded`), registration checks every artifact, finalization checks the total |
+| execution concurrency | `SECURITY_EXECUTION_CONCURRENCY` | the claim (unchanged) |
+
+### Cancellation, timeout and shutdown
+
+Cancellation and timeout follow the Phase 2A path: the runtime sends the graceful stop (`docker kill --signal
+SIGTERM` to the exact container; the program can write what it knows — `diagnostic.isolated-check` leaves
+`result.json` with `status: stopped`), waits the grace period, kills the container (`docker kill`) if it is still
+running, records the state, cleans up (container removed, verified) and finishes `cancelled` / `timed-out`. Files
+the program flushed stay in the workspace but a stopped execution registers no evidence. Repeated cancellation is
+safe; cancelling A never affects B or any other container (tested with a running unrelated container).
+
+On worker shutdown, running isolated executions are stopped the same way and finish `interrupted`
+(`runtime.shutdown`) with their container removed; nothing else is touched and nothing global is cleaned.
+
+### Recovery
+
+At start-up (and on a redelivered job) the runtime reconciles executions of a worker that is gone — Docker keeps
+their containers running — and then containers left by executions that are already final:
+
+| Found | Action |
+| --- | --- |
+| container still running | stopped (graceful, then exact kill) and removed; execution `interrupted`, never re-run |
+| container exited, execution never finalized | **collected**: its output goes through the same `collect` + validated registrar path, then the normal finalization (`succeeded` / `failed`) |
+| execution `finalizing` with a stored result | finished from the result; container removed |
+| execution `cancelling` | container stopped and removed; `cancelled` |
+| container created but never started | removed; `interrupted` |
+| execution running but container gone | `interrupted` ("its container no longer exists") |
+| execution final but its container remains (crash before removal, failed cleanup) | container removed by exact name (`execution.recovered`, `container-removed`) |
+| labelled container of no execution in this database | left untouched (reported) |
+| Docker not reachable | reconciliation of that execution is deferred, not guessed |
+
+Adoption is a guarded update, so a second recovering worker loses the race; a second pass changes nothing.
+
+### Output, artifacts and evidence
+
+Container output is bounded: `docker logs --tail 400`, at most 64 KB kept as `outputs/container.log`, a 1 KB redacted
+tail in the run metadata; `result.json` is read only if it is a regular file of at most 64 KB inside `outputs/`. The
+container never creates evidence: after it exits, the capability's host-side `collect` validates the result (schema,
+the execution's own marker) and registers artifacts through the Phase 2A registrar (regular file, inside this
+execution, declared evidence type, budget) with the execution id in the provenance. Redaction applies to events, API
+responses and served artifacts as before.
+
+### Cleanup
+
+Idempotent and exact: remove the container by name after its labels prove ownership, confirm it is gone, remove the
+scratch space. If removal fails the failure is persisted (`cleanup-failed`, `execution.container-cleanup-failed`), the
+container is not reported as removed (`exit.runtime.container.removed: false`), and its derived name and labels are
+all a later reconciliation needs to remove it.
+
+### Measured overhead
+
+Windows 11, Docker Desktop 29.8 (WSL 2), median of 5 runs with `holdSeconds: 0`:
+
+| | in-process `diagnostic.runtime-check` | isolated `diagnostic.isolated-check` |
+| --- | --- | --- |
+| whole execution (`run()`) | 168 ms | 1 825 ms |
+| preparing → started | 16 ms | 648 ms (image check + `docker create` ≈ 483 ms) |
+| work | 129 ms (one owned `node` child) | 792 ms (`docker start` ≈ 313 ms, run → exit observed ≈ 458 ms) |
+| cleanup | 3 ms | 374 ms (container removal ≈ 370 ms) |
+
+Isolation costs about 1.6 s per execution on this machine, almost all of it docker CLI round trips.
+
+### Phase 2B limitations
+
+- **No network egress layer yet.** Isolated containers have no network; capabilities that need it cannot be
+  isolated in this version and the in-process scoped client remains their only path.
+- Containers share the Docker VM's kernel (namespaces, cgroups, seccomp): process isolation, not a virtual machine.
+- The artifact budget is enforced by polling the bind-mounted workspace (every few seconds), so a fast writer can
+  overshoot briefly before it is stopped; Docker Desktop offers no quota for bind mounts.
+- One approved runtime, pinned by digest. On a machine without that exact image, isolated capabilities are refused
+  until it is pulled explicitly.
+- Container control goes through the docker CLI (≈ 0.3 s per call on Docker Desktop).
+- On Windows, Node ends a crashed worker's child processes with it (a kill-on-close job object); the docker CLI
+  helpers die too, but containers keep running under Docker and are reconciled as above.
 
 ## Known limitations
 
-- The only backend runs reviewed capability code in the worker process: it is not a sandbox. Hard termination,
-  filesystem and network containment need the isolated backend.
+- The in-process backend runs reviewed capability code in the worker process: it is not a sandbox. It is meant for
+  trusted platform capabilities; isolation-requiring capabilities declare `isolated-container`.
 - Execution concurrency is an operational, platform-wide setting; a per-engagement execution concurrency limit in
   the policy profiles is future work.
 - A running execution keeps the snapshot it started with when the engagement configuration changes (only pausing,
