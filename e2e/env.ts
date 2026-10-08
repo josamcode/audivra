@@ -8,6 +8,8 @@ export const FIXTURE_URL = `http://127.0.0.1:${E2E_PORTS.fixture}`
 
 const base = new URL(process.env.DATABASE_URL ?? 'postgres://audivra:audivra@127.0.0.1:5440/audivra')
 base.pathname = '/audivra_e2e'
+/** The dedicated E2E database (specs use it for platform-internal flows such as broker submissions). */
+export const E2E_DATABASE_URL = base.toString()
 
 /** Shared web-server setup: fixture site, single-process backend (API + worker) and the Vite UI. */
 export function e2eServers(
@@ -15,7 +17,7 @@ export function e2eServers(
   extraEnv: Record<string, string> = {},
 ): PlaywrightTestConfig['webServer'] {
   const backendEnv = {
-    DATABASE_URL: base.toString(),
+    DATABASE_URL: E2E_DATABASE_URL,
     SERVER_PORT: String(E2E_PORTS.api),
     AUDIVRA_AI: ai,
     AUDIVRA_DATA_DIR: '.local-data/e2e',
