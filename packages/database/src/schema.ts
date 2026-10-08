@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -35,6 +36,11 @@ import type {
   EffortLevel,
   EngagementStatus,
   EvidenceSource,
+  ExecutionExit,
+  ExecutionFailure,
+  ExecutionResult,
+  ExecutionRunner,
+  ExecutionStatus,
   EvidenceType,
   FindingType,
   ImpactLevel,
@@ -49,6 +55,7 @@ import type {
   SecurityEnvironment,
   SecurityEventType,
   SecurityEvidenceProvenance,
+  SecurityExecutionSnapshot,
   Severity,
   StepStatus,
   ToolRunStatus,
@@ -487,4 +494,45 @@ export const securityEvents = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [index('security_events_engagement_idx').on(t.engagementId, t.id), index('security_events_execution_idx').on(t.executionId)],
+)
+
+/**
+ * Durable security executions: one run of one allowed capability request. The trusted snapshot and the
+ * identity columns are immutable and a terminal row is frozen — both enforced by a database trigger
+ * (migration 0004). Evidence and owned processes reference executions by `security_execution_id`.
+ */
+export const securityExecutions = pgTable(
+  'security_executions',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    capabilityId: text('capability_id').notNull(),
+    capabilityVersion: integer('capability_version').notNull(),
+    status: text('status').$type<ExecutionStatus>().notNull().default('queued'),
+    environment: text('environment').$type<SecurityEnvironment>().notNull(),
+    /** Engagement configuration version the execution was approved against. */
+    configVersion: integer('config_version').notNull(),
+    correlationId: text('correlation_id').notNull(),
+    requestedBy: jsonb('requested_by').$type<SecurityActor>().notNull(),
+    /** Id of the `capability.allowed` security event that authorized the execution. */
+    decisionEventId: bigint('decision_event_id', { mode: 'number' }).notNull(),
+    snapshot: jsonb('snapshot').$type<SecurityExecutionSnapshot>().notNull(),
+    /** SHA-256 of the canonical snapshot; verified before the worker uses it. */
+    snapshotHash: text('snapshot_hash').notNull(),
+    jobId: text('job_id'),
+    runner: jsonb('runner').$type<ExecutionRunner>(),
+    heartbeatAt: ts('heartbeat_at'),
+    cancelRequestedAt: ts('cancel_requested_at'),
+    cancelRequestedBy: jsonb('cancel_requested_by').$type<SecurityActor>(),
+    result: jsonb('result').$type<ExecutionResult>(),
+    exit: jsonb('exit').$type<ExecutionExit>(),
+    failure: jsonb('failure').$type<ExecutionFailure>(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    startedAt: ts('started_at'),
+    finishedAt: ts('finished_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_executions_engagement_idx').on(t.engagementId, t.createdAt), index('security_executions_status_idx').on(t.status)],
 )

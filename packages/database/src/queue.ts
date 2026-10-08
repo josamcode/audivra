@@ -13,6 +13,8 @@ export const QUEUES = {
   /** On-demand AI work for a finished audit: journey analysis, change intelligence, client brief. */
   enrich: 'audit-enrich',
   benchmark: 'benchmark-run',
+  /** Durable security executions (one job per execution; the job carries nothing but its id). */
+  securityExecution: 'security-execution',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -28,10 +30,26 @@ export interface EnrichJob {
   kind: EnrichKind
 }
 
+/**
+ * A security execution job names the execution and nothing else: the worker loads the trusted snapshot
+ * from the database, so a job payload can never carry configuration.
+ */
+export interface SecurityExecutionJob {
+  executionId: string
+}
+
 const HOUR = 3600
 
+interface QueueSettings {
+  expireInSeconds: number
+  retryLimit: number
+  retryDelay: number
+  /** pg-boss queue policy; fixed when the queue is created (default `standard`). */
+  policy?: 'standard' | 'exclusive'
+}
+
 /** Queue policies: AI stages are long-running and rely on heartbeats rather than short expirations. */
-const QUEUE_OPTIONS: Record<QueueName, { expireInSeconds: number; retryLimit: number; retryDelay: number }> =
+const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
   {
     [QUEUES.baseline]: { expireInSeconds: 1 * HOUR, retryLimit: 1, retryDelay: 10 },
     [QUEUES.investigation]: { expireInSeconds: 4 * HOUR, retryLimit: 1, retryDelay: 30 },
@@ -43,6 +61,10 @@ const QUEUE_OPTIONS: Record<QueueName, { expireInSeconds: number; retryLimit: nu
     [QUEUES.enrich]: { expireInSeconds: 1 * HOUR, retryLimit: 0, retryDelay: 0 },
     // A benchmark runs several full AI audits sequentially; never retried automatically.
     [QUEUES.benchmark]: { expireInSeconds: 8 * HOUR, retryLimit: 0, retryDelay: 0 },
+    // One job per execution (`exclusive` + singletonKey = execution id: a duplicate send is a no-op).
+    // A job lost with a crashed worker is retried; the handler only ever starts a *queued* execution,
+    // so a retry can resume a never-started execution but never re-runs one that started.
+    [QUEUES.securityExecution]: { expireInSeconds: 5 * HOUR, retryLimit: 2, retryDelay: 5, policy: 'exclusive' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -55,11 +77,11 @@ export function createBoss(url: string, instanceName?: string): PgBoss {
 }
 
 export async function ensureQueues(boss: PgBoss): Promise<void> {
-  for (const [name, options] of Object.entries(QUEUE_OPTIONS)) {
+  for (const [name, { policy, ...options }] of Object.entries(QUEUE_OPTIONS)) {
     const existing = await boss.getQueue(name)
     const desired = { ...options, heartbeatSeconds: HEARTBEAT_SECONDS }
     if (existing) await boss.updateQueue(name, desired)
-    else await boss.createQueue(name, desired)
+    else await boss.createQueue(name, { ...desired, ...(policy ? { policy } : {}) })
   }
 }
 
@@ -81,4 +103,9 @@ export async function hasPendingEnrichJob(db: Db, auditId: string, kind: EnrichK
     sql`select 1 from pgboss.job where name = ${QUEUES.enrich} and singleton_key = ${`${auditId}:${kind}`} and state in ('created', 'retry', 'active') limit 1`,
   )
   return result.rows.length > 0
+}
+
+/** Queues one security execution. A second send for the same execution while its job exists is a no-op (null). */
+export async function enqueueSecurityExecution(boss: PgBoss, executionId: string, jobId?: string): Promise<string | null> {
+  return boss.send(QUEUES.securityExecution, { executionId } satisfies SecurityExecutionJob, { singletonKey: executionId, ...(jobId ? { id: jobId } : {}) })
 }
