@@ -73,6 +73,35 @@ const columns = [
   }),
 ]
 
+/** The backend the execution runs on, and for an isolated one the profile of its container. */
+function runtimeText(detail: SecurityExecutionDetail): { label: string; profile: string | null } {
+  const { isolation } = detail.trusted
+  if (isolation.mode !== 'isolated-container') return { label: 'In process (trusted platform code)', profile: null }
+  const limits = isolation.container
+  return {
+    label: `Isolated container · ${isolation.runtimeId ?? 'approved runtime'}${isolation.runtimeVersion ? ` v${isolation.runtimeVersion}` : ''}`,
+    profile: [
+      isolation.network === 'none' ? 'no network' : null,
+      'read-only root',
+      'non-root',
+      limits ? `${limits.memoryMb} MB memory` : null,
+      limits ? `${limits.cpus} CPU` : null,
+      limits ? `${limits.pidsLimit} processes` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }
+}
+
+/** Container outcome and whether Audivra's cleanup removed it. */
+function containerText(detail: SecurityExecutionDetail): string | null {
+  if (detail.trusted.isolation.mode !== 'isolated-container') return null
+  const container = detail.exit?.runtime?.container
+  if (!container) return detail.status === 'queued' ? 'Not created yet' : detail.finishedAt ? 'No container was created' : 'In use'
+  const outcome = container.oomKilled ? 'stopped at its memory limit' : container.exitCode === null ? 'did not report an exit code' : `exited with code ${container.exitCode}`
+  return `${outcome} · ${container.removed ? 'removed' : 'not removed — kept for a later cleanup'}`
+}
+
 const actorText = (actor: SecurityExecutionDetail['requestedBy']) =>
   actor.kind === 'agent' ? `Agent run ${actor.agentRunId ?? ''}` : actor.kind === 'system' ? 'Audivra' : (actor.id ?? 'User')
 
@@ -174,6 +203,9 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
     )
   }
   const { trusted, failure } = detail
+  const runtime = runtimeText(detail)
+  const container = containerText(detail)
+  const isolated = trusted.isolation.mode === 'isolated-container'
   return (
     <Panel className="self-start" id="execution-detail">
       <PanelHeader
@@ -214,6 +246,16 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
           layout="text"
           items={[
             { label: 'Environment', value: ENVIRONMENT_LABEL[detail.environment] },
+            {
+              label: 'Runtime',
+              value: (
+                <span data-testid="execution-runtime">
+                  {runtime.label}
+                  {runtime.profile ? <span className="block text-xs text-muted">{runtime.profile}</span> : null}
+                </span>
+              ),
+            },
+            ...(container ? [{ label: 'Container', value: <span data-testid="execution-container">{container}</span> }] : []),
             { label: 'Requested by', value: actorText(detail.requestedBy) },
             { label: 'Created', value: formatDateTime(detail.createdAt) },
             { label: 'Started', value: formatDateTime(detail.startedAt) },
@@ -225,8 +267,9 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
             },
             {
               label: 'Limits',
-              value: `${formatDuration(trusted.runtime.timeoutSeconds * 1000)} · ${formatBytes(trusted.runtime.maxArtifactBytes)} of artifacts · ${
-                trusted.runtime.maxProcesses ? `up to ${trusted.runtime.maxProcesses} processes` : 'no processes'
+              // Container limits are part of the runtime profile; the process limit is for in-process capabilities.
+              value: `${formatDuration(trusted.runtime.timeoutSeconds * 1000)} · ${formatBytes(trusted.runtime.maxArtifactBytes)} of artifacts${
+                isolated ? '' : ` · ${trusted.runtime.maxProcesses ? `up to ${trusted.runtime.maxProcesses} processes` : 'no processes'}`
               }`,
             },
             {
@@ -241,7 +284,7 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
               ? [
                   {
                     label: 'Exit',
-                    value: `${detail.exit.processes.started} process${detail.exit.processes.started === 1 ? '' : 'es'} started, ${detail.exit.processes.terminated + detail.exit.processes.reaped} stopped by Audivra · ${detail.exit.artifacts.registered} artifact${detail.exit.artifacts.registered === 1 ? '' : 's'}${detail.exit.abandoned ? ' · code that ignored the stop request was abandoned' : ''}`,
+                    value: `${isolated ? '' : `${detail.exit.processes.started} process${detail.exit.processes.started === 1 ? '' : 'es'} started, ${detail.exit.processes.terminated + detail.exit.processes.reaped} stopped by Audivra · `}${detail.exit.artifacts.registered} artifact${detail.exit.artifacts.registered === 1 ? '' : 's'}${detail.exit.abandoned ? ' · code that ignored the stop request was abandoned' : ''}`,
                   },
                 ]
               : []),
