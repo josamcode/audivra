@@ -7,6 +7,7 @@ import {
   OWNER_ID,
   processIdentity,
   reapStaleProcesses,
+  reapStaleProcessesForExecution,
   registerOwned,
   setProcessStore,
   type OwnedProcessRecord,
@@ -103,6 +104,22 @@ describe('process ownership registry', () => {
     expect(order).toEqual(['insert', 'finish:exited'])
     expect(store.inserted[0]).toMatchObject({ securityExecutionId: 'sx_quick00000000a' })
     child.kill()
+  }, 60_000)
+
+  it('reconciles the leftovers of one security execution only', async () => {
+    const mine = idleChild()
+    const other = idleChild()
+    const [mineId, otherId] = await Promise.all([processIdentity(mine.pid!), processIdentity(other.pid!)])
+    const deadOwner = 4_194_301
+    const store = new MemoryStore([
+      { id: 'x1', pid: mine.pid!, processStartedAt: mineId!.startedAt, image: mineId!.image, parentPid: deadOwner, containerName: null, securityExecutionId: 'sx_aaaaaaaaaaaaaa' },
+      { id: 'y1', pid: other.pid!, processStartedAt: otherId!.startedAt, image: otherId!.image, parentPid: deadOwner, containerName: null, securityExecutionId: 'sx_bbbbbbbbbbbbbb' },
+    ])
+    setProcessStore(store)
+    expect(await reapStaleProcessesForExecution('sx_aaaaaaaaaaaaaa')).toEqual({ reaped: 1, gone: 0, skipped: 0 })
+    expect(await exited(mine)).toBe(true)
+    expect(alive(other)).toBe(true)
+    expect(store.finished).toEqual([{ id: 'x1', status: 'reaped' }])
   }, 60_000)
 
   it('after a restart, reaps only verified leftovers and never touches live owners or reused PIDs', async () => {

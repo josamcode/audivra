@@ -47,6 +47,8 @@ export interface StaleProcessRow {
   /** PID of the Audivra process that started it. */
   parentPid: number
   containerName: string | null
+  /** Security execution that owns the process, when it was started by one. */
+  securityExecutionId?: string | null
 }
 
 /** Persistence hooks (the worker/server wires these to PostgreSQL). */
@@ -203,6 +205,11 @@ export async function killOwnedForExecution(securityExecutionId: string): Promis
   return entries.length
 }
 
+/** Owned processes of one security execution that this instance still tracks as running. */
+export function liveOwnedForExecution(securityExecutionId: string): OwnedProcessRecord[] {
+  return [...live.values()].filter((e) => e.record.securityExecutionId === securityExecutionId).map((e) => ({ ...e.record }))
+}
+
 /**
  * Removes Docker containers in one audit's namespace (`audivra-<auditId>-…`), including ones the AI
  * started from its terminal with the documented names. Only exact names returned by Docker for that
@@ -240,10 +247,24 @@ export function liveOwnedProcesses(): OwnedProcessRecord[] {
  */
 export async function reapStaleProcesses(): Promise<{ reaped: number; gone: number; skipped: number }> {
   if (!store) return { reaped: 0, gone: 0, skipped: 0 }
+  return reapRows(store, await store.listStale(OWNER_ID))
+}
+
+/**
+ * The same reconciliation, limited to the records of one security execution (crash recovery of that
+ * execution). Records of other executions, audits and live instances are never touched.
+ */
+export async function reapStaleProcessesForExecution(securityExecutionId: string): Promise<{ reaped: number; gone: number; skipped: number }> {
+  if (!store) return { reaped: 0, gone: 0, skipped: 0 }
+  const rows = (await store.listStale(OWNER_ID)).filter((row) => row.securityExecutionId === securityExecutionId)
+  return reapRows(store, rows)
+}
+
+async function reapRows(processStore: ProcessStore, rows: StaleProcessRow[]): Promise<{ reaped: number; gone: number; skipped: number }> {
   let reaped = 0
   let gone = 0
   let skipped = 0
-  for (const row of await store.listStale(OWNER_ID)) {
+  for (const row of rows) {
     const owner = await processIdentity(row.parentPid)
     // The owner is alive if a process with that PID exists and started before the child did (a reused
     // PID would belong to a newer process).
@@ -264,7 +285,7 @@ export async function reapStaleProcesses(): Promise<{ reaped: number; gone: numb
       reaped++
     } else gone++
     if (row.containerName) await stopContainer(row.containerName)
-    await store.finish(row.id, sameProcess ? 'reaped' : 'gone', null)
+    await processStore.finish(row.id, sameProcess ? 'reaped' : 'gone', null)
   }
   return { reaped, gone, skipped }
 }
