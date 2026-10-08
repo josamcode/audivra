@@ -28,6 +28,8 @@ export interface RunProcessOptions {
    * (short probes) are tracked in memory only. Either way only this process tree can be terminated.
    */
   owner?: { tool: string; auditId?: string | null; securityExecutionId?: string | null; containerName?: string | null }
+  /** Persist the ownership record (default: whenever an owner is given). Short helper commands may stay in memory. */
+  persist?: boolean
 }
 
 export interface RunProcessResult {
@@ -96,7 +98,7 @@ export async function runProcess(options: RunProcessOptions): Promise<RunProcess
     containerName: options.owner?.containerName ?? null,
     cwd: options.cwd ?? process.cwd(),
     command: display,
-    persist: Boolean(options.owner),
+    persist: options.persist ?? Boolean(options.owner),
   })
   // Timeouts and cancellation terminate this process's tree only (execa alone would leave
   // grandchildren running on Windows).
