@@ -14,7 +14,8 @@ import { normalizeTargetUrl } from './url.ts'
 
 // ── Capability metadata (what a capability is; how it is implemented lives in @audivra/security) ─────
 
-export const CAPABILITY_FAMILIES = ['discovery', 'browser', 'traffic', 'web', 'api', 'authorization', 'source', 'dependency', 'network', 'oast'] as const
+/** `diagnostic` capabilities prove the platform itself (e.g. the execution runtime) and never contact a target. */
+export const CAPABILITY_FAMILIES = ['discovery', 'browser', 'traffic', 'web', 'api', 'authorization', 'source', 'dependency', 'network', 'oast', 'diagnostic'] as const
 export const CapabilityFamily = z.enum(CAPABILITY_FAMILIES)
 export type CapabilityFamily = z.infer<typeof CapabilityFamily>
 
@@ -253,6 +254,19 @@ export const SECURITY_EVENT_TYPES = [
   'capability.completed',
   'capability.failed',
   'capability.cancelled',
+  // Durable executions (packages/security/src/execution): one run of an allowed capability request.
+  'execution.requested',
+  'execution.queued',
+  'execution.preparing',
+  'execution.started',
+  'execution.completed',
+  'execution.failed',
+  'execution.cancel-requested',
+  'execution.cancelled',
+  'execution.timed-out',
+  'execution.recovered',
+  'execution.cleanup-started',
+  'execution.cleanup-completed',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>
