@@ -75,7 +75,7 @@ Primitives (`src/components/ui`, built on Base UI where interaction is non-trivi
 `Button`/`buttonVariants`, `Input`/`Label`, `Select` (Base UI), `Tabs`/`TabPanel` (Base UI),
 `Sheet` (right drawer) and `Modal` (Base UI Dialog), `Menu`/`MenuItem`/`MenuGroup` (Base UI Menu),
 `ConfirmDialog` (Base UI AlertDialog, for actions with real cost), `Tooltip` (Base UI),
-`SegmentedControl`, `Switch` (Base UI), `Badge`/`Dot`/`tagVariants`, `Skeleton`, `Separator`/`Kbd`.
+`SegmentedControl`, `ChoiceList` (a few options that each need a sentence, e.g. the engagement environment), `Switch` (Base UI), `Input`/`Textarea`, `Badge`/`Dot`/`tagVariants`, `Skeleton`, `Separator`/`Kbd`.
 
 Product layer (`src/components`, `src/features`):
 
@@ -86,7 +86,7 @@ Product layer (`src/components`, `src/features`):
 | `Panel`, `PanelHeader`, `PanelBody`, `SectionLabel`, `DefinitionList` (`numeric` / `text` / `stacked`) | The one bordered container; never nest panels |
 | `Metric`, `CountCell` | Compact labelled numbers |
 | KPI strip (overview, history, quality) | One bordered row of 5–6 real counts with a one-line detail each — never a score, never decoration |
-| `StatusBadge`, `SeverityBadge`, `FindingTypeBadge`, `ToolStateBadge`, `EvidenceTypeBadge`, `CoverageIcon`, `StepIcon`, `Confidence`, `LevelText`, `ROLE_LABELS` | All status vocabulary lives in `badges.tsx` |
+| `StatusBadge`, `SeverityBadge`, `FindingTypeBadge`, `ToolStateBadge`, `EvidenceTypeBadge`, `CoverageIcon`, `StepIcon`, `Confidence`, `LevelText`, `ROLE_LABELS`, `ReadinessBadge`, `DecisionBadge`, `ENGAGEMENT_STATUS_LABEL`, `ENVIRONMENT_LABEL` | All status vocabulary lives in `badges.tsx` |
 | `DataTable` + `useDataTable` | Every table: TanStack Table sorting + filtering, row click, empty/loading states. Keep `autoResetAll: false`. |
 | `StageProgress` | Broad stage indicator (incl. “Visuals & report”) — never a fake percentage |
 | `AppArtifact`, `ArtifactExportMenu` | A visual artifact in the app: trusted renderer + evidence/finding links + PNG/SVG export |
@@ -151,6 +151,12 @@ preview cannot drift from the exported files.
   section links, PDF/HTML download and a menu for JSON, CSV and the ZIP bundle.
 - **Client brief** — right sheet from the audit header: Quick brief · Meeting prep · Talking points ·
   Technical brief, references open the item, *Copy brief*, *Copy talking points*, *Regenerate*.
+- **Security** — engagement list (readiness, environment, status, policy) and *New engagement* (environment chosen
+  deliberately); an engagement has Overview (readiness checklist computed from requirements, capability catalog),
+  Scope (structured editor validated by the shared schema, *Check a URL* by name and resolved address), Authorization
+  (records, revoke, every method with its availability), Policy (environment, profile, effective risk/mutation classes
+  and limits) and Audit trail (append-only events; decisions expand into their checks). There is no action that runs
+  a test or a capability.
 - **System** — Tools (state, version, how provided, detail, re-check), Quality (benchmark runs, per
   fixture detail, run with confirmation), Processes (processes and containers Audivra owns).
 

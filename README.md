@@ -50,6 +50,7 @@ Open http://127.0.0.1:4300.
 - **Client report** at `/audits/:id/report` — one report model rendered by the same components in the app, standalone HTML and PDF. No run IDs, prompt versions, model details or debug data.
 - **Exports** (no AI re-run): PDF, standalone HTML, JSON (`audivra.audit.v1`), CSV (findings, pages, performance, broken links), a ZIP bundle, and PNG/SVG per visual. See [docs/exports.md](docs/exports.md).
 - **History** — audits of the same site are grouped; the History tab compares with the previous audit (new / resolved / improved / regressed / unchanged findings, metric deltas beyond lab noise, technology and coverage changes, before/after screenshots) and draws trends only from real audits. See [docs/comparison.md](docs/comparison.md).
+- **Security engagements (foundation)** — authorized security assessments as first-class records: target and environment (production, staging, isolated lab), verified authorization, a strict machine-enforced scope, versioned environment/risk policy profiles, a computed readiness state and an append-only decision audit trail. A capability broker decides every capability request deterministically; a model can only *request*. This version configures and checks engagements — it runs no security tests. See [docs/security-engagements.md](docs/security-engagements.md).
 - **Website intelligence** — an *audit focus* (template) per audit; **journeys** walked by the auditor with evidence per step and seven health dimensions (no scores); an **evidence graph** of stored links around any finding; **Change Intelligence** that explains the comparison with the previous audit (validated against it, never calling "not found again" fixed); a **Client view** without internals; and an on-request **Client Brief** (quick brief, meeting prep, talking points, technical brief). See [docs/intelligence.md](docs/intelligence.md).
 
 ## Architecture
@@ -66,14 +67,16 @@ packages/
   tool-runtime/ process execution with ownership registry, tool registry/detection
   audit-core/ workspace, evidence context, baseline modules and scanners
   ai-runtime/ provider seam, Claude Code CLI provider (bounded autonomy), MCP servers, roles, validation
+  security/   security engagements: scope engine, authorization, environment/risk policy, readiness, capability registry and broker
   insights/   metric catalog, artifact resolver/grounding, coverage, comparison, history, report model, benchmark scoring
   report-ui/  shared React renderers for artifacts and the client report (app, HTML, PDF, PNG, SVG)
   reporting/  exports: PDF/HTML/JSON/CSV/ZIP, artifact PNG/SVG
 prompts/      auditor, reviewer, finalizer, planner and composer prompts (versioned product assets)
 fixtures/site three fixture sites (v1 flawed, v2 partly fixed, healthy) + benchmark ground truth
+fixtures/scope a boring local server for scope decisions (redirects, ports, host names)
 ```
 
-More: [architecture](docs/architecture.md) · [website intelligence](docs/intelligence.md) · [artifacts](docs/artifacts.md) · [exports](docs/exports.md) · [comparison & trends](docs/comparison.md) · [security policy](docs/security.md) · [testing & benchmark](docs/testing.md) · [known limitations](docs/known-limitations.md) · [UI system](docs/ui-system.md)
+More: [architecture](docs/architecture.md) · [website intelligence](docs/intelligence.md) · [security engagements](docs/security-engagements.md) · [artifacts](docs/artifacts.md) · [exports](docs/exports.md) · [comparison & trends](docs/comparison.md) · [security policy](docs/security.md) · [testing & benchmark](docs/testing.md) · [known limitations](docs/known-limitations.md) · [UI system](docs/ui-system.md)
 
 ## Configuration (`.env`)
 
@@ -88,6 +91,7 @@ More: [architecture](docs/architecture.md) · [website intelligence](docs/intell
 | `AUDIT_MAX_REVISIONS`                                                        | `1`                                                 | Verification passes after review (0 disables)              |
 | `BASELINE_MAX_PAGES` / `BASELINE_MAX_LINK_CHECKS` / `BASELINE_BROWSER_PAGES` | `30` / `200` / `4`                                  | Baseline bounds                                            |
 | `BASELINE_SCANNERS`                                                          | `httpx,katana,pa11y,zap,testssl`                    | Optional baseline scanners (empty disables all)            |
+| `SECURITY_MIN_FREE_DISK_MB`                                                  | `2048`                                              | Security capability executions are refused below this free space (policy itself lives in versioned profiles, not here) |
 
 ## Safety in one paragraph
 

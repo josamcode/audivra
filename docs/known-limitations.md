@@ -21,6 +21,18 @@ Honest boundaries of the current version.
 - Annotated screenshots use measured regions when the auditor recorded them; otherwise the planner may mark large, unambiguous areas by eye, which can be imprecise.
 - Runs use the user's Claude Code plan; cost figures are API-equivalent estimates reported by the CLI.
 
+## Security engagements
+
+- Phase 1 is a control plane: it authorizes, scopes and decides, and runs no security tests. The only capability
+  (`discovery.http-observe`) is passive and exists to prove the pipeline.
+- Only *local development* authorization (loopback targets on this machine) is implemented; DNS TXT, well-known
+  file, repository, deployment and manual approval are modelled and reported as unavailable. Remote targets
+  therefore cannot become ready yet.
+- Enforcement is application-level: scope, DNS checks, limits and redirects bind code that uses the broker and its
+  scoped HTTP client. OS/network-level containment (sandboxed execution, mediated egress) is a later phase.
+- Public-suffix rules are approximated; the audit-trail trigger protects against application writes, not a database
+  owner. Details: [security-engagements.md](security-engagements.md).
+
 ## Platform and safety
 
 - On Windows the auditor's shell is not OS-sandboxed (see [security.md](security.md)).

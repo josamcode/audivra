@@ -24,6 +24,15 @@ When the AI must observe what a submit/contact control does, the prompt requires
 - **Timeouts** on every external process; cancellation propagates within ~3 s.
 - **Secrets and reasoning.** No API keys are needed (local Claude Code login). Thinking blocks are stripped before transcripts are written; the UI shows actions and one-sentence decision notes, never private reasoning. Evidence and notes must not contain credentials or personal data.
 
+## Security engagements
+
+Anything beyond the passive audit above belongs to a **security engagement**: a verified authorization, a strict
+scope, an environment and a pinned policy profile, decided by the capability broker for every request and recorded
+in an append-only audit trail. Phase 1 builds that control plane only and runs no security tests; the existing
+audit tools listed here are not security capabilities and must not be used as such. See
+[security-engagements.md](security-engagements.md), including which guarantees are enforced today and which need
+the planned isolation and mediated-egress layer.
+
 ## Known limits
 
 - The auditor's **Bash** tool is not OS-sandboxed on Windows (Claude Code's bash sandbox is not available there). File *tools* are scoped to the workspace and the prompt forbids leaving it, but a shell command could technically reach other paths. Running the worker in a container or under a dedicated low-privilege account is the recommended hardening for shared machines.

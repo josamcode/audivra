@@ -23,6 +23,10 @@ deterministic baseline only gathers cheap facts, which the prompts explicitly tr
 | MCP servers | children of each agent run           | `browser` (official Playwright MCP) and `audit` (evidence + activity notes) |
 | Scanners    | children of the worker               | Lighthouse, Pa11y, httpx, Katana; ZAP and testssl.sh as named containers   |
 
+Security engagements are a separate domain on the same infrastructure (`packages/security`, `/api/security/*`,
+tables `security_engagements`, `security_authorizations`, `security_events`, engagement-owned `evidence` rows). They
+do not touch the audit pipeline; see [security-engagements.md](security-engagements.md).
+
 ## Pipeline (durable)
 
 Each stage is a separate pg-boss job (queues `audit-baseline`, `audit-investigation`, `audit-review`,
