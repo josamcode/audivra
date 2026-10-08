@@ -14,6 +14,8 @@ import { execa } from 'execa'
 export interface OwnedProcessMeta {
   tool: string
   auditId?: string | null
+  /** Security capability execution that owns the process (cancelled with that execution). */
+  securityExecutionId?: string | null
   cwd?: string | null
   command: string
   /** Docker container name we created (always prefixed "audivra-"); stopped by exact name. */
@@ -29,6 +31,7 @@ export interface OwnedProcessRecord {
   image: string | null
   tool: string
   auditId: string | null
+  securityExecutionId: string | null
   ownerId: string
   parentPid: number
   command: string
@@ -124,6 +127,7 @@ export function registerOwned(pid: number | undefined, meta: OwnedProcessMeta): 
     image: null,
     tool: meta.tool,
     auditId: meta.auditId ?? null,
+    securityExecutionId: meta.securityExecutionId ?? null,
     ownerId: OWNER_ID,
     parentPid: process.pid,
     command: meta.command.slice(0, 2000),
@@ -186,6 +190,13 @@ async function killEntry(entry: LiveEntry): Promise<void> {
 /** Terminates every live owned process of one audit (cancellation). */
 export async function killOwnedForAudit(auditId: string): Promise<number> {
   const entries = [...live.values()].filter((e) => e.record.auditId === auditId)
+  await Promise.all(entries.map(killEntry))
+  return entries.length
+}
+
+/** Terminates every live owned process of one security capability execution (its cancellation). */
+export async function killOwnedForExecution(securityExecutionId: string): Promise<number> {
+  const entries = [...live.values()].filter((e) => e.record.securityExecutionId === securityExecutionId)
   await Promise.all(entries.map(killEntry))
   return entries.length
 }

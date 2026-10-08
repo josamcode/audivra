@@ -27,7 +27,7 @@ export interface RunProcessOptions {
    * Ownership metadata. Processes with an owner are persisted in the ownership registry; others
    * (short probes) are tracked in memory only. Either way only this process tree can be terminated.
    */
-  owner?: { tool: string; auditId?: string | null; containerName?: string | null }
+  owner?: { tool: string; auditId?: string | null; securityExecutionId?: string | null; containerName?: string | null }
 }
 
 export interface RunProcessResult {
@@ -92,6 +92,7 @@ export async function runProcess(options: RunProcessOptions): Promise<RunProcess
   const handle = registerOwned(subprocess.pid, {
     tool: options.owner?.tool ?? path.basename(options.command),
     auditId: options.owner?.auditId ?? null,
+    securityExecutionId: options.owner?.securityExecutionId ?? null,
     containerName: options.owner?.containerName ?? null,
     cwd: options.cwd ?? process.cwd(),
     command: display,

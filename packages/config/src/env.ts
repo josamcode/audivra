@@ -50,6 +50,11 @@ const Env = z.object({
   BASELINE_BROWSER_PAGES: z.coerce.number().int().positive().default(4),
   /** Optional baseline scanners (comma-separated): httpx, katana, pa11y, zap, testssl. Empty disables all. */
   BASELINE_SCANNERS: z.string().default('httpx,katana,pa11y,zap,testssl'),
+  /**
+   * Security capability executions are refused when the data volume has less free space than this.
+   * Operational threshold only: security *policy* lives in versioned policy profiles, not here.
+   */
+  SECURITY_MIN_FREE_DISK_MB: z.coerce.number().int().min(0).default(2048),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
   CLAUDE_BIN: z.string().default('claude'),
 })

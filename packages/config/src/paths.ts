@@ -35,6 +35,17 @@ export function auditWorkspaceDir(auditId: string): string {
   return path.join(auditsDir(), auditId)
 }
 
+/** Root of security engagement workspaces (artifacts of capability executions). */
+export function securityDir(): string {
+  return path.join(dataDir(), 'security')
+}
+
+/** Private workspace of one security engagement. The ID is validated like audit IDs. */
+export function engagementWorkspaceDir(engagementId: string): string {
+  if (!AUDIT_ID_PATTERN.test(engagementId)) throw new Error(`Invalid engagement id: ${engagementId}`)
+  return path.join(securityDir(), engagementId)
+}
+
 /**
  * Resolves a workspace-relative path and guarantees it stays inside the workspace.
  * Returns null for absolute paths, traversal attempts or other escapes.
