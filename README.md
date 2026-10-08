@@ -50,6 +50,7 @@ Open http://127.0.0.1:4300.
 - **Client report** at `/audits/:id/report` — one report model rendered by the same components in the app, standalone HTML and PDF. No run IDs, prompt versions, model details or debug data.
 - **Exports** (no AI re-run): PDF, standalone HTML, JSON (`audivra.audit.v1`), CSV (findings, pages, performance, broken links), a ZIP bundle, and PNG/SVG per visual. See [docs/exports.md](docs/exports.md).
 - **History** — audits of the same site are grouped; the History tab compares with the previous audit (new / resolved / improved / regressed / unchanged findings, metric deltas beyond lab noise, technology and coverage changes, before/after screenshots) and draws trends only from real audits. See [docs/comparison.md](docs/comparison.md).
+- **Website intelligence** — an *audit focus* (template) per audit; **journeys** walked by the auditor with evidence per step and seven health dimensions (no scores); an **evidence graph** of stored links around any finding; **Change Intelligence** that explains the comparison with the previous audit (validated against it, never calling "not found again" fixed); a **Client view** without internals; and an on-request **Client Brief** (quick brief, meeting prep, talking points, technical brief). See [docs/intelligence.md](docs/intelligence.md).
 
 ## Architecture
 
@@ -72,7 +73,7 @@ prompts/      auditor, reviewer, finalizer, planner and composer prompts (versio
 fixtures/site three fixture sites (v1 flawed, v2 partly fixed, healthy) + benchmark ground truth
 ```
 
-More: [architecture](docs/architecture.md) · [artifacts](docs/artifacts.md) · [exports](docs/exports.md) · [comparison & trends](docs/comparison.md) · [security policy](docs/security.md) · [testing & benchmark](docs/testing.md) · [known limitations](docs/known-limitations.md) · [UI system](docs/ui-system.md)
+More: [architecture](docs/architecture.md) · [website intelligence](docs/intelligence.md) · [artifacts](docs/artifacts.md) · [exports](docs/exports.md) · [comparison & trends](docs/comparison.md) · [security policy](docs/security.md) · [testing & benchmark](docs/testing.md) · [known limitations](docs/known-limitations.md) · [UI system](docs/ui-system.md)
 
 ## Configuration (`.env`)
 

@@ -117,9 +117,9 @@ timeline, evidence gallery, annotated screenshot, before/after, tech map, impact
 
 ## Client report
 
-`ClientReportDocument` renders the client report for the in-app preview (`/audits/:id/report`), the
-standalone HTML export and the PDF (Chromium print). The preview is the same component on the light
-paper theme; the PDF adds A4 page rules, page numbers and expands collapsed sections. The report model
+`ClientReportDocument` renders the client report for the Client view (`/audits/:id/client`, screen
+variant: wider, slightly larger type, no app chrome), the standalone HTML export and the PDF (Chromium
+print). The Client view is the same component on the light paper theme; the PDF adds A4 page rules, page numbers and expands collapsed sections. The report model
 contains no run IDs, prompt versions or model details. Because exports render with browser defaults,
 the app restores those defaults inside `.rp-document` and `.av-frame` (see `styles.css`), so the
 preview cannot drift from the exported files.
@@ -137,11 +137,20 @@ preview cannot drift from the exported files.
   take with “View full analysis”, what matters most (top risks), featured visuals (or key baseline
   measurements), top opportunities, limitations grouped by kind; side column: severity and categories,
   business at a glance, coverage per capability, technologies.
+- **Journeys** — journey list (type, primary, step/health summary) and detail: goal, steps as a vertical
+  flow (status markers, notes, evidence chips), seven health dimensions with reasons (never a score),
+  findings on the journey. Audits without journeys get an honest empty state and *Analyze journeys*.
+- **Evidence → Graph** — layered stored-link graph around one item with a side panel (item + connections in
+  plain words), *Expand*, *Reset*, *Fit view*; neutral strokes, the selection's links in foreground colour.
 - **Findings**, **Visuals** (by placement, filterable, PNG/SVG export), **Evidence**, **Pages**
   (inventory: HTTP, language/direction, source, browser-inspected, findings per page),
-  **History** (change summary, finding changes, measurement deltas, technology/coverage changes,
-  before/after screenshots, trends, audits of the site), **Activity**, **Runs**.
-- **Report** — paper preview with PDF/HTML download and a menu for JSON, CSV and the ZIP bundle.
+  **History** ("What changed since the previous audit?" insight cards with kind and basis, change summary,
+  finding and journey changes, measurement deltas, technology/tracking/coverage changes, before/after
+  screenshots, issue timelines, trends, audits of the site), **Activity**, **Runs**.
+- **Client view** — *Internal | Client* toggle in the audit header; the client report without app chrome,
+  section links, PDF/HTML download and a menu for JSON, CSV and the ZIP bundle.
+- **Client brief** — right sheet from the audit header: Quick brief · Meeting prep · Talking points ·
+  Technical brief, references open the item, *Copy brief*, *Copy talking points*, *Regenerate*.
 - **System** — Tools (state, version, how provided, detail, re-check), Quality (benchmark runs, per
   fixture detail, run with confirmation), Processes (processes and containers Audivra owns).
 

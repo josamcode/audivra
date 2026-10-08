@@ -17,16 +17,17 @@ deterministic baseline only gathers cheap facts, which the prompts explicitly tr
 | Process     | Entry                                | Responsibility                                                              |
 | ----------- | ------------------------------------ | --------------------------------------------------------------------------- |
 | API server  | `apps/server/src/main.ts`            | REST API, SSE relay of activity events, artifact serving, enqueueing jobs   |
-| Worker      | `apps/worker/src/main.ts`            | Runs durable pipeline stages and the benchmark from pg-boss queues          |
-| Web         | `apps/web` (Vite)                    | Audit workspace UI, client report preview                                   |
-| Agent runs  | `claude -p …` children of the worker | Auditor / Reviewer / verification pass / Finalizer / Planner / Composer     |
+| Worker      | `apps/worker/src/main.ts`            | Runs durable pipeline stages, on-demand intelligence jobs and the benchmark |
+| Web         | `apps/web` (Vite)                    | Audit workspace UI, Client view                                             |
+| Agent runs  | `claude -p …` children of the worker | Auditor / Reviewer / verification pass / Finalizer / Planner / Change analyst / Composer; on demand: Journey analyst, Brief writer |
 | MCP servers | children of each agent run           | `browser` (official Playwright MCP) and `audit` (evidence + activity notes) |
 | Scanners    | children of the worker               | Lighthouse, Pa11y, httpx, Katana; ZAP and testssl.sh as named containers   |
 
 ## Pipeline (durable)
 
 Each stage is a separate pg-boss job (queues `audit-baseline`, `audit-investigation`, `audit-review`,
-`audit-revision`, `audit-finalize`, `audit-present`). A stage persists its step status and enqueues the
+`audit-revision`, `audit-finalize`, `audit-present`; on-demand intelligence jobs use `audit-enrich`, see
+[intelligence.md](intelligence.md). A stage persists its step status and enqueues the
 next stage. Long AI stages use pg-boss heartbeats, so a crashed worker's job is retried after restart;
 stages that already completed are skipped when a job is delivered again. The benchmark and the CLI run
 the same handlers inline (`new Pipeline(…, { inline: true })`).
@@ -37,8 +38,9 @@ preparing+baseline ──► investigation ──► review ──► [revision]
 ```
 
 **Presenting** indexes Lighthouse reports the auditor saved, labels the page inventory with the AI's
-page types, runs the Artifact Planner (specs → resolver → stored artifacts) and the Report Composer
-(validated report plan). `POST /api/audits/:id/present` regenerates both for a finished audit without
+page types, runs the Artifact Planner (specs → resolver → stored artifacts), Change Intelligence when there
+is an earlier audit of the site (validated interpretation of the deterministic comparison) and the Report
+Composer (validated report plan). `POST /api/audits/:id/present` regenerates both for a finished audit without
 touching findings. Coverage is recomputed after the baseline and when the audit finishes.
 
 Failure semantics:
@@ -82,12 +84,18 @@ claude -p --output-format stream-json --verbose
 
 | Role              | Tools                                                              | MCP                  | Output         | Prompt         |
 | ----------------- | ------------------------------------------------------------------ | -------------------- | -------------- | -------------- |
-| Auditor           | Bash, Read/Write/Edit (workspace), Glob, Grep, WebFetch, TodoWrite | browser, audit       | `AuditDraft`   | `auditor:v4`   |
-| Reviewer          | Read (workspace), Glob, Grep                                       | audit (read + notes) | `ReviewResult` | `reviewer:v3`  |
-| Verification pass | as Auditor                                                         | browser, audit       | `AuditDraft`   | `auditor:v4`   |
-| Finalizer         | none                                                               | none                 | `FinalAudit`   | `finalizer:v4` |
-| Artifact Planner  | Read (workspace), Glob, Grep                                       | audit (read)         | `ArtifactPlan` | `planner:v1`   |
-| Report Composer   | none                                                               | none                 | `ReportPlan`   | `composer:v1`  |
+| Auditor           | Bash, Read/Write/Edit (workspace), Glob, Grep, WebFetch, TodoWrite | browser, audit       | `AuditDraft`   | `auditor:v5`   |
+| Reviewer          | Read (workspace), Glob, Grep                                       | audit (read + notes) | `ReviewResult` | `reviewer:v4`  |
+| Verification pass | as Auditor                                                         | browser, audit       | `AuditDraft`   | `auditor:v5`   |
+| Finalizer         | none                                                               | none                 | `FinalAudit`   | `finalizer:v5` |
+| Artifact Planner  | Read (workspace), Glob, Grep                                       | audit (read)         | `ArtifactPlan` | `planner:v2`   |
+| Change analyst    | none                                                               | none                 | `ChangeAnalysis` | `change-analyst:v1` |
+| Report Composer   | none                                                               | none                 | `ReportPlan`   | `composer:v2`  |
+| Journey analyst   | Read (workspace), Glob, Grep (on demand, no browser)               | audit (read)         | `JourneyAnalysis` | `journey-analyst:v1` |
+| Brief writer      | none (on demand)                                                   | none                 | `ClientBriefContent` | `client-brief:v1` |
+
+The auditor's task includes the audit focus (template, see [intelligence.md](intelligence.md)); the
+reviewer and finalizer get a one-line focus, and the finalizer the previous audit's issue and journey keys.
 
 Each AgentRun stores the prompt version, model, turns, duration, cost estimate, termination reason
 and tool calls by kind (browser, terminal, file, read, evidence, web).
@@ -98,6 +106,12 @@ and tool calls by kind (browser, terminal, file, read, evidence, web).
   to `inference` with confidence ≤ 0.5.
 - Final findings must derive from draft findings (`sourceFindingIds`), may only cite evidence their
   sources cited, and cannot be escalated above the draft/reviewer severity.
+- Journeys need evidence: unknown references are removed, unproven friction becomes *unverified*,
+  unproven health verdicts *unknown*, evidence-less journeys are dropped, one primary at most; final
+  journeys must derive from draft journeys and cite only their evidence.
+- Change Intelligence must agree with the comparison (insights unsupported for their kind are dropped;
+  "not found again" is never a verified fix); a Client Brief may cite only this audit's findings,
+  journeys and evidence.
 - All adjustments are recorded on the AgentRun (`validation`) and surfaced in the Activity log.
 
 The verification pass runs when the reviewer reports material gaps, asks for any finding to be
@@ -152,7 +166,8 @@ heartbeats) to tell whether a worker is consuming the audit queues.
   scripts/    scripts the auditor wrote
   notes/      auditor notes
   agent/      role prompts, redacted stream transcripts, raw outputs, draft.json, review.json,
-              artifact-plan.json, artifact-resolution.json, report-plan.json
+              artifact-plan.json, artifact-resolution.json, report-plan.json, change-intelligence.json,
+              journey-analysis.json, client-brief.json
   final/      audit.json
   exports/    generated PDF/HTML/JSON/CSV/ZIP (re-generated on demand)
 ```

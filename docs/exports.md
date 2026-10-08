@@ -5,16 +5,16 @@ All exports are generated **on demand from persisted data** (`packages/reporting
 ## One report model, several renderers
 
 ```
-persisted audit ──► buildClientReport() (insights)  ──► ClientReport (audivra.report.v1)
+persisted audit ──► buildClientReport() (insights)  ──► ClientReport (audivra.report.v2)
                        + composer plan when present         │
-                                                           ├─► React preview  /audits/:id/report
+                       + stored Change Intelligence         ├─► Client view   /audits/:id/client (screen variant)
                                                            ├─► standalone HTML (images inlined as JPEG data URIs)
                                                            └─► PDF (Playwright print of that HTML, A4, page numbers)
 ```
 
-The client report shows: cover · executive snapshot (5–8 lines) · what matters most · visual evidence · major findings (problem → proof → why it matters → fix) · area highlights · opportunities (impact × effort) · recommended action plan (do first / then / later) · technical appendix (other findings, coverage, technologies, pages, methodology, categorized limitations, full analysis).
+The client report shows: cover (with the audit focus) · executive snapshot (5–8 lines) · what matters most · primary journey (steps and judged health dimensions, no score) · visual evidence · major findings (problem → proof → why it matters → fix) · area highlights · what changed since the previous audit (interpretation, then the deterministic comparison) · opportunities (impact × effort) · recommended action plan (do first / then / later) · technical appendix (other findings, coverage, technologies, pages, methodology, categorized limitations, full analysis).
 
-It deliberately contains **no** run IDs, session IDs, prompt versions, model names, turn counts, costs or debug logs. A visual that proves a major finding appears with that finding, not twice.
+It deliberately contains **no** run IDs, session IDs, prompt versions, model names, turn counts, costs, debug logs, local paths or shell commands. The Client view (`/audits/:id/client`, old `/report` links redirect) renders the same document without app chrome. A visual that proves a major finding appears with that finding, not twice.
 
 ## Export kinds and file names
 
@@ -24,7 +24,7 @@ The file name prefix is a readable site slug (`josamcode.com` → `josamcode`, `
 | --- | --- | --- |
 | `pdf` | `<site>-audivra-report.pdf` | client report, A4 |
 | `html` | `<site>-audivra-report.html` | self-contained client report (opens offline) |
-| `json` | `<site>-audivra-audit.json` | schema `audivra.audit.v1`: audit metadata, coverage, business understanding, page types, executive summary/snapshot, baseline stats, metric catalog, pages, findings (with issue keys), evidence metadata with file references, artifacts, technologies, opportunities, action plan, limitations, tool runs, AI run provenance (role, model, prompt version, turns, termination), comparison. No binary data. |
+| `json` | `<site>-audivra-audit.json` | schema `audivra.audit.v1`: audit metadata (including the audit focus template and version), coverage, journeys, business understanding, page types, executive summary/snapshot, baseline stats, metric catalog, pages, findings (with issue keys), evidence metadata with file references, artifacts, technologies, opportunities, action plan, limitations, tool runs, AI run provenance (role, model, prompt version, turns, termination), comparison. No binary data. |
 | `csv-findings` | `<site>-findings.csv` | one row per finding: ref, severity, category, title, type, confidence, verification, affected URLs, evidence, observed, why it matters, business impact, recommendation, effort, issue key (UTF-8 with BOM for Excel) |
 | `csv-pages` | `<site>-pages.csv` | page inventory: URL, status, title, page type, lang, dir, depth, source, inspected in browser, finding count |
 | `csv-performance` | `<site>-performance.csv` | Lighthouse and browser measurements per page/form factor |
