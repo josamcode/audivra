@@ -10,6 +10,9 @@ import type {
   JourneyHealthStatus,
   JourneyStepStatus,
   JourneyType,
+  EngagementStatus,
+  ReadinessState,
+  SecurityEnvironment,
   Severity,
   StepStatus,
   ToolState,
@@ -351,6 +354,51 @@ export function JourneyHealthBadge({ status }: { status: JourneyHealthStatus }) 
   return (
     <Badge tone={JOURNEY_HEALTH[status].tone} dot>
       {JOURNEY_HEALTH[status].label}
+    </Badge>
+  )
+}
+
+export const READINESS: Record<ReadinessState, { label: string; tone: BadgeTone; hint: string }> = {
+  ready: { label: 'Ready', tone: 'success', hint: 'Authorized, scoped and within policy.' },
+  'scope-incomplete': { label: 'Scope incomplete', tone: 'medium', hint: 'The scope has no usable targets or contradicts itself.' },
+  'policy-incomplete': { label: 'Policy incomplete', tone: 'medium', hint: 'Choose the environment or resolve the policy issues.' },
+  'not-authorized': { label: 'Not authorized', tone: 'critical', hint: 'Some scope targets are not covered by a verified authorization.' },
+  'outside-window': { label: 'Outside window', tone: 'medium', hint: 'The testing window is not open right now.' },
+  paused: { label: 'Paused', tone: 'neutral', hint: 'The engagement is paused.' },
+  closed: { label: 'Closed', tone: 'neutral', hint: 'The engagement is completed or cancelled.' },
+  invalid: { label: 'Invalid', tone: 'critical', hint: 'The engagement configuration cannot be used.' },
+}
+
+export function ReadinessBadge({ state }: { state: ReadinessState }) {
+  return (
+    <Badge tone={READINESS[state].tone} dot title={READINESS[state].hint}>
+      {READINESS[state].label}
+    </Badge>
+  )
+}
+
+export const ENGAGEMENT_STATUS_LABEL: Record<EngagementStatus, string> = {
+  draft: 'Draft',
+  'authorization-pending': 'Authorization pending',
+  ready: 'Ready',
+  active: 'Active',
+  paused: 'Paused',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  invalid: 'Invalid',
+}
+
+export const ENVIRONMENT_LABEL: Record<SecurityEnvironment, string> = {
+  production: 'Production',
+  staging: 'Staging',
+  'isolated-lab': 'Isolated lab',
+}
+
+/** Allow/deny outcome of a scope or policy decision. */
+export function DecisionBadge({ decision }: { decision: 'allow' | 'deny' }) {
+  return (
+    <Badge tone={decision === 'allow' ? 'success' : 'critical'} dot>
+      {decision === 'allow' ? 'Allowed' : 'Denied'}
     </Badge>
   )
 }

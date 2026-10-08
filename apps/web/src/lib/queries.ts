@@ -53,6 +53,11 @@ export const queryKeys = {
   siteHistory: (siteKey: string) => ['site', siteKey, 'history'] as const,
   benchmarks: ['benchmarks'] as const,
   processes: ['system', 'processes'] as const,
+  engagements: ['security', 'engagements'] as const,
+  engagement: (id: string) => ['security', 'engagement', id] as const,
+  engagementEvents: (id: string) => ['security', 'engagement', id, 'events'] as const,
+  engagementEvidence: (id: string) => ['security', 'engagement', id, 'evidence'] as const,
+  securityCapabilities: ['security', 'capabilities'] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -146,3 +151,16 @@ export const processesQuery = () =>
     queryFn: api.processes,
     refetchInterval: (query) => (query.state.data?.some((p) => p.status === 'running') ? 5000 : false),
   })
+
+export const engagementsQuery = () => queryOptions({ queryKey: queryKeys.engagements, queryFn: api.engagements })
+
+export const engagementQuery = (id: string) => queryOptions({ queryKey: queryKeys.engagement(id), queryFn: () => api.engagement(id) })
+
+export const engagementEventsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementEvents(id), queryFn: () => api.engagementEvents(id) })
+
+export const engagementEvidenceQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementEvidence(id), queryFn: () => api.engagementEvidence(id) })
+
+export const securityCapabilitiesQuery = () =>
+  queryOptions({ queryKey: queryKeys.securityCapabilities, queryFn: api.securityCapabilities, staleTime: Infinity })

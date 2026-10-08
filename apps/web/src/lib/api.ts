@@ -1,5 +1,10 @@
 import type {
   ActivityEvent,
+  AuthorizationMethod,
+  AuthorizationSubject,
+  CreateEngagementInput,
+  LifecycleAction,
+  UpdateEngagementInput,
   AgentRunItem,
   Artifact,
   AuditBrief,
@@ -18,6 +23,14 @@ import type {
   FindingItem,
   OwnedProcessItem,
   PageItem,
+  ScopeManifestInput,
+  ScopeValidationResult,
+  SecurityAuthorizationItem,
+  SecurityCapabilityMetadata,
+  SecurityEngagementDetail,
+  SecurityEngagementSummary,
+  SecurityEventItem,
+  SecurityEvidenceItem,
   SiteHistory,
   SystemHealth,
   SystemStatus,
@@ -58,6 +71,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const auditPath = (id: string) => `/api/audits/${encodeURIComponent(id)}`
+const engagementPath = (id: string) => `/api/security/engagements/${encodeURIComponent(id)}`
+const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 
 export const api = {
   systemTools: (refresh = false) => request<SystemStatus>(`/api/system/tools${refresh ? '?refresh=1' : ''}`),
@@ -98,6 +113,27 @@ export const api = {
   benchmarks: () => request<BenchmarkRunItem[]>('/api/benchmarks'),
   runBenchmark: () => request<{ queued: boolean }>('/api/benchmarks', { method: 'POST' }),
   processes: () => request<OwnedProcessItem[]>('/api/system/processes'),
+  /* Security engagements: configuration and readiness only (there is no endpoint that runs a capability). */
+  engagements: () => request<SecurityEngagementSummary[]>('/api/security/engagements'),
+  engagement: (id: string) => request<SecurityEngagementDetail>(engagementPath(id)),
+  createEngagement: (input: CreateEngagementInput) => request<SecurityEngagementDetail>('/api/security/engagements', post(input)),
+  updateEngagement: (id: string, input: UpdateEngagementInput) =>
+    request<SecurityEngagementDetail>(engagementPath(id), { method: 'PATCH', body: JSON.stringify(input) }),
+  updateScope: (id: string, manifest: ScopeManifestInput, expectedScopeVersion: number) =>
+    request<SecurityEngagementDetail>(`${engagementPath(id)}/scope`, { method: 'PUT', body: JSON.stringify({ manifest, expectedScopeVersion }) }),
+  validateScope: (id: string, url: string, manifest?: ScopeManifestInput) =>
+    request<ScopeValidationResult>(`${engagementPath(id)}/scope/validate`, post({ url, ...(manifest ? { manifest } : {}) })),
+  requestAuthorization: (id: string, method: AuthorizationMethod, subject?: Partial<AuthorizationSubject>) =>
+    request<{ authorization: SecurityAuthorizationItem; engagement: SecurityEngagementDetail }>(
+      `${engagementPath(id)}/authorizations`,
+      post({ method, ...(subject ? { subject } : {}) }),
+    ),
+  revokeAuthorization: (id: string, authorizationId: string) =>
+    request<SecurityEngagementDetail>(`${engagementPath(id)}/authorizations/${encodeURIComponent(authorizationId)}/revoke`, { method: 'POST' }),
+  engagementLifecycle: (id: string, action: LifecycleAction) => request<SecurityEngagementDetail>(`${engagementPath(id)}/lifecycle`, post({ action })),
+  engagementEvents: (id: string) => request<SecurityEventItem[]>(`${engagementPath(id)}/events`),
+  engagementEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${engagementPath(id)}/evidence`),
+  securityCapabilities: () => request<SecurityCapabilityMetadata[]>('/api/security/capabilities'),
 }
 
 /** Download URL of an audit export (generated on demand by the API). */

@@ -24,3 +24,7 @@ export function Input({ className, icon, ...props }: InputProps) {
 export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return <label className={cn('text-sm font-medium text-foreground', className)} {...props} />
 }
+
+export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea className={cn(inputClassName, 'h-auto min-h-16 py-1.5 leading-snug', className)} {...props} />
+}

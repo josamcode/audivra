@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useMatches } from '@tanstack/react-router'
-import { LayoutList, Monitor, Moon, Plus, Server, Sun, type LucideIcon } from 'lucide-react'
+import { LayoutList, Monitor, Moon, Plus, Server, ShieldCheck, Sun, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Dot } from '@/components/ui/badge'
 import { SegmentedControl } from '@/components/ui/segmented-control'
@@ -15,9 +15,10 @@ declare module '@tanstack/react-router' {
   }
 }
 
-const NAV: { to: '/' | '/audits/new' | '/system'; label: string; icon: LucideIcon; exact?: boolean }[] = [
+const NAV: { to: '/' | '/audits/new' | '/security' | '/system'; label: string; icon: LucideIcon; exact?: boolean }[] = [
   { to: '/', label: 'Audits', icon: LayoutList, exact: true },
   { to: '/audits/new', label: 'New audit', icon: Plus },
+  { to: '/security', label: 'Security', icon: ShieldCheck },
   { to: '/system', label: 'System', icon: Server },
 ]
 

@@ -13,6 +13,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SystemRouteImport } from './routes/system'
 import { Route as AuditsAuditIdRouteImport } from './routes/audits.$auditId'
 import { Route as AuditsNewRouteImport } from './routes/audits.new'
+import { Route as SecurityIndexRouteImport } from './routes/security.index'
+import { Route as SecurityEngagementIdRouteImport } from './routes/security.$engagementId'
+import { Route as SecurityNewRouteImport } from './routes/security.new'
 import { Route as AuditsAuditIdClientRouteImport } from './routes/audits.$auditId_.client'
 import { Route as AuditsAuditIdReportRouteImport } from './routes/audits.$auditId_.report'
 
@@ -36,6 +39,21 @@ const AuditsNewRoute = AuditsNewRouteImport.update({
   path: '/audits/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SecurityIndexRoute = SecurityIndexRouteImport.update({
+  id: '/security/',
+  path: '/security/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SecurityEngagementIdRoute = SecurityEngagementIdRouteImport.update({
+  id: '/security/$engagementId',
+  path: '/security/$engagementId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SecurityNewRoute = SecurityNewRouteImport.update({
+  id: '/security/new',
+  path: '/security/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuditsAuditIdClientRoute = AuditsAuditIdClientRouteImport.update({
   id: '/audits/$auditId_/client',
   path: '/audits/$auditId/client',
@@ -52,6 +70,9 @@ export interface FileRoutesByFullPath {
   '/system': typeof SystemRoute
   '/audits/$auditId': typeof AuditsAuditIdRoute
   '/audits/new': typeof AuditsNewRoute
+  '/security/$engagementId': typeof SecurityEngagementIdRoute
+  '/security/new': typeof SecurityNewRoute
+  '/security/': typeof SecurityIndexRoute
   '/audits/$auditId/client': typeof AuditsAuditIdClientRoute
   '/audits/$auditId/report': typeof AuditsAuditIdReportRoute
 }
@@ -60,6 +81,9 @@ export interface FileRoutesByTo {
   '/system': typeof SystemRoute
   '/audits/$auditId': typeof AuditsAuditIdRoute
   '/audits/new': typeof AuditsNewRoute
+  '/security/$engagementId': typeof SecurityEngagementIdRoute
+  '/security/new': typeof SecurityNewRoute
+  '/security': typeof SecurityIndexRoute
   '/audits/$auditId/client': typeof AuditsAuditIdClientRoute
   '/audits/$auditId/report': typeof AuditsAuditIdReportRoute
 }
@@ -69,6 +93,9 @@ export interface FileRoutesById {
   '/system': typeof SystemRoute
   '/audits/$auditId': typeof AuditsAuditIdRoute
   '/audits/new': typeof AuditsNewRoute
+  '/security/$engagementId': typeof SecurityEngagementIdRoute
+  '/security/new': typeof SecurityNewRoute
+  '/security/': typeof SecurityIndexRoute
   '/audits/$auditId_/client': typeof AuditsAuditIdClientRoute
   '/audits/$auditId_/report': typeof AuditsAuditIdReportRoute
 }
@@ -79,6 +106,9 @@ export interface FileRouteTypes {
     | '/system'
     | '/audits/$auditId'
     | '/audits/new'
+    | '/security/$engagementId'
+    | '/security/new'
+    | '/security/'
     | '/audits/$auditId/client'
     | '/audits/$auditId/report'
   fileRoutesByTo: FileRoutesByTo
@@ -87,6 +117,9 @@ export interface FileRouteTypes {
     | '/system'
     | '/audits/$auditId'
     | '/audits/new'
+    | '/security/$engagementId'
+    | '/security/new'
+    | '/security'
     | '/audits/$auditId/client'
     | '/audits/$auditId/report'
   id:
@@ -95,6 +128,9 @@ export interface FileRouteTypes {
     | '/system'
     | '/audits/$auditId'
     | '/audits/new'
+    | '/security/$engagementId'
+    | '/security/new'
+    | '/security/'
     | '/audits/$auditId_/client'
     | '/audits/$auditId_/report'
   fileRoutesById: FileRoutesById
@@ -104,6 +140,9 @@ export interface RootRouteChildren {
   SystemRoute: typeof SystemRoute
   AuditsAuditIdRoute: typeof AuditsAuditIdRoute
   AuditsNewRoute: typeof AuditsNewRoute
+  SecurityEngagementIdRoute: typeof SecurityEngagementIdRoute
+  SecurityNewRoute: typeof SecurityNewRoute
+  SecurityIndexRoute: typeof SecurityIndexRoute
   AuditsAuditIdClientRoute: typeof AuditsAuditIdClientRoute
   AuditsAuditIdReportRoute: typeof AuditsAuditIdReportRoute
 }
@@ -138,6 +177,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuditsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/security/': {
+      id: '/security/'
+      path: '/security'
+      fullPath: '/security/'
+      preLoaderRoute: typeof SecurityIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/security/$engagementId': {
+      id: '/security/$engagementId'
+      path: '/security/$engagementId'
+      fullPath: '/security/$engagementId'
+      preLoaderRoute: typeof SecurityEngagementIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/security/new': {
+      id: '/security/new'
+      path: '/security/new'
+      fullPath: '/security/new'
+      preLoaderRoute: typeof SecurityNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/audits/$auditId_/client': {
       id: '/audits/$auditId_/client'
       path: '/audits/$auditId/client'
@@ -160,6 +220,9 @@ const rootRouteChildren: RootRouteChildren = {
   SystemRoute: SystemRoute,
   AuditsAuditIdRoute: AuditsAuditIdRoute,
   AuditsNewRoute: AuditsNewRoute,
+  SecurityEngagementIdRoute: SecurityEngagementIdRoute,
+  SecurityNewRoute: SecurityNewRoute,
+  SecurityIndexRoute: SecurityIndexRoute,
   AuditsAuditIdClientRoute: AuditsAuditIdClientRoute,
   AuditsAuditIdReportRoute: AuditsAuditIdReportRoute,
 }
