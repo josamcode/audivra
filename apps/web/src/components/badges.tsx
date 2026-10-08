@@ -11,6 +11,8 @@ import type {
   JourneyStepStatus,
   JourneyType,
   EngagementStatus,
+  ExecutionFailureKind,
+  ExecutionStatus,
   ReadinessState,
   SecurityEnvironment,
   Severity,
@@ -401,4 +403,37 @@ export function DecisionBadge({ decision }: { decision: 'allow' | 'deny' }) {
       {decision === 'allow' ? 'Allowed' : 'Denied'}
     </Badge>
   )
+}
+
+export const EXECUTION_STATUS: Record<ExecutionStatus, { label: string; tone: BadgeTone; hint: string }> = {
+  queued: { label: 'Queued', tone: 'neutral', hint: 'Accepted and waiting for the worker.' },
+  preparing: { label: 'Preparing', tone: 'running', hint: 'Checks and workspace setup before the work starts.' },
+  running: { label: 'Running', tone: 'running', hint: 'The capability is running.' },
+  finalizing: { label: 'Finalizing', tone: 'running', hint: 'The work ended; artifacts are checked and resources cleaned up.' },
+  cancelling: { label: 'Cancelling', tone: 'medium', hint: 'Cancellation requested; owned resources are being stopped.' },
+  succeeded: { label: 'Succeeded', tone: 'success', hint: 'Finished successfully.' },
+  failed: { label: 'Failed', tone: 'critical', hint: 'Did not succeed; see the failure reason.' },
+  'timed-out': { label: 'Timed out', tone: 'high', hint: 'Stopped by Audivra at the execution time limit.' },
+  cancelled: { label: 'Cancelled', tone: 'neutral', hint: 'Stopped on request.' },
+  interrupted: { label: 'Interrupted', tone: 'medium', hint: 'The worker stopped while it ran; it was reconciled, not re-run.' },
+}
+
+export function ExecutionStatusBadge({ status }: { status: ExecutionStatus }) {
+  return (
+    <Badge tone={EXECUTION_STATUS[status].tone} dot title={EXECUTION_STATUS[status].hint}>
+      {EXECUTION_STATUS[status].label}
+    </Badge>
+  )
+}
+
+export const FAILURE_KIND_LABEL: Record<ExecutionFailureKind, string> = {
+  'preflight-failed': 'Preflight failed',
+  'executor-failed': 'Capability failed',
+  timeout: 'Time limit reached',
+  cancelled: 'Stopped on request',
+  'artifact-limit': 'Artifact limit',
+  'process-limit': 'Process limit',
+  'worker-interrupted': 'Worker interrupted',
+  'cleanup-failed': 'Cleanup failed',
+  internal: 'Internal error',
 }

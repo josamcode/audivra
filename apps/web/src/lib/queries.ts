@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions } from '@tanstack/react-query'
-import type { AuditDetail, AuditStatus } from '@audivra/contracts'
+import { isTerminalExecutionStatus, type AuditDetail, type AuditStatus } from '@audivra/contracts'
 import { api } from './api'
 
 export const TERMINAL_STATUSES: ReadonlySet<AuditStatus> = new Set([
@@ -58,6 +58,11 @@ export const queryKeys = {
   engagementEvents: (id: string) => ['security', 'engagement', id, 'events'] as const,
   engagementEvidence: (id: string) => ['security', 'engagement', id, 'evidence'] as const,
   securityCapabilities: ['security', 'capabilities'] as const,
+  engagementExecutions: (id: string) => ['security', 'engagement', id, 'executions'] as const,
+  /** Prefix of everything about one execution. */
+  execution: (id: string) => ['security', 'execution', id] as const,
+  executionEvents: (id: string) => ['security', 'execution', id, 'events'] as const,
+  executionEvidence: (id: string) => ['security', 'execution', id, 'evidence'] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -164,3 +169,28 @@ export const engagementEvidenceQuery = (id: string) =>
 
 export const securityCapabilitiesQuery = () =>
   queryOptions({ queryKey: queryKeys.securityCapabilities, queryFn: api.securityCapabilities, staleTime: Infinity })
+
+/** Executions are short; the views poll quickly while any of them has not reached a final state. */
+const EXECUTION_POLL_MS = 1500
+/** Executions are created by Audivra (not from the page), so an idle list still looks for new ones. */
+const EXECUTION_IDLE_POLL_MS = 10_000
+
+export const engagementExecutionsQuery = (id: string) =>
+  queryOptions({
+    queryKey: queryKeys.engagementExecutions(id),
+    queryFn: () => api.engagementExecutions(id),
+    refetchInterval: (query) => (query.state.data?.some((e) => !isTerminalExecutionStatus(e.status)) ? EXECUTION_POLL_MS : EXECUTION_IDLE_POLL_MS),
+  })
+
+export const executionQuery = (id: string) =>
+  queryOptions({
+    queryKey: queryKeys.execution(id),
+    queryFn: () => api.execution(id),
+    refetchInterval: (query) => (query.state.data && !isTerminalExecutionStatus(query.state.data.status) ? EXECUTION_POLL_MS : false),
+  })
+
+export const executionEventsQuery = (id: string, active: boolean) =>
+  queryOptions({ queryKey: queryKeys.executionEvents(id), queryFn: () => api.executionEvents(id), refetchInterval: active ? EXECUTION_POLL_MS : false })
+
+export const executionEvidenceQuery = (id: string, active: boolean) =>
+  queryOptions({ queryKey: queryKeys.executionEvidence(id), queryFn: () => api.executionEvidence(id), refetchInterval: active ? EXECUTION_POLL_MS : false })

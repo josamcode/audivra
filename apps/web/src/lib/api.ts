@@ -31,6 +31,8 @@ import type {
   SecurityEngagementSummary,
   SecurityEventItem,
   SecurityEvidenceItem,
+  SecurityExecutionDetail,
+  SecurityExecutionItem,
   SiteHistory,
   SystemHealth,
   SystemStatus,
@@ -72,6 +74,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const auditPath = (id: string) => `/api/audits/${encodeURIComponent(id)}`
 const engagementPath = (id: string) => `/api/security/engagements/${encodeURIComponent(id)}`
+const executionPath = (id: string) => `/api/security/executions/${encodeURIComponent(id)}`
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 
 export const api = {
@@ -113,7 +116,10 @@ export const api = {
   benchmarks: () => request<BenchmarkRunItem[]>('/api/benchmarks'),
   runBenchmark: () => request<{ queued: boolean }>('/api/benchmarks', { method: 'POST' }),
   processes: () => request<OwnedProcessItem[]>('/api/system/processes'),
-  /* Security engagements: configuration and readiness only (there is no endpoint that runs a capability). */
+  /*
+   * Security engagements: configuration, readiness, and the inspection and cancellation of executions.
+   * There is no endpoint that creates or runs an execution (only the capability broker does that).
+   */
   engagements: () => request<SecurityEngagementSummary[]>('/api/security/engagements'),
   engagement: (id: string) => request<SecurityEngagementDetail>(engagementPath(id)),
   createEngagement: (input: CreateEngagementInput) => request<SecurityEngagementDetail>('/api/security/engagements', post(input)),
@@ -134,6 +140,18 @@ export const api = {
   engagementEvents: (id: string) => request<SecurityEventItem[]>(`${engagementPath(id)}/events`),
   engagementEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${engagementPath(id)}/evidence`),
   securityCapabilities: () => request<SecurityCapabilityMetadata[]>('/api/security/capabilities'),
+  engagementExecutions: (id: string) => request<SecurityExecutionItem[]>(`${engagementPath(id)}/executions`),
+  execution: (id: string) => request<SecurityExecutionDetail>(executionPath(id)),
+  executionEvents: (id: string) => request<SecurityEventItem[]>(`${executionPath(id)}/events`),
+  executionEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${executionPath(id)}/evidence`),
+  cancelExecution: (id: string) => request<SecurityExecutionDetail>(`${executionPath(id)}/cancel`, { method: 'POST' }),
+  /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
+  executionArtifactUrl: (id: string, artifactPath: string) =>
+    `${executionPath(id)}/artifacts/${artifactPath
+      .replace(`executions/${id}/`, '')
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`,
 }
 
 /** Download URL of an audit export (generated on demand by the API). */

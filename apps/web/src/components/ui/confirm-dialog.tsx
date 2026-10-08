@@ -11,12 +11,15 @@ export function ConfirmDialog({
   title,
   children,
   confirmLabel,
+  dismissLabel = 'Cancel',
   onConfirm,
 }: {
   trigger: ReactElement<Record<string, unknown>>
   title: string
   children: ReactNode
   confirmLabel: string
+  /** Label of the button that closes the dialog without acting. */
+  dismissLabel?: string
   onConfirm: () => void
 }) {
   return (
@@ -30,7 +33,7 @@ export function ConfirmDialog({
             {children}
           </AlertDialog.Description>
           <div className="mt-5 flex justify-end gap-2">
-            <AlertDialog.Close render={<Button size="sm" />}>Cancel</AlertDialog.Close>
+            <AlertDialog.Close render={<Button size="sm" />}>{dismissLabel}</AlertDialog.Close>
             <AlertDialog.Close render={<Button size="sm" variant="primary" onClick={onConfirm} />}>
               {confirmLabel}
             </AlertDialog.Close>
