@@ -1,3 +1,4 @@
+import { SECURITY_ENVIRONMENT_INFO } from '@audivra/contracts'
 import type {
   EffectivePolicy,
   EngagementReadiness,
@@ -58,7 +59,7 @@ export function evaluateReadiness(input: ReadinessInput): EngagementReadiness {
     !closed && input.status !== 'paused' && input.status !== 'invalid',
     closed ? `The engagement is ${input.status}` : input.status === 'paused' ? 'The engagement is paused' : input.status === 'invalid' ? 'The engagement is invalid' : 'Open',
   )
-  add('environment', 'Environment', input.environment !== null, input.environment ? `Environment: ${input.policy.evaluatedEnvironment}` : 'Choose the environment (production, staging or isolated lab)')
+  add('environment', 'Environment', input.environment !== null, input.environment ? SECURITY_ENVIRONMENT_INFO[input.environment].label : 'Choose the environment (production, staging or isolated lab)')
   const scope = scopeIssues(input.scope)
   add('scope', 'Scope', scope.length === 0, scope[0] ?? 'Targets defined')
   add('policy', 'Policy', input.policy.issues.length === 0, input.policy.issues[0] ?? `${input.policy.profile.name} v${input.policy.profile.version}`)

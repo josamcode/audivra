@@ -55,15 +55,16 @@ function decide<T extends string>(
     return {
       selected,
       effective: 'denied',
-      reason: `Denied in ${where} by the policy profile`,
+      reason: `Never permitted in ${where}`,
       issue: explicit && selected ? `${label} is selected but denied in ${where} by the policy profile.` : null,
     }
   }
   if (!selected) {
-    return { selected, effective: 'denied', reason: permission === 'opt-in' ? 'Requires an explicit opt-in for this engagement' : 'Not selected for this engagement', issue: null }
+    return { selected, effective: 'denied', reason: permission === 'opt-in' ? 'Needs an explicit opt-in' : 'Not selected for this engagement', issue: null }
   }
-  if (permission === 'bounded') return { selected, effective: 'bounded', reason: 'Allowed under the stricter bounded limits', issue: null }
-  return { selected, effective: 'allowed', reason: permission === 'opt-in' ? 'Explicitly opted in for this engagement' : 'Allowed', issue: null }
+  if (permission === 'bounded') return { selected, effective: 'bounded', reason: 'Under the stricter bounded limits', issue: null }
+  if (permission === 'opt-in') return { selected, effective: 'allowed', reason: 'Opted in for this engagement', issue: null }
+  return { selected, effective: 'allowed', reason: explicit ? 'Selected for this engagement' : 'Included by default', issue: null }
 }
 
 export function effectivePolicy(input: PolicyInput): EffectivePolicy {
