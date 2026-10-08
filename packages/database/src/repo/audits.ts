@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
 import {
+  getTemplate,
   siteKeyFor,
   type AuditDetail,
   type AuditError,
@@ -24,6 +25,8 @@ export interface CreateAuditRecordInput {
   clientName?: string | null
   aiEnabled: boolean
   benchmark?: boolean
+  /** Audit focus; recorded with its version so later changes to the template never rewrite history. */
+  template?: { key: string; version: number }
   options?: Record<string, unknown>
 }
 
@@ -40,6 +43,8 @@ export async function createAuditRecord(db: Db, input: CreateAuditRecordInput): 
       clientName: input.clientName?.trim() || null,
       aiEnabled: input.aiEnabled,
       benchmark: input.benchmark ?? false,
+      templateKey: input.template?.key ?? null,
+      templateVersion: input.template?.version ?? null,
       options: input.options ?? {},
     })
     .returning()
@@ -68,6 +73,8 @@ const briefColumns = {
   stage: audits.stage,
   aiEnabled: audits.aiEnabled,
   benchmark: audits.benchmark,
+  templateKey: audits.templateKey,
+  templateVersion: audits.templateVersion,
   error: audits.error,
   createdAt: audits.createdAt,
   startedAt: audits.startedAt,
@@ -93,7 +100,14 @@ function toListItem(
     severityCounts: counts?.severity ?? emptySeverityCounts(),
     findingCount: counts?.total ?? 0,
     benchmark: row.benchmark,
+    template: templateUsage(row),
   }
+}
+
+function templateUsage(row: Pick<AuditRow, 'templateKey' | 'templateVersion'>): AuditListItem['template'] {
+  if (!row.templateKey) return null
+  const template = getTemplate(row.templateKey)
+  return { key: template.key, version: row.templateVersion ?? template.version, name: template.name }
 }
 
 export async function listAudits(db: Db, limit = 200): Promise<AuditListItem[]> {

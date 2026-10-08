@@ -37,6 +37,8 @@ export interface NewFinding {
   sourceRefs: string[]
   /** Stable issue identity used to compare audits of the same site. */
   issueKey?: string | null
+  /** Journeys (J*) of the same audit this finding affects. */
+  journeyRefs?: string[]
   /** Database evidence IDs (already validated to belong to the audit). */
   evidenceIds: string[]
 }
@@ -116,6 +118,7 @@ export async function listFindings(db: Db, auditId: string): Promise<FindingItem
     evidenceRefs: (refsByFinding.get(row.id) ?? []).sort((a, b) => refNumber(a) - refNumber(b)),
     issueKey: row.issueKey ?? null,
     artifactRefs: (artifactsByFinding.get(row.ref) ?? []).sort((a, b) => refNumber(a) - refNumber(b)),
+    journeyRefs: row.journeyRefs ?? [],
     createdBy: row.createdBy,
     rank: row.rank,
   }))
@@ -157,6 +160,16 @@ export async function listFindingSignals(db: Db, auditIds: string[]): Promise<Fi
     .from(findings)
     .where(inArray(findings.auditId, auditIds))
     .orderBy(findings.auditId, asc(findings.rank))
+}
+
+/** Links existing findings to journeys (journey analysis of an already finished audit). Unlisted findings lose their links. */
+export async function setFindingJourneyRefs(db: Db, auditId: string, links: Map<string, string[]>): Promise<void> {
+  await db.transaction(async (tx) => {
+    const rows = await tx.select({ id: findings.id, ref: findings.ref }).from(findings).where(eq(findings.auditId, auditId))
+    for (const row of rows) {
+      await tx.update(findings).set({ journeyRefs: links.get(row.ref) ?? [] }).where(eq(findings.id, row.id))
+    }
+  })
 }
 
 export function emptySeverityCounts(): SeverityCounts {

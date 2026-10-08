@@ -104,3 +104,20 @@ export async function countEvidence(db: Db, auditId: string): Promise<number> {
     .where(eq(evidence.auditId, auditId))
   return row?.count ?? 0
 }
+
+/** Evidence identity and provenance (which tool run or AI run produced it), without metadata. */
+export async function listEvidenceProvenance(db: Db, auditId: string) {
+  return db
+    .select({
+      ref: evidence.ref,
+      type: evidence.type,
+      source: evidence.source,
+      title: evidence.title,
+      url: evidence.url,
+      toolRunId: evidence.toolRunId,
+      agentRunId: evidence.agentRunId,
+    })
+    .from(evidence)
+    .where(eq(evidence.auditId, auditId))
+    .orderBy(asc(evidence.createdAt))
+}

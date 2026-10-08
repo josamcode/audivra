@@ -15,6 +15,13 @@
       "when": 1791369444954,
       "tag": "0001_v1_artifacts_history_safety",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791412721954,
+      "tag": "0002_intelligence",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import type { AgentRole, AgentRunItem, AgentRunStatus, ToolRunItem, ToolRunStatus } from '@audivra/contracts'
 import type { Db } from '../client.ts'
 import { newId } from '../ids.ts'
@@ -112,6 +112,28 @@ export async function updateAgentRun(
 export async function getAgentRun(db: Db, id: string) {
   const [row] = await db.select().from(agentRuns).where(eq(agentRuns.id, id))
   return row
+}
+
+/** The most recent run of one role for an audit (on-demand jobs derive their status from it). */
+export async function latestAgentRun(db: Db, auditId: string, role: AgentRole) {
+  const [row] = await db
+    .select({ id: agentRuns.id, status: agentRuns.status, error: agentRuns.error, startedAt: agentRuns.startedAt, finishedAt: agentRuns.finishedAt })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.auditId, auditId), eq(agentRuns.role, role)))
+    .orderBy(desc(agentRuns.startedAt))
+    .limit(1)
+  return row
+}
+
+/** On worker start nothing can still be running: closes on-demand runs a previous worker left open. */
+export async function failInterruptedOnDemandRuns(db: Db, roles: AgentRole[]): Promise<number> {
+  if (roles.length === 0) return 0
+  const rows = await db
+    .update(agentRuns)
+    .set({ status: 'failed', error: 'Interrupted (worker restarted)', finishedAt: new Date() })
+    .where(and(eq(agentRuns.status, 'running'), inArray(agentRuns.role, roles)))
+    .returning({ id: agentRuns.id })
+  return rows.length
 }
 
 export async function listAgentRunRows(db: Db, auditId: string) {

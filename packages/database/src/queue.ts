@@ -1,4 +1,6 @@
+import { sql } from 'drizzle-orm'
 import { PgBoss } from 'pg-boss'
+import type { Db } from './client.ts'
 
 /** Each audit stage is its own durable job; a stage enqueues the next one when it finishes. */
 export const QUEUES = {
@@ -8,12 +10,22 @@ export const QUEUES = {
   revision: 'audit-revision',
   finalize: 'audit-finalize',
   present: 'audit-present',
+  /** On-demand AI work for a finished audit: journey analysis, change intelligence, client brief. */
+  enrich: 'audit-enrich',
   benchmark: 'benchmark-run',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
 export interface StageJob {
   auditId: string
+}
+
+export const ENRICH_KINDS = ['journeys', 'changes', 'brief'] as const
+export type EnrichKind = (typeof ENRICH_KINDS)[number]
+
+export interface EnrichJob {
+  auditId: string
+  kind: EnrichKind
 }
 
 const HOUR = 3600
@@ -27,6 +39,8 @@ const QUEUE_OPTIONS: Record<QueueName, { expireInSeconds: number; retryLimit: nu
     [QUEUES.revision]: { expireInSeconds: 3 * HOUR, retryLimit: 1, retryDelay: 30 },
     [QUEUES.finalize]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
     [QUEUES.present]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 30 },
+    // Explicit user requests: a failure is shown to the user, never retried behind their back.
+    [QUEUES.enrich]: { expireInSeconds: 1 * HOUR, retryLimit: 0, retryDelay: 0 },
     // A benchmark runs several full AI audits sequentially; never retried automatically.
     [QUEUES.benchmark]: { expireInSeconds: 8 * HOUR, retryLimit: 0, retryDelay: 0 },
   }
@@ -55,3 +69,16 @@ export async function enqueueStage(boss: PgBoss, queue: QueueName, auditId: stri
 }
 
 export type { PgBoss }
+
+/** Queues an on-demand AI job; a second request for the same audit and kind while one is queued is a no-op. */
+export async function enqueueEnrich(boss: PgBoss, job: EnrichJob): Promise<string | null> {
+  return boss.send(QUEUES.enrich, job, { singletonKey: `${job.auditId}:${job.kind}` })
+}
+
+/** Whether an intelligence job for this audit is queued or running (read from pg-boss's job table). */
+export async function hasPendingEnrichJob(db: Db, auditId: string, kind: EnrichKind): Promise<boolean> {
+  const result = await db.execute(
+    sql`select 1 from pgboss.job where name = ${QUEUES.enrich} and singleton_key = ${`${auditId}:${kind}`} and state in ('created', 'retry', 'active') limit 1`,
+  )
+  return result.rows.length > 0
+}

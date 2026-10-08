@@ -24,12 +24,17 @@ import type {
   BenchmarkFixtureResult,
   BenchmarkRunItem,
   Category,
+  ChangeAnalysis,
+  ClientBriefContent,
   CoverageItem,
   EffortLevel,
   EvidenceSource,
   EvidenceType,
   FindingType,
   ImpactLevel,
+  JourneyHealth,
+  JourneyStep,
+  JourneyType,
   Opportunity,
   ReportPlan,
   Severity,
@@ -60,6 +65,9 @@ export const audits = pgTable(
     coverage: jsonb('coverage').$type<CoverageItem[]>(),
     reportPlan: jsonb('report_plan').$type<ReportPlan>(),
     benchmark: boolean('benchmark').notNull().default(false),
+    /** Audit focus (template key + version); null for audits created before templates existed. */
+    templateKey: text('template_key'),
+    templateVersion: integer('template_version'),
     evidenceSeq: integer('evidence_seq').notNull().default(0),
     artifactSeq: integer('artifact_seq').notNull().default(0),
     cancelRequested: boolean('cancel_requested').notNull().default(false),
@@ -209,6 +217,8 @@ export const findings = pgTable(
     effort: text('effort').$type<EffortLevel>().notNull(),
     opportunity: jsonb('opportunity').$type<Opportunity | null>(),
     issueKey: text('issue_key'),
+    /** Journeys (J*) of the same audit this finding affects. */
+    journeyRefs: jsonb('journey_refs').$type<string[]>().notNull().default([]),
     createdBy: text('created_by').notNull(),
     sourceRefs: jsonb('source_refs').$type<string[]>().notNull().default([]),
     createdAt: ts('created_at').notNull().defaultNow(),
@@ -312,3 +322,65 @@ export const benchmarkRuns = pgTable('benchmark_runs', {
   startedAt: ts('started_at').notNull().defaultNow(),
   finishedAt: ts('finished_at'),
 })
+
+/** Visitor journeys discovered during an audit (or added later from its evidence). Replaced atomically. */
+export const journeys = pgTable(
+  'journeys',
+  {
+    id: text('id').primaryKey(),
+    auditId: text('audit_id')
+      .notNull()
+      .references(() => audits.id, { onDelete: 'cascade' }),
+    ref: text('ref').notNull(),
+    rank: integer('rank').notNull(),
+    /** Stable key used to recognise the same journey across audits of a site. */
+    journeyKey: text('journey_key').notNull(),
+    type: text('type').$type<JourneyType>().notNull(),
+    name: text('name').notNull(),
+    goal: text('goal').notNull(),
+    description: text('description').notNull(),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    confidence: real('confidence').notNull(),
+    steps: jsonb('steps').$type<JourneyStep[]>().notNull(),
+    health: jsonb('health').$type<JourneyHealth[]>().notNull().default([]),
+    source: text('source').$type<'audit' | 'analysis'>().notNull(),
+    agentRunId: text('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('journeys_audit_ref_idx').on(t.auditId, t.ref)],
+)
+
+/** Change Intelligence: the AI interpretation of one audit compared with an earlier one of the same site. */
+export const changeReports = pgTable(
+  'change_reports',
+  {
+    id: text('id').primaryKey(),
+    auditId: text('audit_id')
+      .notNull()
+      .references(() => audits.id, { onDelete: 'cascade' }),
+    previousAuditId: text('previous_audit_id')
+      .notNull()
+      .references(() => audits.id, { onDelete: 'cascade' }),
+    analysis: jsonb('analysis').$type<ChangeAnalysis>().notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    agentRunId: text('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('change_reports_pair_idx').on(t.auditId, t.previousAuditId)],
+)
+
+/** Client Brief generated on request from a finished audit (latest one per audit is kept). */
+export const clientBriefs = pgTable(
+  'client_briefs',
+  {
+    id: text('id').primaryKey(),
+    auditId: text('audit_id')
+      .notNull()
+      .references(() => audits.id, { onDelete: 'cascade' }),
+    content: jsonb('content').$type<ClientBriefContent>().notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    agentRunId: text('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('client_briefs_audit_idx').on(t.auditId)],
+)
