@@ -5,9 +5,11 @@ import { auditWorkspaceDir, getLogger } from '@audivra/config'
 import {
   createAuditRecord,
   createBoss,
+  createEvidence,
   ensureQueues,
   QUEUES,
   replaceFindings,
+  replaceJourneys,
   updateAudit,
   type NewFinding,
   type PgBoss,
@@ -192,5 +194,162 @@ describe('home screen API', () => {
     expect(health.database.latencyMs).toBeGreaterThanOrEqual(0)
     // No worker runs in this test process, so the engine must not be reported as running.
     expect(health.engine).toMatchObject({ state: 'stopped', workers: 0, activeJobs: 0 })
+  })
+})
+
+describe('intelligence API', () => {
+  const finding = (ref: string, overrides: Partial<NewFinding> = {}): NewFinding => ({
+    ref,
+    rank: Number(ref.slice(1)),
+    title: `Finding ${ref}`,
+    category: 'Conversion',
+    severity: 'medium',
+    type: 'verified',
+    description: 'd',
+    observed: 'Observed with `npx lighthouse https://intel.example.com` and saved to tools/lighthouse.json',
+    affectedUrls: ['https://intel.example.com/'],
+    confidence: 0.9,
+    verificationStatus: 'reviewer-approved',
+    whyItMatters: 'w',
+    businessImpact: 'b',
+    businessImpactLevel: 'medium',
+    recommendation: 'r',
+    effort: 'low',
+    opportunity: null,
+    createdBy: 'ai-finalizer',
+    sourceRefs: ['D1'],
+    evidenceIds: [],
+    ...overrides,
+  })
+
+  async function finishedAudit(url: string, options: { aiEnabled?: boolean; minutesAgo?: number } = {}) {
+    const target = new URL(url)
+    const audit = await createAuditRecord(handle.db, {
+      url,
+      normalizedUrl: target.toString(),
+      domain: target.host,
+      aiEnabled: options.aiEnabled ?? true,
+      template: { key: 'portfolio', version: 1 },
+    })
+    const startedAt = new Date(Date.now() - (options.minutesAgo ?? 10) * 60_000)
+    await updateAudit(handle.db, audit.id, { status: 'completed', stage: 'done', startedAt, finishedAt: new Date(startedAt.getTime() + 60_000) })
+    return audit.id
+  }
+
+  async function withEvidence(auditId: string) {
+    const shot = await createEvidence(handle.db, { auditId, source: 'auditor', type: 'screenshot', title: 'Mobile homepage', summary: '', url: 'https://intel.example.com/' })
+    const click = await createEvidence(handle.db, { auditId, source: 'auditor', type: 'browser-observation', title: 'Email link click', summary: '', url: 'https://intel.example.com/contact' })
+    await replaceFindings(handle.db, auditId, [finding('F1', { evidenceIds: [shot.id, click.id], journeyRefs: ['J1'] }), finding('F2', { evidenceIds: [shot.id] })])
+    return { shot, click }
+  }
+
+  it('stores the audit focus with its version and rejects unknown templates', async () => {
+    const created = await app.inject({ method: 'POST', url: '/api/audits', payload: { url: 'intel.example.com', template: 'portfolio' } })
+    expect(created.statusCode).toBe(201)
+    const detail = (await app.inject({ method: 'GET', url: `/api/audits/${created.json().id}` })).json()
+    expect(detail.template).toEqual({ key: 'portfolio', version: 1, name: 'Portfolio / personal brand' })
+    const fallback = (await app.inject({ method: 'POST', url: '/api/audits', payload: { url: 'intel2.example.com' } })).json()
+    expect(fallback.template).toMatchObject({ key: 'general' })
+    expect((await app.inject({ method: 'POST', url: '/api/audits', payload: { url: 'intel3.example.com', template: 'crm' } })).statusCode).toBe(400)
+  })
+
+  it('offers journey analysis for audits without journeys and queues it once', async () => {
+    const id = await finishedAudit('https://intel.example.com/')
+    await withEvidence(id)
+    const before = (await app.inject({ method: 'GET', url: `/api/audits/${id}/journeys` })).json()
+    expect(before.journeys).toEqual([])
+    expect(before.status).toMatchObject({ available: true, running: false, lastError: null, lastCompletedAt: null })
+
+    const queued = await app.inject({ method: 'POST', url: `/api/audits/${id}/journeys` })
+    expect(queued.statusCode).toBe(202)
+    expect(queued.json()).toMatchObject({ queued: true })
+    const again = await app.inject({ method: 'POST', url: `/api/audits/${id}/journeys` })
+    expect(again.json()).toMatchObject({ queued: false, running: true })
+    expect((await app.inject({ method: 'GET', url: `/api/audits/${id}/journeys` })).json().status.running).toBe(true)
+    const jobs = await boss.fetch(QUEUES.enrich, { batchSize: 10 })
+    expect(jobs.map((j) => j.data)).toEqual([{ auditId: id, kind: 'journeys' }])
+  })
+
+  it('builds the evidence graph only from stored relationships', async () => {
+    const id = await finishedAudit('https://intel.example.com/')
+    const { shot, click } = await withEvidence(id)
+    await replaceJourneys(
+      handle.db,
+      id,
+      [
+        {
+          ref: 'J1',
+          journeyKey: 'portfolio-email-enquiry',
+          type: 'portfolio-contact',
+          name: 'Email enquiry',
+          goal: 'Contact the owner',
+          description: '',
+          isPrimary: true,
+          confidence: 0.8,
+          steps: [
+            { label: 'Homepage', url: 'https://intel.example.com/', kind: 'page', action: '', conversionType: null, status: 'ok', note: '', evidenceIds: [shot.ref] },
+            { label: 'Email link', url: null, kind: 'outcome', action: '', conversionType: 'email', status: 'unverified', note: '', evidenceIds: [click.ref] },
+          ],
+          health: [],
+        },
+      ],
+      'audit',
+    )
+    const graph = (await app.inject({ method: 'GET', url: `/api/audits/${id}/graph?focus=finding:F1&depth=1` })).json()
+    expect(graph.focus).toBe('finding:F1')
+    expect(graph.nodes.map((n: { id: string }) => n.id)).toEqual(
+      expect.arrayContaining([`evidence:${shot.ref}`, `evidence:${click.ref}`, 'journey:J1', 'page:https://intel.example.com']),
+    )
+    expect((await app.inject({ method: 'GET', url: `/api/audits/${id}/graph` })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', url: `/api/audits/${id}/graph?focus=finding:F9` })).statusCode).toBe(404)
+
+    const journeys = (await app.inject({ method: 'GET', url: `/api/audits/${id}/journeys` })).json()
+    expect(journeys.journeys[0]).toMatchObject({ ref: 'J1', isPrimary: true, findingRefs: ['F1'], source: 'audit' })
+  })
+
+  it('explains changes only when there is an earlier audit, and keeps the comparison as the source of truth', async () => {
+    const first = await finishedAudit('https://intel.example.com/', { minutesAgo: 60 })
+    await replaceFindings(handle.db, first, [finding('F1', { issueKey: 'contact-form-labels' }), finding('F2', { issueKey: 'slow-lcp' })])
+    const lonely = (await app.inject({ method: 'GET', url: `/api/audits/${first}/changes` })).json()
+    expect(lonely.comparison).toBeNull()
+    expect(lonely.status).toMatchObject({ available: false })
+    expect(lonely.status.reason).toMatch(/no earlier finished audit/i)
+    expect((await app.inject({ method: 'POST', url: `/api/audits/${first}/changes` })).statusCode).toBe(409)
+
+    const second = await finishedAudit('https://intel.example.com/', { minutesAgo: 5 })
+    await replaceFindings(handle.db, second, [finding('F1', { issueKey: 'slow-lcp' }), finding('F2', { issueKey: 'broken-email-link', title: 'Email link broken' })])
+    const changes = (await app.inject({ method: 'GET', url: `/api/audits/${second}/changes` })).json()
+    expect(changes.comparison.summary).toMatchObject({ new: 1, resolved: 1, unchanged: 1 })
+    expect(changes.intelligence).toBeNull()
+    expect(changes.status).toMatchObject({ available: true, running: false })
+    const labels = changes.timelines.find((t: { key: string }) => t.key === 'contact-form-labels')
+    expect(labels.entries.map((e: { status: string }) => e.status)).toEqual(['detected', 'not-found'])
+  })
+
+  it('refuses briefs for baseline-only audits and queues them for AI audits', async () => {
+    const baseline = await finishedAudit('https://intel.example.com/', { aiEnabled: false })
+    const refused = await app.inject({ method: 'POST', url: `/api/audits/${baseline}/brief` })
+    expect(refused.statusCode).toBe(409)
+    expect(refused.json().error).toMatch(/without AI/)
+
+    const ai = await finishedAudit('https://intel2.example.com/')
+    await withEvidence(ai)
+    expect((await app.inject({ method: 'GET', url: `/api/audits/${ai}/brief` })).json()).toMatchObject({ brief: null, status: { available: true } })
+    expect((await app.inject({ method: 'POST', url: `/api/audits/${ai}/brief` })).statusCode).toBe(202)
+  })
+
+  it('serves a client report without internals: no run data, local paths or shell commands', async () => {
+    const id = await finishedAudit('https://intel.example.com/')
+    await withEvidence(id)
+    const report = await app.inject({ method: 'GET', url: `/api/audits/${id}/report` })
+    expect(report.statusCode).toBe(200)
+    const body = report.json()
+    expect(body.schema).toBe('audivra.report.v2')
+    expect(body.focus).toBe('Portfolio / personal brand')
+    expect(Array.isArray(body.journeys)).toBe(true)
+    const text = JSON.stringify(body)
+    for (const forbidden of ['promptVersion', 'agentRunId', 'sessionId', 'numTurns', 'tools/lighthouse.json', 'npx lighthouse']) {
+      expect(text).not.toContain(forbidden)
+    }
   })
 })

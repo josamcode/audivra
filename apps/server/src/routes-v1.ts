@@ -18,7 +18,7 @@ import {
   type Db,
   type PgBoss,
 } from '@audivra/database'
-import { buildClientReport, buildComparison, buildSiteHistory, loadAuditData } from '@audivra/insights'
+import { buildComparison, buildSiteHistory, loadClientReport } from '@audivra/insights'
 import { artifactImage, generateExport, listExports } from '@audivra/reporting'
 
 interface Deps {
@@ -69,10 +69,8 @@ export function registerV1Routes(app: App, { db, boss }: Deps): void {
   })
 
   app.get<{ Params: { id: string } }>('/api/audits/:id/report', async (request, reply) => {
-    const data = await loadAuditData(db, request.params.id)
-    if (!data) return reply.status(404).send({ error: 'Audit not found' })
-    const comparison = await buildComparison(db, data.row.id)
-    return buildClientReport(data, { comparison })
+    const loaded = await loadClientReport(db, request.params.id)
+    return loaded ? loaded.report : reply.status(404).send({ error: 'Audit not found' })
   })
 
   app.get<{ Params: { id: string }; Querystring: { with?: string } }>('/api/audits/:id/comparison', async (request, reply) => {

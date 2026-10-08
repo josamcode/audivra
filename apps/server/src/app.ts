@@ -3,7 +3,7 @@ import path from 'node:path'
 import fastifyStatic from '@fastify/static'
 import Fastify, { LogController, type FastifyError } from 'fastify'
 import { auditWorkspaceDir, getConfig, REPO_ROOT, resolveInside, type Logger } from '@audivra/config'
-import { CreateAuditInput, normalizeTargetUrl, type AuditStage, type SystemHealth } from '@audivra/contracts'
+import { CreateAuditInput, getTemplate, normalizeTargetUrl, type AuditStage, type SystemHealth } from '@audivra/contracts'
 import {
   createAuditRecord,
   enqueueStage,
@@ -31,6 +31,7 @@ import {
 import { getSystemStatus } from '@audivra/tool-runtime'
 import { loadAuditData, loadDashboard } from '@audivra/insights'
 import type { EventHub } from './events-hub.ts'
+import { registerIntelligenceRoutes } from './routes-intelligence.ts'
 import { registerV1Routes } from './routes-v1.ts'
 
 export interface AppDeps {
@@ -126,18 +127,20 @@ export async function buildApp(deps: AppDeps) {
     const target = normalizeTargetUrl(parsed.data.url)
     if (!target.ok) return reply.status(400).send({ error: target.error })
     const aiEnabled = getConfig().AUDIVRA_AI === 'claude'
+    const template = getTemplate(parsed.data.template)
     const row = await createAuditRecord(db, {
       url: parsed.data.url,
       normalizedUrl: target.url,
       domain: target.domain,
       clientName: parsed.data.clientName ?? null,
       aiEnabled,
+      template: { key: template.key, version: template.version },
     })
     await recordEvent(db, {
       auditId: row.id,
       type: 'audit.created',
-      message: `Audit created for ${target.url}`,
-      data: { url: target.url, aiEnabled },
+      message: `Audit created for ${target.url} · focus: ${template.name}`,
+      data: { url: target.url, aiEnabled, template: template.key },
     })
     await enqueueStage(boss, QUEUES.baseline, row.id)
     return reply.status(201).send(await getAuditDetail(db, row.id))
@@ -294,6 +297,7 @@ export async function buildApp(deps: AppDeps) {
   )
 
   registerV1Routes(app, { db, boss })
+  registerIntelligenceRoutes(app, { db, boss })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {
