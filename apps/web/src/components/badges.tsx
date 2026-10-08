@@ -436,4 +436,7 @@ export const FAILURE_KIND_LABEL: Record<ExecutionFailureKind, string> = {
   'worker-interrupted': 'Worker interrupted',
   'cleanup-failed': 'Cleanup failed',
   internal: 'Internal error',
+  'runtime-unavailable': 'Runtime unavailable',
+  'runtime-failed': 'Runtime failed',
+  'resource-limit': 'Resource limit',
 }

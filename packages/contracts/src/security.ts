@@ -21,6 +21,33 @@ export type CapabilityFamily = z.infer<typeof CapabilityFamily>
 
 export const RATE_LIMIT_CLASSES = ['none', 'light', 'standard', 'heavy'] as const
 
+/**
+ * How a capability is carried out. `in-process`: reviewed, lightweight platform code in the worker (the
+ * Phase 2A backend). `isolated-container`: an approved, execution-scoped container. Declared by the
+ * capability and recorded in the trusted snapshot; Audivra chooses the backend from it — a request, a
+ * caller or a model never can.
+ */
+export const EXECUTION_MODES = ['in-process', 'isolated-container'] as const
+export const ExecutionMode = z.enum(EXECUTION_MODES)
+export type ExecutionMode = z.infer<typeof ExecutionMode>
+
+export const CapabilityExecution = z
+  .strictObject({
+    mode: ExecutionMode,
+    /** Stable id of an Audivra-approved runtime (isolated-container only) — never an image, path or option. */
+    runtime: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]{1,40}$/)
+      .nullable(),
+  })
+  .refine((e) => (e.mode === 'isolated-container') === (e.runtime !== null), 'An isolated-container capability names an approved runtime; an in-process one names none')
+export type CapabilityExecution = z.infer<typeof CapabilityExecution>
+
+/** The execution a capability declares; omitted means in-process (trusted platform code). */
+export function capabilityExecution(meta: { execution?: CapabilityExecution | undefined }): CapabilityExecution {
+  return meta.execution ?? { mode: 'in-process', runtime: null }
+}
+
 export const SecurityCapabilityMetadata = z.strictObject({
   /** Stable identifier `<family>.<name>`, e.g. `discovery.http-observe`. */
   id: z.string().regex(/^[a-z]+\.[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Capability ids look like "family.name"'),
@@ -51,6 +78,8 @@ export const SecurityCapabilityMetadata = z.strictObject({
   evidenceTypes: z.array(EvidenceType),
   /** Identifier of the implementation, e.g. `builtin/http-observe@1`. */
   implementation: z.string().min(3).max(120),
+  /** How it must be carried out (omitted: in-process). */
+  execution: CapabilityExecution.optional(),
 })
 export type SecurityCapabilityMetadata = z.infer<typeof SecurityCapabilityMetadata>
 
@@ -267,6 +296,15 @@ export const SECURITY_EVENT_TYPES = [
   'execution.recovered',
   'execution.cleanup-started',
   'execution.cleanup-completed',
+  // Isolated container backend (Phase 2B).
+  'execution.container-preparing',
+  'execution.container-created',
+  'execution.container-started',
+  'execution.container-exited',
+  'execution.container-stop-requested',
+  'execution.container-terminated',
+  'execution.container-removed',
+  'execution.container-cleanup-failed',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>

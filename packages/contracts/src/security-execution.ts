@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { EvidenceType } from './enums.ts'
 import { MutationClass, RiskClass, SecurityEnvironment } from './security-classes.ts'
 import { ExecutionLimits, ScopeManifest } from './security-scope.ts'
-import { AuthorizationDecisionState, EffectivePermission, EngagementStatus, SecurityActor } from './security.ts'
+import { AuthorizationDecisionState, EffectivePermission, EngagementStatus, ExecutionMode, SecurityActor } from './security.ts'
 
 /*
  * Security executions: one durable run of one capability, accepted by the capability broker and carried
@@ -96,6 +96,12 @@ export const EXECUTION_FAILURE_KINDS = [
   'cleanup-failed',
   /** An unexpected platform error. */
   'internal',
+  /** The backend the execution requires is not available (no container runtime, approved image missing). */
+  'runtime-unavailable',
+  /** The isolated runtime could not prepare, start or observe the execution's container. */
+  'runtime-failed',
+  /** The executor exceeded a resource limit enforced at its boundary (e.g. the container's memory). */
+  'resource-limit',
 ] as const
 export const ExecutionFailureKind = z.enum(EXECUTION_FAILURE_KINDS)
 export type ExecutionFailureKind = z.infer<typeof ExecutionFailureKind>
@@ -135,6 +141,29 @@ export const ExecutionRuntimeLimits = z.strictObject({
 })
 export type ExecutionRuntimeLimits = z.infer<typeof ExecutionRuntimeLimits>
 
+/** Limits applied at the container boundary (from the approved runtime's versioned profile). */
+export const ContainerLimits = z.strictObject({
+  memoryMb: z.number().int().positive(),
+  cpus: z.number().positive(),
+  pidsLimit: z.number().int().positive(),
+  tmpfsMb: z.number().int().positive(),
+})
+export type ContainerLimits = z.infer<typeof ContainerLimits>
+
+/**
+ * How an execution is isolated, fixed at decision time from the capability's declared execution mode and
+ * Audivra's approved runtime registry. The worker picks the backend from this and never falls back.
+ */
+export const ExecutionIsolation = z.strictObject({
+  mode: ExecutionMode,
+  /** The approved runtime and the exact image (pinned by digest) the decision approved; null in-process. */
+  runtime: z.strictObject({ id: z.string(), version: z.number().int(), image: z.string() }).nullable(),
+  /** `scoped-client`: in-process code reaches the network only through the scoped HTTP client. `none`: no network. */
+  network: z.enum(['scoped-client', 'none']),
+  container: ContainerLimits.nullable(),
+})
+export type ExecutionIsolation = z.infer<typeof ExecutionIsolation>
+
 /**
  * The trusted configuration an execution was accepted under, persisted once and never changed. The
  * worker builds the execution context from this snapshot only; its hash is stored next to it and
@@ -161,6 +190,8 @@ export const SecurityExecutionSnapshot = z.strictObject({
   }),
   limits: ExecutionLimits,
   runtime: ExecutionRuntimeLimits,
+  /** Execution mode and isolation (absent in snapshots written before Phase 2B: in-process). */
+  isolation: ExecutionIsolation.optional(),
   /** Capability input exactly as validated by the capability's strict schema at decision time. */
   input: z.unknown(),
   /** Destinations the decision allowed (canonical URLs). */
@@ -205,6 +236,18 @@ export const ExecutionResult = z.object({
 })
 export type ExecutionResult = z.infer<typeof ExecutionResult>
 
+/** What the isolated backend observed of the execution's container. */
+export const ContainerFacts = z.object({
+  name: z.string(),
+  exitCode: z.number().int().nullable(),
+  oomKilled: z.boolean(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  /** The container was removed by Audivra's cleanup. */
+  removed: z.boolean(),
+})
+export type ContainerFacts = z.infer<typeof ContainerFacts>
+
 export const ExecutionExit = z.object({
   outcome: z.enum(['succeeded', 'failed', 'timeout', 'cancelled', 'interrupted']),
   /** Exit code for process-based backends; null for the in-process backend. */
@@ -215,6 +258,8 @@ export const ExecutionExit = z.object({
   artifacts: z.object({ registered: z.number().int(), bytes: z.number().int() }),
   /** True when the runtime stopped waiting for code that ignored the stop request (in-process backend). */
   abandoned: z.boolean(),
+  /** The backend that carried the execution out and, for an isolated one, its container. */
+  runtime: z.object({ backend: ExecutionMode, container: ContainerFacts.nullable() }).optional(),
 })
 export type ExecutionExit = z.infer<typeof ExecutionExit>
 
@@ -255,6 +300,13 @@ export const SecurityExecutionDetail = SecurityExecutionItem.extend({
     allowedTargets: z.array(z.string()),
     limits: ExecutionLimits,
     runtime: ExecutionRuntimeLimits,
+    isolation: z.object({
+      mode: ExecutionMode,
+      runtimeId: z.string().nullable(),
+      runtimeVersion: z.number().nullable(),
+      network: z.enum(['scoped-client', 'none']),
+      container: ContainerLimits.nullable(),
+    }),
   }),
   runner: ExecutionRunner.nullable(),
   heartbeatAt: z.string().nullable(),

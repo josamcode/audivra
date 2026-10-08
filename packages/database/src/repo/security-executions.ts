@@ -238,6 +238,13 @@ export function toSecurityExecutionDetail(row: SecurityExecutionRow, now = new D
       allowedTargets: snapshot.allowedTargets,
       limits: snapshot.limits,
       runtime: snapshot.runtime,
+      isolation: {
+        mode: snapshot.isolation?.mode ?? 'in-process',
+        runtimeId: snapshot.isolation?.runtime?.id ?? null,
+        runtimeVersion: snapshot.isolation?.runtime?.version ?? null,
+        network: snapshot.isolation?.network ?? 'scoped-client',
+        container: snapshot.isolation?.container ?? null,
+      },
     },
     runner: row.runner ?? null,
     heartbeatAt: row.heartbeatAt?.toISOString() ?? null,
