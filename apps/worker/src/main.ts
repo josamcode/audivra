@@ -18,6 +18,7 @@ import {
 import { flushProcessStore, killAllOwned, reapStaleProcesses, setProcessStore } from '@audivra/tool-runtime'
 import { runBenchmark } from './benchmark.ts'
 import { Pipeline } from './pipeline.ts'
+import { createSecurityExecutionWorker } from './security-executions.ts'
 
 const config = getConfig()
 const log = getLogger()
@@ -40,6 +41,17 @@ setProcessStore({
   finish: (id, status, exitCode) => processStore.finish(db, id, status, exitCode),
   listStale: (ownerId) => processStore.listStale(db, ownerId),
 })
+
+const boss = createBoss(config.DATABASE_URL, WORKER_INSTANCE)
+boss.on('error', (error) => log.error({ err: error }, 'pg-boss error'))
+await boss.start()
+await ensureQueues(boss)
+
+// Security executions left by a previous worker are reconciled first, so their orphaned owned processes
+// are attributed to them; the general reaper below then closes every other leftover record.
+const securityExecutions = createSecurityExecutionWorker({ db, boss, log })
+await securityExecutions.recover()
+
 const reaped = await reapStaleProcesses()
 if (reaped.reaped || reaped.gone) {
   log.info(reaped, 'closed process records left by a previous worker (owned processes only)')
@@ -50,11 +62,6 @@ if (interruptedJobs) log.warn({ interruptedJobs }, 'closed intelligence runs int
 
 const interruptedBenchmarks = await failInterruptedBenchmarkRuns(db)
 if (interruptedBenchmarks) log.warn({ interruptedBenchmarks }, 'closed benchmark runs interrupted by a previous worker')
-
-const boss = createBoss(config.DATABASE_URL, WORKER_INSTANCE)
-boss.on('error', (error) => log.error({ err: error }, 'pg-boss error'))
-await boss.start()
-await ensureQueues(boss)
 
 const pipeline = new Pipeline(db, boss, log)
 
@@ -110,14 +117,17 @@ await boss.work<{ benchmarkRunId?: string }>(
     }
   },
 )
-log.info({ queues: [...handlers.map(([q]) => q), QUEUES.enrich, QUEUES.benchmark], ai: config.AUDIVRA_AI }, 'worker ready')
+await securityExecutions.start()
+log.info({ queues: [...handlers.map(([q]) => q), QUEUES.enrich, QUEUES.benchmark, QUEUES.securityExecution], ai: config.AUDIVRA_AI }, 'worker ready')
 
 let shuttingDown = false
 async function shutdown(signal: string) {
   if (shuttingDown) return
   shuttingDown = true
   log.info({ signal }, 'worker shutting down')
-  // Not graceful: in-flight stages are retried by pg-boss after restart (heartbeat expiry).
+  // Running security executions are interrupted (never left running or re-run); their owned processes are
+  // terminated exactly. Audit stages are not graceful: pg-boss retries them after restart (heartbeat expiry).
+  await securityExecutions.shutdown().catch((error) => log.error({ err: error }, 'security execution shutdown failed'))
   // Only processes this worker started (ownership registry) are terminated.
   const killed = await killAllOwned()
   if (killed) log.info({ killed }, 'terminated owned processes')

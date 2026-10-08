@@ -17,6 +17,7 @@
     "@audivra/database": "workspace:*",
     "@audivra/insights": "workspace:*",
     "@audivra/reporting": "workspace:*",
+    "@audivra/security": "workspace:*",
     "@audivra/tool-runtime": "workspace:*",
     "pg-boss": "^12.37.0"
   }
