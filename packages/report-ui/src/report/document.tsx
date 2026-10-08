@@ -6,7 +6,9 @@ import type {
   CoverageItem,
   LimitationItem,
   ReportAction,
+  ReportChanges,
   ReportFinding,
+  ReportJourney,
   ReportOpportunity,
   Severity,
   Technology,
@@ -16,6 +18,7 @@ import type { ReactNode } from 'react'
 import { ArtifactView } from '../artifact-view.tsx'
 import { SeverityPill } from '../components/primitives.tsx'
 import { StatTile } from '../artifacts/metrics.tsx'
+import { JourneyView } from '../artifacts/flows.tsx'
 import { ImpactEffortView } from '../artifacts/misc.tsx'
 import { capitalize, formatDate, formatDelta, formatDuration, formatValue, shortUrl } from '../format.ts'
 import type { AssetResolver } from '../types.ts'
@@ -25,6 +28,8 @@ export interface ClientReportDocumentProps {
   resolveAsset: AssetResolver
   /** true: <details> disclosures (HTML export / preview). false: everything expanded (PDF). */
   interactive?: boolean
+  /** paper: the exported page layout. screen: the same content, wider, for presenting on screen. */
+  variant?: 'paper' | 'screen'
 }
 
 const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
@@ -312,6 +317,164 @@ function ActionList({ title, items, start }: { title: string; items: ReportActio
   )
 }
 
+const JOURNEY_TYPE_LABEL: Record<ReportJourney['type'], string> = {
+  lead: 'Lead',
+  booking: 'Booking',
+  purchase: 'Purchase',
+  signup: 'Sign-up',
+  demo: 'Demo',
+  contact: 'Contact',
+  'content-discovery': 'Content discovery',
+  'portfolio-contact': 'Portfolio to contact',
+  support: 'Support',
+  custom: 'Journey',
+}
+
+const DIMENSION_LABEL: Record<ReportJourney['health'][number]['dimension'], string> = {
+  visibility: 'Visibility',
+  friction: 'Friction',
+  tracking: 'Tracking',
+  mobile: 'Mobile',
+  performance: 'Performance',
+  accessibility: 'Accessibility',
+  continuity: 'Continuity',
+}
+
+const HEALTH_LABEL: Record<ReportJourney['health'][number]['status'], string> = {
+  healthy: 'Healthy',
+  warning: 'Warning',
+  problem: 'Problem',
+  unknown: 'Unknown',
+  'not-assessed': 'Not assessed',
+}
+
+const HEALTH_ORDER = ['problem', 'warning', 'unknown', 'healthy', 'not-assessed'] as const
+
+/** One journey: its steps as a flow and each judged dimension with the reason. No overall score. */
+function JourneyBlock({ journey, resolveAsset }: { journey: ReportJourney; resolveAsset: AssetResolver }) {
+  const judged = journey.health
+    .filter((h) => h.status !== 'not-assessed')
+    .sort((a, b) => HEALTH_ORDER.indexOf(a.status) - HEALTH_ORDER.indexOf(b.status))
+  const notAssessed = (Object.keys(DIMENSION_LABEL) as (keyof typeof DIMENSION_LABEL)[]).filter(
+    (d) => !journey.health.some((h) => h.dimension === d && h.status !== 'not-assessed'),
+  )
+  const footnote = [
+    notAssessed.length ? `Not assessed in this audit: ${notAssessed.map((d) => DIMENSION_LABEL[d].toLowerCase()).join(', ')}.` : null,
+    journey.findingRefs.length ? `Related findings: ${journey.findingRefs.join(', ')}.` : null,
+  ].filter(Boolean)
+  return (
+    <div className="rp-journey">
+      <header className="rp-journey-head">
+        <p className="rp-meta-text">
+          {journey.isPrimary ? 'Primary journey' : 'Journey'} · {JOURNEY_TYPE_LABEL[journey.type]}
+        </p>
+        <h3 className="rp-h3" dir="auto">
+          {journey.name}
+        </h3>
+        <p className="rp-p rp-muted" dir="auto">
+          {journey.goal}
+        </p>
+      </header>
+      <div className="rp-journey-flow">
+        <JourneyView
+          data={{
+            steps: journey.steps.map((step) => ({
+              label: step.label,
+              url: step.url ?? undefined,
+              kind: step.kind,
+              status: step.status === 'unverified' ? 'unknown' : step.status,
+              note: step.note ? step.note.slice(0, 200) : undefined,
+            })),
+          }}
+          ctx={{ mode: 'report', resolveAsset }}
+        />
+      </div>
+      {judged.length ? (
+        <table className="rp-table rp-journey-health">
+          <thead>
+            <tr>
+              <th scope="col">Dimension</th>
+              <th scope="col">Status</th>
+              <th scope="col">What we saw</th>
+            </tr>
+          </thead>
+          <tbody>
+            {judged.map((h) => (
+              <tr key={h.dimension}>
+                <td>{DIMENSION_LABEL[h.dimension]}</td>
+                <td className={clsx('rp-health', `rp-health-${h.status}`)}>{HEALTH_LABEL[h.status]}</td>
+                <td dir="auto">{h.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {footnote.length ? <p className="rp-meta-text">{footnote.join(' ')}</p> : null}
+    </div>
+  )
+}
+
+const CHANGE_KIND_LABEL: Record<ReportChanges['insights'][number]['kind'], string> = {
+  regression: 'Regression',
+  improvement: 'Improvement',
+  'new-issue': 'New issue',
+  'not-found-again': 'Not found again',
+  persistent: 'Still present',
+  journey: 'Journey',
+  tracking: 'Tracking',
+  metric: 'Measurement',
+  technology: 'Technology',
+  coverage: 'Coverage',
+}
+
+const CHANGE_BASIS_LABEL: Record<ReportChanges['insights'][number]['basis'], string> = {
+  verified: 'Verified',
+  observed: 'Observed',
+  correlated: 'Correlated, not proven',
+  likely: 'Likely',
+}
+
+function ChangesNarrative({ changes }: { changes: ReportChanges }) {
+  return (
+    <div className="rp-changes">
+      <p className="rp-lead" dir="auto">
+        {changes.headline}
+      </p>
+      {changes.summary ? (
+        <p className="rp-p" dir="auto">
+          {changes.summary}
+        </p>
+      ) : null}
+      {changes.insights.length ? (
+        <ul className="rp-insights">
+          {changes.insights.map((insight, index) => (
+            <li key={index} className="rp-insight">
+              <p className="rp-insight-meta">
+                <span className={clsx('rp-insight-kind', `rp-kind-${insight.kind}`)}>{CHANGE_KIND_LABEL[insight.kind]}</span>
+                <span className="rp-meta-text"> · {CHANGE_BASIS_LABEL[insight.basis]}</span>
+              </p>
+              <h3 className="rp-h3 rp-h3-sm" dir="auto">
+                {insight.title}
+              </h3>
+              <p className="rp-p" dir="auto">
+                {insight.description}
+              </p>
+              {insight.findingRefs.length ? <p className="rp-meta-text">Related: {insight.findingRefs.join(', ')}</p> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+const JOURNEY_CHANGE_LABEL: Record<AuditComparison['journeys'][number]['status'], string> = {
+  new: 'new in this audit',
+  'not-found-again': 'not found again',
+  changed: 'changed',
+  unchanged: 'unchanged',
+}
+
 function ComparisonSection({ comparison }: { comparison: AuditComparison }) {
   const s = comparison.summary
   const groups: { key: 'resolved' | 'new' | 'improved' | 'regressed'; label: string }[] = [
@@ -321,12 +484,13 @@ function ComparisonSection({ comparison }: { comparison: AuditComparison }) {
     { key: 'regressed', label: 'Regressed' },
   ]
   const metrics = comparison.metrics.filter((m) => m.direction === 'improved' || m.direction === 'regressed').slice(0, 10)
+  const journeys = comparison.journeys.filter((j) => j.status !== 'unchanged')
+  const tracking = comparison.tracking
   return (
     <>
       <p className="rp-p rp-muted">
         Compared with the audit of {formatDate(comparison.previous.finishedAt ?? comparison.previous.createdAt)}. “Not found
-        again” means an issue reported last time was not reported in this audit — usually because it was fixed, but
-        confirm before relying on it.
+        again” means an issue reported last time was not reported in this audit; it is not proof that it was fixed.
       </p>
       <ul className="rp-change-summary">
         {[
@@ -369,6 +533,30 @@ function ComparisonSection({ comparison }: { comparison: AuditComparison }) {
           )
         })}
       </div>
+      {journeys.length ? (
+        <div className="rp-change-group">
+          <h3 className="rp-h4">Journeys</h3>
+          <ul className="rp-list">
+            {journeys.map((journey) => (
+              <li key={journey.journeyKey} dir="auto">
+                {journey.name} <span className="rp-meta-text">({JOURNEY_CHANGE_LABEL[journey.status]})</span>
+                {journey.steps.length ? (
+                  <span className="rp-meta-text">
+                    {' '}
+                    · {journey.steps.map((step) => `${step.label}: ${step.before ?? 'absent'} → ${step.after ?? 'absent'}`).join('; ')}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {tracking.added.length || tracking.removed.length ? (
+        <p className="rp-p rp-meta-text">
+          {tracking.added.length ? `Tracking now detected: ${tracking.added.join(', ')}. ` : ''}
+          {tracking.removed.length ? `Tracking no longer detected: ${tracking.removed.join(', ')}.` : ''}
+        </p>
+      ) : null}
       {metrics.length ? (
         <table className="rp-table">
           <thead>
@@ -437,7 +625,7 @@ const wideTypes = new Set<Artifact['type']>([
 ])
 
 /** The client-facing report. Same component for preview, standalone HTML and PDF. */
-export function ClientReportDocument({ report, resolveAsset, interactive = true }: ClientReportDocumentProps) {
+export function ClientReportDocument({ report, resolveAsset, interactive = true, variant = 'paper' }: ClientReportDocumentProps) {
   const { snapshot, appendix } = report
   const limitationsByKind = new Map<LimitationItem['kind'], string[]>()
   for (const item of appendix.limitations) {
@@ -469,7 +657,7 @@ export function ClientReportDocument({ report, resolveAsset, interactive = true 
   const hasActions = report.actionPlan.doFirst.length + report.actionPlan.then.length + report.actionPlan.later.length > 0
 
   return (
-    <article className="rp-document" lang="en">
+    <article className={clsx('rp-document', variant === 'screen' && 'rp-screen')} lang="en">
       <header className="rp-cover">
         <p className="rp-brand">Audivra · Website audit</p>
         <h1 className="rp-h1">{report.site.domain}</h1>
@@ -485,6 +673,12 @@ export function ClientReportDocument({ report, resolveAsset, interactive = true 
             <dt>Audit date</dt>
             <dd>{formatDate(report.audit.date)}</dd>
           </div>
+          {report.focus ? (
+            <div>
+              <dt>Audit focus</dt>
+              <dd>{report.focus}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>Findings</dt>
             <dd>{snapshot.findings.total}</dd>
@@ -549,6 +743,14 @@ export function ClientReportDocument({ report, resolveAsset, interactive = true 
         </Section>
       ) : null}
 
+      {report.journeys.length ? (
+        <Section id="journeys" title={report.journeys[0]!.isPrimary ? 'Primary journey' : 'Key journeys'} kicker="How visitors reach you">
+          {report.journeys.map((journey) => (
+            <JourneyBlock key={journey.ref} journey={journey} resolveAsset={resolveAsset} />
+          ))}
+        </Section>
+      ) : null}
+
       {featured.length || visuals.length ? (
         <Section id="visuals" title="Visual evidence" kicker="What we measured and saw">
           <Visuals artifacts={[...featured, ...visuals]} resolveAsset={resolveAsset} />
@@ -584,6 +786,13 @@ export function ClientReportDocument({ report, resolveAsset, interactive = true 
         </Section>
       ) : null}
 
+      {report.changes || report.comparison ? (
+        <Section id="changes" title="What changed since the previous audit" kicker="Progress">
+          {report.changes ? <ChangesNarrative changes={report.changes} /> : null}
+          {report.comparison ? <ComparisonSection comparison={report.comparison} /> : null}
+        </Section>
+      ) : null}
+
       {report.opportunities.length ? (
         <Section id="opportunities" title="Opportunities" kicker="Work worth doing">
           {opportunityMatrix ? (
@@ -610,12 +819,6 @@ export function ClientReportDocument({ report, resolveAsset, interactive = true 
               start={report.actionPlan.doFirst.length + report.actionPlan.then.length + 1}
             />
           </div>
-        </Section>
-      ) : null}
-
-      {report.comparison ? (
-        <Section id="comparison" title="Since the previous audit">
-          <ComparisonSection comparison={report.comparison} />
         </Section>
       ) : null}
 

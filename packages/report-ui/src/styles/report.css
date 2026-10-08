@@ -220,7 +220,14 @@
   margin-bottom: 12px;
   padding-top: 14px;
   border-top: 1px solid var(--av-border);
+  break-inside: avoid;
   break-after: avoid;
+}
+
+/* The cover already ends with a rule; the first section does not draw a second one. */
+.rp-cover + .rp-section > .rp-section-head {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .rp-kicker {
@@ -567,6 +574,111 @@
   gap: 4px 20px;
 }
 
+/* Journeys */
+/* A journey may continue on the next page between its flow and its health table, never inside the flow. */
+.rp-journey {
+  padding: 14px 16px;
+  border: 1px solid var(--av-border);
+  border-radius: 8px;
+}
+
+.rp-journey + .rp-journey {
+  margin-top: 12px;
+}
+
+.rp-journey-head {
+  margin-bottom: 10px;
+  break-inside: avoid;
+  break-after: avoid;
+}
+
+.rp-journey-head .rp-meta-text {
+  margin: 0 0 2px;
+}
+
+.rp-journey-flow {
+  margin-bottom: 10px;
+  break-inside: avoid;
+}
+
+.rp-journey-health td:first-child {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.rp-health {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.rp-health-healthy {
+  color: var(--av-success);
+}
+
+.rp-health-warning {
+  color: var(--av-medium);
+}
+
+.rp-health-problem {
+  color: var(--av-critical);
+}
+
+.rp-health-unknown {
+  color: var(--av-subtle);
+}
+
+/* What changed: interpretation above the deterministic comparison */
+.rp-changes {
+  margin-bottom: 14px;
+}
+
+.rp-lead {
+  margin: 0 0 4px;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.rp-insights {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 1px solid var(--av-border);
+  border-radius: 8px;
+}
+
+.rp-insight {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--av-border);
+  break-inside: avoid;
+}
+
+.rp-insight:last-child {
+  border-bottom: 0;
+}
+
+.rp-insight-meta {
+  margin: 0 0 2px;
+  font-size: 11.5px;
+}
+
+.rp-insight-kind {
+  font-weight: 600;
+}
+
+.rp-kind-regression {
+  color: var(--av-critical);
+}
+
+.rp-kind-new-issue {
+  color: var(--av-high);
+}
+
+.rp-kind-improvement,
+.rp-kind-not-found-again {
+  color: var(--av-success);
+}
+
 /* Tables */
 .rp-table {
   width: 100%;
@@ -709,8 +821,33 @@
   color: var(--av-subtle);
 }
 
+/* Screen variant (Client view): the same document, wider and a little larger for presenting. */
+.rp-document.rp-screen {
+  max-width: 1120px;
+  padding: 48px 64px 40px;
+  font-size: 14px;
+}
+
+.rp-screen .rp-h1 {
+  font-size: 34px;
+}
+
+.rp-screen .rp-h2 {
+  font-size: 21px;
+}
+
+.rp-screen .rp-section {
+  margin-top: 40px;
+  scroll-margin-top: 120px;
+}
+
+.rp-screen .rp-snapshot li {
+  font-size: 15px;
+}
+
 @media (max-width: 720px) {
-  .rp-document {
+  .rp-document,
+  .rp-document.rp-screen {
     padding: 24px 18px;
   }
 

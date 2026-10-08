@@ -1,9 +1,10 @@
-import { ARTIFACT_TYPES } from '@audivra/contracts'
+import { ARTIFACT_TYPES, type AuditComparison } from '@audivra/contracts'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ArtifactView, SVG_EXPORTABLE_TYPES } from '../src/artifact-view.tsx'
 import { LineChart } from '../src/charts/svg-charts.tsx'
+import { ClientReportDocument } from '../src/report/document.tsx'
 import { EXPORT_PALETTE } from '../src/theme.ts'
 import { formatValue, thresholdTone } from '../src/format.ts'
 import { renderArtifactHtml, renderArtifactSvg, renderClientReportHtml } from '../src/ssr.tsx'
@@ -96,6 +97,83 @@ describe('client report (SSR)', () => {
     for (const forbidden of ['prompt', 'turns', 'agent_run', 'session', 'claude']) {
       expect(body(html).toLowerCase()).not.toContain(forbidden)
     }
+  })
+
+  it('shows the audit focus and the primary journey with judged dimensions only', () => {
+    const html = body(renderClientReportHtml(REPORT_FIXTURE, { resolveAsset, mode: 'html' }))
+    expect(html).toContain('Audit focus')
+    expect(html).toContain('Portfolio / personal brand')
+    expect(html).toContain('Primary journey')
+    expect(html).toContain('Email enquiry from a project page')
+    expect(html).toContain('No contact link at the end of the case study.')
+    expect(html).toContain('av-step-friction')
+    // Unverified steps read as such, never as working.
+    expect(html).toContain('av-step-unknown')
+    expect(html).toContain('rp-health-problem')
+    expect(html).toContain('Not assessed in this audit: visibility, performance, accessibility, continuity.')
+    // No overall journey score or conversion rate is invented.
+    expect(html).not.toMatch(/journey score|conversion rate/i)
+  })
+
+  it('puts the change interpretation above the comparison and never calls "not found again" fixed', () => {
+    const comparison: AuditComparison = {
+      siteKey: 'example.com',
+      current: { id: 'fixture0001', createdAt: '2026-10-07T10:00:00.000Z', finishedAt: '2026-10-07T10:20:00.000Z', status: 'completed', findingCount: 9 },
+      previous: { id: 'prevaudit01', createdAt: '2026-09-01T10:00:00.000Z', finishedAt: '2026-09-01T10:20:00.000Z', status: 'completed', findingCount: 9 },
+      summary: { new: 1, resolved: 1, improved: 0, regressed: 0, unchanged: 7 },
+      findings: [
+        {
+          status: 'resolved',
+          current: null,
+          previous: { ref: 'F4', title: 'Contact form fields have no labels', severity: 'medium', category: 'Accessibility', issueKey: null, affectedUrls: [] },
+          matchedBy: null,
+          matchScore: null,
+        },
+      ],
+      metrics: [],
+      technologies: { added: [], removed: [], unchanged: ['Next.js'] },
+      tracking: { added: ['Google Analytics 4'], removed: [], unchanged: [] },
+      journeys: [
+        {
+          journeyKey: 'portfolio-email-enquiry',
+          name: 'Email enquiry from a project page',
+          type: 'portfolio-contact',
+          status: 'changed',
+          currentRef: 'J1',
+          previousRef: 'J1',
+          primaryBefore: true,
+          primaryAfter: true,
+          pathBefore: ['Homepage', 'Case study', 'Email link'],
+          pathAfter: ['Homepage', 'Case study', 'Email link'],
+          pathChanged: false,
+          health: [{ dimension: 'tracking', before: 'healthy', after: 'problem' }],
+          steps: [{ label: 'Case study', before: 'ok', after: 'friction' }],
+        },
+      ],
+      coverage: [],
+      screenshots: [],
+    }
+    const html = body(renderClientReportHtml({ ...REPORT_FIXTURE, comparison }, { resolveAsset, mode: 'html' }))
+    expect(html).toContain('What changed since the previous audit')
+    const headline = html.indexOf('The www certificate error is new')
+    const counts = html.indexOf('rp-change-summary')
+    expect(headline).toBeGreaterThan(-1)
+    expect(counts).toBeGreaterThan(headline)
+    expect(html).toContain('Not found again')
+    expect(html).toContain('it is not proof that it was fixed')
+    expect(html).not.toMatch(/usually because it was fixed/i)
+    expect(html).toContain('Case study: ok → friction')
+    expect(html).toContain('Tracking now detected: Google Analytics 4.')
+    // The old trailing comparison section is gone: changes appear once, before opportunities.
+    expect(html.indexOf('id="changes"')).toBeLessThan(html.indexOf('id="opportunities"'))
+    expect(html).not.toContain('id="comparison"')
+  })
+
+  it('renders the wider screen variant from the same content', () => {
+    const paper = renderToStaticMarkup(createElement(ClientReportDocument, { report: REPORT_FIXTURE, resolveAsset }))
+    const screen = renderToStaticMarkup(createElement(ClientReportDocument, { report: REPORT_FIXTURE, resolveAsset, variant: 'screen' }))
+    expect(screen).toContain('rp-document rp-screen')
+    expect(screen.replace(' rp-screen', '')).toBe(paper)
   })
 })
 

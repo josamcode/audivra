@@ -219,10 +219,11 @@ const reportFinding = (ref: string, severity: string, withProof: 'artifact' | 'i
 })
 
 export const REPORT_FIXTURE: ClientReport = ClientReport.parse({
-  schema: 'audivra.report.v1',
+  schema: 'audivra.report.v2',
   generatedAt: '2026-10-07T12:00:00.000Z',
   title: 'Website audit — example.com',
   site: { url: 'https://example.com/', domain: 'example.com', clientName: 'Example Co — موقع تجريبي' },
+  focus: 'Portfolio / personal brand',
   audit: { date: '2026-10-07T10:00:00.000Z', durationMs: 1_201_000, status: 'completed', complete: true },
   snapshot: {
     lines: ['The site is fast and well indexed in both languages.', 'www visitors see a certificate error.', 'Nothing is measured: no analytics.'],
@@ -260,7 +261,51 @@ export const REPORT_FIXTURE: ClientReport = ClientReport.parse({
     then: [{ title: 'Add privacy-friendly analytics with contact events', why: 'Nothing is measured.', findingRefs: ['F3'] }],
     later: [],
   },
+  journeys: [
+    {
+      ref: 'J1',
+      name: 'Email enquiry from a project page',
+      type: 'portfolio-contact',
+      goal: 'A prospect reads a case study and emails about a project.',
+      description: 'Project pages link to the contact section; the email link opens the mail app.',
+      isPrimary: true,
+      steps: [
+        { label: 'Homepage', url: 'https://example.com/', kind: 'page', status: 'ok', note: '', conversionType: null },
+        { label: 'Case study', url: 'https://example.com/projects/clinic', kind: 'page', status: 'friction', note: 'No contact link at the end of the case study.', conversionType: null },
+        { label: 'Email link', url: null, kind: 'outcome', status: 'unverified', note: 'Mail delivery is outside what the audit can observe.', conversionType: 'email' },
+      ],
+      health: [
+        { dimension: 'friction', status: 'warning', note: 'Visitors must scroll back to the header to find contact details.' },
+        { dimension: 'tracking', status: 'problem', note: 'No event is recorded when the email link is used.' },
+        { dimension: 'mobile', status: 'healthy', note: 'The path works at 390 px wide.' },
+      ],
+      findingRefs: ['F3'],
+    },
+  ],
   comparison: null,
+  changes: {
+    previousDate: '2026-09-01T10:00:00.000Z',
+    headline: 'The www certificate error is new; the contact form labels were not found again',
+    summary: 'One issue appeared since the September audit and one earlier issue was not reported this time.',
+    insights: [
+      {
+        kind: 'new-issue',
+        importance: 'high',
+        title: 'www visitors now see a certificate error',
+        description: 'Typed www visits fail before the page loads.',
+        basis: 'observed',
+        findingRefs: ['F1'],
+      },
+      {
+        kind: 'not-found-again',
+        importance: 'medium',
+        title: 'Contact form labels were not reported again',
+        description: 'The labelling issue from September was not observed in this audit.',
+        basis: 'observed',
+        findingRefs: [],
+      },
+    ],
+  },
   appendix: {
     otherFindings: [reportFinding('F8', 'low', 'none')],
     artifacts: [ARTIFACT_FIXTURES.find((a) => a.type === 'tech_map')],
