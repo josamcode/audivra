@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { engagementWorkspaceDir, getConfig, type Logger } from '@audivra/config'
 import {
   authorizationRequiredFor,
+  capabilityExecution,
   parseIp,
   redact,
   SecurityActor,
@@ -24,6 +25,7 @@ import { NOT_STARTED_EXIT } from './execution/control.ts'
 import { executionEvent } from './execution/events.ts'
 import { failure, failureMessage } from './execution/failures.ts'
 import { createExecutionHandles } from './execution/handles.ts'
+import { findApprovedRuntime } from './execution/runtimes.ts'
 import { buildExecutionSnapshot, contextFromSnapshot, snapshotHash } from './execution/snapshot.ts'
 import type { ExecutionQueue, ExecutionStore } from './execution/store.ts'
 import { ExecutionWorkspace } from './execution/workspace.ts'
@@ -138,7 +140,7 @@ export class CapabilityBroker {
    * `submit`.
    */
   async execute(request: unknown, options: { signal?: AbortSignal } = {}): Promise<BrokerOutcome> {
-    const decided = await this.#decide(request)
+    const decided = await this.#decide(request, 'in-process')
     if (decided.kind === 'denied') return deniedOutcome(decided.executionId, decided.decision)
     return this.#run(decided, options.signal)
   }
@@ -151,7 +153,7 @@ export class CapabilityBroker {
   async submit(request: unknown): Promise<SubmitOutcome> {
     const executions = this.#executions
     if (!executions) throw new Error('This broker cannot accept durable executions: it was created without an execution store and queue')
-    const decided = await this.#decide(request)
+    const decided = await this.#decide(request, 'durable')
     if (decided.kind === 'denied') return { executionId: decided.executionId, status: 'denied', decision: decided.decision, error: null }
     const { executionId, decision } = decided
     const meta = decided.capability.metadata
@@ -198,8 +200,12 @@ export class CapabilityBroker {
     }
   }
 
-  /** The decision path shared by `execute` and `submit`: every check, one persisted, explained decision. */
-  async #decide(request: unknown): Promise<Decided> {
+  /**
+   * The decision path shared by `execute` (in-process) and `submit` (durable): every check, one persisted,
+   * explained decision. The path only matters for the execution mode: a capability that must run isolated
+   * is refused on the in-process path — nothing can downgrade it.
+   */
+  async #decide(request: unknown, path: 'in-process' | 'durable'): Promise<Decided> {
     const executionId = newId('sx')
     const evaluatedAt = this.#now()
     const parsed = BrokerRequest.safeParse(request)
@@ -230,7 +236,7 @@ export class CapabilityBroker {
       data: { correlationId, input: compact(req.input) },
     })
 
-    const evaluation = await this.#evaluate(executionId, correlationId, req, engagement, authorizations, capability, evaluatedAt)
+    const evaluation = await this.#evaluate(executionId, correlationId, req, engagement, authorizations, capability, evaluatedAt, path)
     const { decision } = evaluation
     if (decision.decision === 'deny' || !capability || !evaluation.policy) {
       await this.#store.recordEvent({
@@ -321,6 +327,7 @@ export class CapabilityBroker {
     authorizations: Parameters<typeof evaluateAuthorizationCoverage>[0],
     capability: SecurityCapability | undefined,
     now: Date,
+    path: 'in-process' | 'durable',
   ): Promise<{ decision: PolicyDecision; input: unknown; policy: CapabilityPolicyResult | null }> {
     const checks: DecisionCheck[] = []
     const check = (stage: DecisionStage, ok: boolean, rule: string, reason: string) => checks.push({ stage, outcome: ok ? 'pass' : 'fail', rule, reason })
@@ -443,9 +450,12 @@ export class CapabilityBroker {
     policyResult = evaluateCapabilityPolicy(policy, meta)
     check('policy', policyResult.allowed, policyResult.rule, policyResult.reason)
 
-    // 8. Resources, only when everything else allows the request.
+    // 8. Resources (and the execution mode), only when everything else allows the request.
+    const execution = capabilityExecution(meta)
     if (checks.some((c) => c.outcome === 'fail')) {
       skip('resources', 'Not checked: the request is already denied')
+    } else if (path === 'in-process' && execution.mode !== 'in-process') {
+      check('resources', false, 'runtime.isolation-required', `${meta.name} must run in an isolated container; it can only be accepted as a durable execution`)
     } else {
       const resources = await this.#checkResources({
         capability: meta,
@@ -453,6 +463,7 @@ export class CapabilityBroker {
         minFreeBytes: getConfig().SECURITY_MIN_FREE_DISK_MB * 1_048_576,
         maxArtifactBytes: policyResult.limits.maxArtifactMb * 1_048_576,
         imagePresent: dockerImagePresent,
+        runtime: execution.mode === 'isolated-container' ? (findApprovedRuntime(execution.runtime) ?? null) : null,
       })
       check('resources', resources.ok, resources.rule, resources.reason)
     }
@@ -474,6 +485,8 @@ export class CapabilityBroker {
     if (signal?.aborted) onAbort()
     signal?.addEventListener('abort', onAbort, { once: true })
 
+    const execute = d.capability.implementation.execute
+    if (typeof execute !== 'function') throw new Error(`${meta.id} has no in-process implementation`)
     const workspace = new ExecutionWorkspace(this.#workspaceRoot(engagement.id), executionId)
     const { handles, registrar, http } = createExecutionHandles(snapshot, { workspace, signal: controller.signal, resolver: this.#resolver, store: this.#store })
     const event = (type: 'capability.started' | 'capability.completed' | 'capability.failed' | 'capability.cancelled', message: string, data: Record<string, unknown>, level: 'info' | 'warn' | 'error' = 'info') =>
@@ -482,7 +495,7 @@ export class CapabilityBroker {
     await event('capability.started', `${meta.name} started`, { correlationId, limits: context.limits, targets: context.allowedTargets })
     try {
       await workspace.init()
-      const result = await d.capability.implementation.execute(context, d.input, handles)
+      const result = await execute.call(d.capability.implementation, context, d.input, handles)
       registrar.close()
       await event('capability.completed', redact(result.summary).slice(0, 500), {
         output: compact(result.output),

@@ -1,4 +1,5 @@
 import { httpObserveCapability } from './http-observe.ts'
+import { isolatedCheckCapability } from './isolated-check.ts'
 import { CapabilityRegistry } from './registry.ts'
 import { runtimeCheckCapability } from './runtime-check.ts'
 
@@ -12,9 +13,10 @@ export function createDefaultRegistry(): CapabilityRegistry {
 
 /**
  * What the execution runtime can run: the security capabilities plus platform diagnostics. Diagnostics
- * (`diagnostic.runtime-check`) go through the broker like any capability but never contact a target,
- * so they are not part of the security capability catalog shown to people and agents.
+ * (`diagnostic.runtime-check` in-process, `diagnostic.isolated-check` in an isolated container) go through
+ * the broker like any capability but never contact a target, so they are not part of the security
+ * capability catalog shown to people and agents.
  */
 export function createRuntimeRegistry(): CapabilityRegistry {
-  return createDefaultRegistry().register(runtimeCheckCapability)
+  return createDefaultRegistry().register(runtimeCheckCapability).register(isolatedCheckCapability)
 }

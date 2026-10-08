@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { resolveInside, toWorkspaceRelative } from '@audivra/config'
 import { directorySize } from '../resources.ts'
@@ -86,6 +86,22 @@ export class ExecutionWorkspace {
     if (!info.isFile()) throw new ExecutionError('artifact-limit', 'artifact.not-a-file', `Artifact is not a regular file: ${engagementRelative}`)
     await this.#assertRealInside(absolute)
     return { absolute, relative: toWorkspaceRelative(this.root, absolute)!, bytes: info.size }
+  }
+
+  /**
+   * Reads a file an executor produced, safely: a regular file (not a link) inside the area, at most
+   * `maxBytes` long. Returns null when it is absent, not a regular file, too large or escapes.
+   */
+  async readBounded(area: WorkspaceArea, relative: string, maxBytes: number): Promise<string | null> {
+    const file = this.resolve(area, relative)
+    const info = await lstat(file).catch(() => null)
+    if (!info?.isFile() || info.size > maxBytes) return null
+    try {
+      await this.#assertRealInside(file)
+    } catch {
+      return null
+    }
+    return readFile(file, 'utf8')
   }
 
   /** Bytes the execution's own files occupy (everything except the platform inputs and scratch space). */

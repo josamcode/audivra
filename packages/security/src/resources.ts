@@ -1,6 +1,7 @@
 import { mkdir, readdir, stat, statfs } from 'node:fs/promises'
 import path from 'node:path'
 import type { SecurityCapabilityMetadata } from '@audivra/contracts'
+import { runtimeImageRef, runtimePullHint, type ApprovedRuntime } from './execution/runtimes.ts'
 
 /*
  * Resource preflight before a capability executes. A machine running many projects at once must not be
@@ -25,6 +26,8 @@ export interface ResourceCheckInput {
   maxArtifactBytes: number
   /** Checks a local image without pulling it (tool-runtime `dockerImagePresent`). */
   imagePresent: (image: string) => Promise<boolean>
+  /** The approved runtime an isolated capability runs in (its pinned image must be present). */
+  runtime?: ApprovedRuntime | null
 }
 
 /** Total size of files under a directory (bounded walk: stops counting after 20,000 entries). */
@@ -48,6 +51,17 @@ export async function directorySize(dir: string, budget = { entries: 20_000 }): 
 
 export async function checkExecutionResources(input: ResourceCheckInput): Promise<ResourceCheck> {
   const { capability } = input
+  if (input.runtime) {
+    const image = runtimeImageRef(input.runtime)
+    if (!(await input.imagePresent(image))) {
+      return {
+        ok: false,
+        rule: 'resources.runtime-unavailable',
+        reason: `The approved runtime ${input.runtime.name} is not available: Docker is not reachable or its pinned image is not present. Images are never pulled automatically: ${runtimePullHint(input.runtime)}.`,
+        details: { runtime: input.runtime.id, image },
+      }
+    }
+  }
   if (capability.resourceProfile.containerImage) {
     const image = capability.resourceProfile.containerImage
     if (!(await input.imagePresent(image))) {

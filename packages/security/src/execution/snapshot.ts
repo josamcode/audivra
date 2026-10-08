@@ -14,6 +14,7 @@ import { deepFreeze } from '../freeze.ts'
 import type { CapabilityPolicyResult } from '../policy.ts'
 import type { EngagementSnapshot } from '../store.ts'
 import { ExecutionError } from './failures.ts'
+import { isolationFor } from './runtimes.ts'
 
 /*
  * The trusted execution snapshot: everything an execution may rely on, captured from persisted
@@ -81,6 +82,7 @@ export function buildExecutionSnapshot(input: SnapshotInput): SecurityExecutionS
     },
     limits: { ...policy.limits },
     runtime: runtimeLimitsFor(policy.limits, capability),
+    isolation: isolationFor(capability),
     input: structuredClone(input.input),
     allowedTargets: decision.scope!.evaluations.filter((e) => e.kind !== 'network').map((e) => e.destination.url!),
     actor: { ...input.actor },

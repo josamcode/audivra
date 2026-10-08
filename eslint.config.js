@@ -36,8 +36,8 @@ export default tseslint.config(
     rules: { ...reactHooks.configs.recommended.rules },
   },
   {
-    // CLI scripts and fixtures print to the console on purpose.
-    files: ['scripts/**', 'fixtures/**', 'e2e/**'],
+    // CLI scripts, fixtures and executor programs (their output is the container log) print to the console on purpose.
+    files: ['scripts/**', 'fixtures/**', 'e2e/**', 'packages/security/executors/**'],
     rules: { 'no-console': 'off' },
   },
 )

@@ -1,6 +1,8 @@
 import { z } from 'zod'
-import { authorizationRequiredFor, SecurityCapabilityMetadata } from '@audivra/contracts'
-import type { SecurityCapability } from './types.ts'
+import { authorizationRequiredFor, capabilityExecution, SecurityCapabilityMetadata } from '@audivra/contracts'
+import { executorProgramPath } from '../execution/executors.ts'
+import { findApprovedRuntime } from '../execution/runtimes.ts'
+import type { CapabilityImplementation, SecurityCapability } from './types.ts'
 
 export class CapabilityRegistrationError extends Error {
   constructor(message: string) {
@@ -31,9 +33,10 @@ export class CapabilityRegistry {
     if (!implementation || implementation.id !== metadata.implementation) {
       throw new CapabilityRegistrationError(`${metadata.id}: implementation id must be "${metadata.implementation}"`)
     }
-    if (typeof implementation.execute !== 'function' || typeof implementation.targets !== 'function' || !(implementation.input instanceof z.ZodType)) {
-      throw new CapabilityRegistrationError(`${metadata.id}: implementation must provide input, targets and execute`)
+    if (typeof implementation.targets !== 'function' || !(implementation.input instanceof z.ZodType)) {
+      throw new CapabilityRegistrationError(`${metadata.id}: implementation must provide input and targets`)
     }
+    checkExecutionShape(metadata, implementation as CapabilityImplementation)
     this.#capabilities.set(metadata.id, {
       metadata: Object.freeze({ ...metadata }) as SecurityCapabilityMetadata,
       implementation: implementation as SecurityCapability['implementation'],
@@ -67,4 +70,27 @@ export class CapabilityRegistry {
         input: z.toJSONSchema(implementation.input, { io: 'input', unrepresentable: 'any' }),
       }))
   }
+}
+
+/**
+ * The implementation must match the declared execution mode exactly. In particular an isolated-container
+ * capability has no in-process `execute`, so no code path can run it outside its container.
+ */
+function checkExecutionShape(metadata: SecurityCapabilityMetadata, implementation: CapabilityImplementation): void {
+  const fail = (reason: string) => {
+    throw new CapabilityRegistrationError(`${metadata.id}: ${reason}`)
+  }
+  const execution = capabilityExecution(metadata)
+  if (execution.mode === 'in-process') {
+    if (typeof implementation.execute !== 'function') fail('an in-process capability must provide execute')
+    if (implementation.program !== undefined || implementation.collect !== undefined) fail('an in-process capability has no executor program')
+    return
+  }
+  if (implementation.execute !== undefined) fail('an isolated-container capability must not provide an in-process execute')
+  if (typeof implementation.programInput !== 'function' || typeof implementation.collect !== 'function') fail('an isolated-container capability must provide program, programInput and collect')
+  if (!executorProgramPath(implementation.program)) fail(`executor program ${String(implementation.program)} is not a reviewed executor shipped with Audivra`)
+  if (!findApprovedRuntime(execution.runtime)) fail(`runtime ${String(execution.runtime)} is not an approved runtime`)
+  if (metadata.requiresNetwork) fail('isolated executions have no network in this version (the controlled egress layer is a later phase)')
+  if (metadata.resourceProfile.containerImage !== null) fail('an isolated capability names an approved runtime, never an image')
+  if (metadata.resourceProfile.spawnsProcesses) fail('an isolated capability starts no host processes')
 }

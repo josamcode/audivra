@@ -110,7 +110,26 @@ export interface CapabilityResult<O> {
   summary: string
 }
 
-/** How a capability is carried out. Kept apart from its policy metadata. */
+/** What the isolated backend observed of a finished executor container (bounded). */
+export interface ContainerRun {
+  exitCode: number
+  /** `outputs/result.json` written by the program, parsed (at most 64 KB); null when absent or not JSON. */
+  result: unknown
+  /** Bounded container output: size, a short redacted tail, and the workspace-relative log file (if any). */
+  log: { bytes: number; tail: string; path: string | null }
+  durationMs: number
+}
+
+/**
+ * How a capability is carried out. Kept apart from its policy metadata. Exactly one shape, matching the
+ * declared execution mode (checked at registration):
+ *
+ * - in-process — `execute` runs in the worker with the platform handles;
+ * - isolated-container — `program` is a reviewed executor shipped with Audivra
+ *   (`packages/security/executors/`), run in the approved runtime with only `programInput` staged
+ *   read-only; `collect` then runs on the host to validate what the program left in the workspace and to
+ *   register evidence. An isolated capability has no `execute`, so it cannot run in-process at all.
+ */
 export interface CapabilityImplementation<I = unknown, O = unknown> {
   /** Must equal `metadata.implementation`. */
   id: string
@@ -118,7 +137,12 @@ export interface CapabilityImplementation<I = unknown, O = unknown> {
   input: z.ZodType<I>
   /** The destinations (absolute URLs) a request targets, derived from validated input; scope-checked before execution. */
   targets(input: I): string[]
-  execute(context: Readonly<SecurityExecutionContext>, input: I, handles: CapabilityHandles): Promise<CapabilityResult<O>>
+  execute?(context: Readonly<SecurityExecutionContext>, input: I, handles: CapabilityHandles): Promise<CapabilityResult<O>>
+  /** File name of the executor program in `packages/security/executors/`. */
+  program?: string
+  /** The minimum the program needs to run — never authorization, scope, policy or credentials. */
+  programInput?(context: Readonly<SecurityExecutionContext>, input: I): Record<string, unknown>
+  collect?(context: Readonly<SecurityExecutionContext>, input: I, run: ContainerRun, handles: CapabilityHandles): Promise<CapabilityResult<O>>
 }
 
 export interface SecurityCapability<I = unknown, O = unknown> {
