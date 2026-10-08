@@ -31,6 +31,15 @@ export const EXECUTION_MODES = ['in-process', 'isolated-container'] as const
 export const ExecutionMode = z.enum(EXECUTION_MODES)
 export type ExecutionMode = z.infer<typeof ExecutionMode>
 
+/**
+ * Network a capability needs. `none`: no network at all. `scoped-egress`: outbound HTTP through an
+ * Audivra-controlled, execution-private gateway that enforces the trusted scope — the executor has no
+ * other route. Declared by the capability; Audivra chooses how it is implemented.
+ */
+export const NETWORK_PROFILES = ['none', 'scoped-egress'] as const
+export const NetworkProfile = z.enum(NETWORK_PROFILES)
+export type NetworkProfile = z.infer<typeof NetworkProfile>
+
 export const CapabilityExecution = z
   .strictObject({
     mode: ExecutionMode,
@@ -39,13 +48,17 @@ export const CapabilityExecution = z
       .string()
       .regex(/^[a-z][a-z0-9-]{1,40}$/)
       .nullable(),
+    /** Network profile (omitted = none). `scoped-egress` is only available to isolated-container capabilities. */
+    network: NetworkProfile.optional(),
   })
   .refine((e) => (e.mode === 'isolated-container') === (e.runtime !== null), 'An isolated-container capability names an approved runtime; an in-process one names none')
+  .refine((e) => e.network !== 'scoped-egress' || e.mode === 'isolated-container', 'scoped-egress is only available to isolated-container capabilities')
 export type CapabilityExecution = z.infer<typeof CapabilityExecution>
 
 /** The execution a capability declares; omitted means in-process (trusted platform code). */
-export function capabilityExecution(meta: { execution?: CapabilityExecution | undefined }): CapabilityExecution {
-  return meta.execution ?? { mode: 'in-process', runtime: null }
+export function capabilityExecution(meta: { execution?: CapabilityExecution | undefined }): { mode: ExecutionMode; runtime: string | null; network: NetworkProfile } {
+  const e = meta.execution ?? { mode: 'in-process' as const, runtime: null }
+  return { mode: e.mode, runtime: e.runtime, network: e.network ?? 'none' }
 }
 
 export const SecurityCapabilityMetadata = z.strictObject({
@@ -305,6 +318,12 @@ export const SECURITY_EVENT_TYPES = [
   'execution.container-terminated',
   'execution.container-removed',
   'execution.container-cleanup-failed',
+  // Controlled network egress (Phase 2C): the execution-private gateway and its scope decisions.
+  'execution.network-preparing',
+  'execution.gateway-started',
+  'execution.network-ready',
+  'execution.network-summary',
+  'execution.network-cleanup-failed',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>

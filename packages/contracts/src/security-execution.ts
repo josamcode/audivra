@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { EvidenceType } from './enums.ts'
 import { MutationClass, RiskClass, SecurityEnvironment } from './security-classes.ts'
 import { ExecutionLimits, ScopeManifest } from './security-scope.ts'
-import { AuthorizationDecisionState, EffectivePermission, EngagementStatus, ExecutionMode, SecurityActor } from './security.ts'
+import { AuthorizationDecisionState, EffectivePermission, EngagementStatus, ExecutionMode, NetworkProfile, SecurityActor } from './security.ts'
 
 /*
  * Security executions: one durable run of one capability, accepted by the capability broker and carried
@@ -102,6 +102,12 @@ export const EXECUTION_FAILURE_KINDS = [
   'runtime-failed',
   /** The executor exceeded a resource limit enforced at its boundary (e.g. the container's memory). */
   'resource-limit',
+  /** The execution-private network or its gateway could not be set up. */
+  'network-setup-failed',
+  /** The execution's network gateway did not become ready. */
+  'gateway-unavailable',
+  /** Execution-owned network resources could not be removed. */
+  'network-cleanup-failed',
 ] as const
 export const ExecutionFailureKind = z.enum(EXECUTION_FAILURE_KINDS)
 export type ExecutionFailureKind = z.infer<typeof ExecutionFailureKind>
@@ -158,11 +164,35 @@ export const ExecutionIsolation = z.strictObject({
   mode: ExecutionMode,
   /** The approved runtime and the exact image (pinned by digest) the decision approved; null in-process. */
   runtime: z.strictObject({ id: z.string(), version: z.number().int(), image: z.string() }).nullable(),
-  /** `scoped-client`: in-process code reaches the network only through the scoped HTTP client. `none`: no network. */
-  network: z.enum(['scoped-client', 'none']),
+  /**
+   * How the execution reaches the network. `none`: no network. `scoped-client`: in-process code via the
+   * scoped HTTP client. `scoped-egress`: an isolated container whose only route is an Audivra-controlled,
+   * execution-private gateway enforcing the trusted scope.
+   */
+  network: z.enum(['scoped-client', 'none', 'scoped-egress']),
   container: ContainerLimits.nullable(),
 })
 export type ExecutionIsolation = z.infer<typeof ExecutionIsolation>
+
+/** Concise, policy-level record of what the execution's network gateway decided (never packet capture). */
+export const NetworkDecisions = z.object({
+  requested: z.number().int(),
+  allowed: z.number().int(),
+  denied: z.number().int(),
+  /** Count of denials by the rule that denied them (bounded). */
+  byReason: z.record(z.string(), z.number().int()),
+})
+export type NetworkDecisions = z.infer<typeof NetworkDecisions>
+
+/** What the runtime observed of an execution's private network and gateway. */
+export const NetworkFacts = z.object({
+  profile: NetworkProfile,
+  gateway: z.object({ name: z.string(), ready: z.boolean(), removed: z.boolean() }).nullable(),
+  /** Execution-private networks by role (internal / egress). */
+  networks: z.array(z.object({ name: z.string(), role: z.string(), removed: z.boolean() })),
+  decisions: NetworkDecisions.nullable(),
+})
+export type NetworkFacts = z.infer<typeof NetworkFacts>
 
 /**
  * The trusted configuration an execution was accepted under, persisted once and never changed. The
@@ -258,8 +288,8 @@ export const ExecutionExit = z.object({
   artifacts: z.object({ registered: z.number().int(), bytes: z.number().int() }),
   /** True when the runtime stopped waiting for code that ignored the stop request (in-process backend). */
   abandoned: z.boolean(),
-  /** The backend that carried the execution out and, for an isolated one, its container. */
-  runtime: z.object({ backend: ExecutionMode, container: ContainerFacts.nullable() }).optional(),
+  /** The backend that carried the execution out and, for an isolated one, its container and network. */
+  runtime: z.object({ backend: ExecutionMode, container: ContainerFacts.nullable(), network: NetworkFacts.nullable() }).optional(),
 })
 export type ExecutionExit = z.infer<typeof ExecutionExit>
 
@@ -304,7 +334,7 @@ export const SecurityExecutionDetail = SecurityExecutionItem.extend({
       mode: ExecutionMode,
       runtimeId: z.string().nullable(),
       runtimeVersion: z.number().nullable(),
-      network: z.enum(['scoped-client', 'none']),
+      network: z.enum(['scoped-client', 'none', 'scoped-egress']),
       container: ContainerLimits.nullable(),
     }),
   }),
