@@ -6,6 +6,7 @@ import {
   createDbSecurityStore,
   createRuntimeRegistry,
   ExecutionRuntime,
+  IsolatedContainerBackend,
   type ExecutionRuntimeOptions,
   type RecoveryReport,
 } from '@audivra/security'
@@ -44,6 +45,8 @@ export function createSecurityExecutionWorker(options: {
     store: createDbSecurityStore(db),
     executions: createDbExecutionStore(db),
     queue: createBossExecutionQueue(boss),
+    // Capabilities declare their execution mode; the runtime picks the backend from the trusted snapshot.
+    backends: { 'isolated-container': new IsolatedContainerBackend() },
     maxActive: concurrency,
     log,
     ...options.runtime,

@@ -21,6 +21,6 @@ setProcessStore({
 const boss = createBoss(process.env.DATABASE_URL)
 await boss.start()
 await ensureQueues(boss)
-const worker = createSecurityExecutionWorker({ db, boss, log: getLogger(), runtime: { pollIntervalMs: 200 } })
+const worker = createSecurityExecutionWorker({ db, boss, log: getLogger(), runtime: { pollIntervalMs: 200, maxActive: 4 } })
 await worker.start()
 process.stdout.write(`ready ${process.pid}\n`)
