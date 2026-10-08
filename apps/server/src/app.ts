@@ -30,8 +30,10 @@ import {
 } from '@audivra/database'
 import { getSystemStatus } from '@audivra/tool-runtime'
 import { loadAuditData, loadDashboard } from '@audivra/insights'
+import type { SecurityService } from '@audivra/security'
 import type { EventHub } from './events-hub.ts'
 import { registerIntelligenceRoutes } from './routes-intelligence.ts'
+import { registerSecurityRoutes } from './routes-security.ts'
 import { registerV1Routes } from './routes-v1.ts'
 
 export interface AppDeps {
@@ -41,6 +43,8 @@ export interface AppDeps {
   log: Logger
   /** Serve the built web app (production `start`). */
   serveWeb?: boolean
+  /** Security engagement service (tests inject one with a fixed DNS resolver). */
+  security?: SecurityService
 }
 
 const STAGE_QUEUES: Partial<Record<AuditStage, QueueName>> = {
@@ -298,6 +302,7 @@ export async function buildApp(deps: AppDeps) {
 
   registerV1Routes(app, { db, boss })
   registerIntelligenceRoutes(app, { db, boss })
+  registerSecurityRoutes(app, { db, security: deps.security })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {

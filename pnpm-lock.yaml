@@ -104,6 +104,9 @@ importers:
       '@audivra/reporting':
         specifier: workspace:*
         version: link:../../packages/reporting
+      '@audivra/security':
+        specifier: workspace:*
+        version: link:../../packages/security
       '@audivra/tool-runtime':
         specifier: workspace:*
         version: link:../../packages/tool-runtime

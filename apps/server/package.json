@@ -16,6 +16,7 @@
     "@audivra/database": "workspace:*",
     "@audivra/insights": "workspace:*",
     "@audivra/reporting": "workspace:*",
+    "@audivra/security": "workspace:*",
     "@audivra/tool-runtime": "workspace:*",
     "@fastify/static": "^10.1.5",
     "fastify": "^5.12.5",

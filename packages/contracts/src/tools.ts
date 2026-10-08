@@ -35,6 +35,8 @@ export const OwnedProcessItem = z.object({
   pid: z.number(),
   tool: z.string(),
   auditId: z.string().nullable(),
+  /** Security capability execution that started it, when not an audit. */
+  securityExecutionId: z.string().nullable(),
   status: z.enum(['running', 'exited', 'killed', 'reaped', 'gone']),
   command: z.string(),
   containerName: z.string().nullable(),

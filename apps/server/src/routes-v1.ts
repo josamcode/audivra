@@ -122,6 +122,7 @@ export function registerV1Routes(app: App, { db, boss }: Deps): void {
       pid: r.pid,
       tool: r.tool,
       auditId: r.auditId,
+      securityExecutionId: r.securityExecutionId,
       status: r.status,
       command: r.command,
       containerName: r.containerName,
