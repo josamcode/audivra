@@ -3,6 +3,7 @@ import { createContext, useContext } from 'react'
 export const AUDIT_TABS = [
   'overview',
   'findings',
+  'journeys',
   'visuals',
   'evidence',
   'pages',
@@ -20,6 +21,9 @@ export interface AuditNav {
   openTab: (tab: AuditTab) => void
   /** Opens the Findings tab filtered to findings that affect one page. */
   showPageFindings: (url: string) => void
+  /** Opens the evidence graph centred on a node, e.g. "finding:F3" or "journey:J1". */
+  openGraph: (focus: string) => void
+  openJourney: (ref: string) => void
 }
 
 export const AuditNavContext = createContext<AuditNav | null>(null)

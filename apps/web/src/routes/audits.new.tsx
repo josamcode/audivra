@@ -1,9 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CreateAuditInput } from '@audivra/contracts'
+import { AUDIT_TEMPLATES, CreateAuditInput, DEFAULT_TEMPLATE_KEY, getTemplate, type AuditTemplateKey } from '@audivra/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Globe, Loader2, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { PageFrame, PageHeader, pageColumns } from '@/components/page-header'
 import { Panel, PanelBody, PanelHeader, SectionLabel } from '@/components/panel'
@@ -11,6 +11,7 @@ import { Notice } from '@/components/states'
 import { Dot } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Label } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { api } from '@/lib/api'
 import { queryKeys, systemQuery } from '@/lib/queries'
 
@@ -80,7 +81,7 @@ function NewAuditPage() {
   const queryClient = useQueryClient()
   const form = useForm<CreateAuditInput>({
     resolver: zodResolver(CreateAuditInput),
-    defaultValues: { url: '', clientName: '' },
+    defaultValues: { url: '', clientName: '', template: DEFAULT_TEMPLATE_KEY },
     mode: 'onSubmit',
   })
   const mutation = useMutation({
@@ -88,6 +89,7 @@ function NewAuditPage() {
       api.createAudit({
         url: input.url,
         clientName: input.clientName?.trim() ? input.clientName.trim() : undefined,
+        template: input.template ?? DEFAULT_TEMPLATE_KEY,
       }),
     onSuccess: (audit) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.audits })
@@ -150,6 +152,26 @@ function NewAuditPage() {
                   <p className="text-xs text-critical">{errors.clientName.message}</p>
                 ) : null}
               </div>
+              <Controller
+                control={form.control}
+                name="template"
+                render={({ field }) => (
+                  <div className="flex flex-col gap-1.5">
+                    <Label id="template-label">Audit focus</Label>
+                    <Select<AuditTemplateKey>
+                      label="Audit focus"
+                      hideLabel
+                      value={field.value ?? DEFAULT_TEMPLATE_KEY}
+                      onValueChange={field.onChange}
+                      options={AUDIT_TEMPLATES.map((t) => ({ value: t.key, label: t.name, description: t.description }))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted">
+                      {getTemplate(field.value).description} Priorities guide the auditor; it still follows the evidence.
+                    </p>
+                  </div>
+                )}
+              />
               <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <Readiness />
                 <Button type="submit" variant="primary" disabled={mutation.isPending}>

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useMatches } from '@tanstack/react-router'
 import { LayoutList, Monitor, Moon, Plus, Server, Sun, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Dot } from '@/components/ui/badge'
@@ -7,6 +7,13 @@ import { SegmentedControl } from '@/components/ui/segmented-control'
 import { systemQuery } from '@/lib/queries'
 import { useTheme, type ThemePreference } from '@/lib/theme'
 import { cn } from '@/lib/utils'
+
+declare module '@tanstack/react-router' {
+  interface StaticDataRouteOption {
+    /** 'none': the page renders without the app sidebar and header (the Client view is shown to clients). */
+    chrome?: 'none'
+  }
+}
 
 const NAV: { to: '/' | '/audits/new' | '/system'; label: string; icon: LucideIcon; exact?: boolean }[] = [
   { to: '/', label: 'Audits', icon: LayoutList, exact: true },
@@ -110,6 +117,8 @@ function RuntimeStatus() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const bare = useMatches({ select: (matches) => matches.some((match) => match.staticData?.chrome === 'none') })
+  if (bare) return <div className="min-h-dvh">{children}</div>
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-surface-muted md:flex print:hidden">

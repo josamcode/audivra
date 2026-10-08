@@ -28,6 +28,9 @@ import {
   COVERAGE_STATUS,
   CoverageIcon,
   FindingTypeBadge,
+  JOURNEY_DIMENSION_LABEL,
+  JOURNEY_TYPE_LABEL,
+  JourneyHealthBadge,
   LevelText,
   SEVERITY_LABEL,
   SEVERITY_TONE,
@@ -43,8 +46,9 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Sheet } from '@/components/ui/sheet'
 import { Tooltip } from '@/components/ui/tooltip'
 import { formatBytes, formatMs, formatNumber, formatScore, pluralize, urlPath } from '@/lib/format'
-import { comparisonQuery, isFinished, isTerminal } from '@/lib/queries'
+import { changesQuery, comparisonQuery, isFinished, isTerminal, journeysQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
+import { JourneyPath, journeyHealthRows, journeySummary } from './journey-flow'
 import { usePresentMutation } from './use-present'
 
 /* ------------------------------------------------------------------------------------------------
@@ -125,7 +129,7 @@ function TabLink({
   children,
 }: {
   auditId: string
-  tab: 'findings' | 'visuals' | 'history' | 'evidence' | 'activity'
+  tab: 'findings' | 'journeys' | 'visuals' | 'history' | 'evidence' | 'activity'
   children: ReactNode
 }) {
   return (
@@ -376,12 +380,12 @@ function KpiStrip({ audit, findings }: { audit: AuditDetail; findings: FindingIt
       {audit.previousAuditId && finished ? (
         <Kpi
           label="Since last audit"
-          value={change ? `${change.new} new · ${change.resolved} gone` : '—'}
+          value={change ? `${change.new} new` : '—'}
           numeric={false}
           tone={change ? 'default' : 'muted'}
           detail={
             change
-              ? `${change.unchanged} still present · ${change.regressed} regressed · ${change.improved} improved`
+              ? `${change.resolved} not found again · ${change.regressed} regressed · ${change.unchanged} still present`
               : comparison.isError
                 ? 'Comparison unavailable'
                 : 'Comparing…'
@@ -521,6 +525,76 @@ function TopRisks({
           </li>
         ))}
       </ul>
+    </Panel>
+  )
+}
+
+/** The most important conversion path, compactly: its steps and the dimensions that need attention. */
+function PrimaryJourney({ audit }: { audit: AuditDetail }) {
+  const query = useQuery({ ...journeysQuery(audit.id), enabled: isFinished(audit.status) })
+  const journeys = query.data?.journeys ?? []
+  const journey = journeys.find((j) => j.isPrimary) ?? journeys[0]
+  if (!journey) return null
+  const concerns = journeyHealthRows(journey.health).filter((h) => h.status === 'problem' || h.status === 'warning')
+  const summary = journeySummary(journey)
+  return (
+    <Panel>
+      <PanelHeader
+        title={journey.isPrimary ? 'Primary journey' : 'Main journey'}
+        description={`${JOURNEY_TYPE_LABEL[journey.type]} · ${journey.name}`}
+        actions={
+          <Link
+            to="/audits/$auditId"
+            params={{ auditId: audit.id }}
+            search={{ tab: 'journeys', journey: journey.ref }}
+            className="inline-flex items-center gap-1 text-xs text-muted hover:text-foreground"
+          >
+            {journeys.length > 1 ? `All ${journeys.length} journeys` : 'Details'}
+            <ArrowRight className="size-3" />
+          </Link>
+        }
+      />
+      <PanelBody className="flex flex-col gap-3">
+        <JourneyPath steps={journey.steps} />
+        {concerns.length ? (
+          <ul className="flex flex-col gap-1.5">
+            {concerns.slice(0, 3).map((row) => (
+              <li key={row.dimension} className="flex items-start gap-2 text-sm">
+                <span className="mt-px shrink-0">
+                  <JourneyHealthBadge status={row.status} />
+                </span>
+                <span className="min-w-0 text-muted" dir="auto">
+                  <span className="text-foreground">{JOURNEY_DIMENSION_LABEL[row.dimension]}:</span> {row.note}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted">{summary.text === 'Not assessed' ? 'Health was not assessed for this journey.' : 'No problems found along this journey.'}</p>
+        )}
+      </PanelBody>
+    </Panel>
+  )
+}
+
+/** The stored Change Intelligence headline, when the previous audit has been interpreted. */
+function SinceLastAudit({ audit }: { audit: AuditDetail }) {
+  const query = useQuery({ ...changesQuery(audit.id), enabled: isFinished(audit.status) && audit.previousAuditId !== null })
+  const intelligence = query.data?.intelligence
+  if (!intelligence) return null
+  return (
+    <Panel>
+      <PanelHeader title="Since the previous audit" actions={<TabLink auditId={audit.id} tab="history">What changed</TabLink>} />
+      <PanelBody>
+        <p className="text-sm font-medium text-foreground" dir="auto">
+          {intelligence.analysis.headline}
+        </p>
+        {intelligence.analysis.summary ? (
+          <p className="mt-1 line-clamp-3 text-sm text-muted" dir="auto">
+            {intelligence.analysis.summary}
+          </p>
+        ) : null}
+      </PanelBody>
     </Panel>
   )
 }
@@ -972,8 +1046,10 @@ export function OverviewTab({
                 </div>
               ) : null}
               {findings.length ? (
-                <div className="order-2 lg:order-none">
+                <div className="order-2 flex flex-col gap-4 lg:order-none">
                   <TopRisks audit={audit} findings={findings} onOpenFinding={onOpenFinding} />
+                  <PrimaryJourney audit={audit} />
+                  <SinceLastAudit audit={audit} />
                 </div>
               ) : audit.findingCount ? (
                 <div className="order-2 lg:order-none">

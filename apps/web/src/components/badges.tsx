@@ -2,9 +2,14 @@ import type {
   AgentRole,
   AuditStage,
   AuditStatus,
+  ConversionType,
   CoverageStatus,
   EvidenceType,
   FindingType,
+  JourneyDimension,
+  JourneyHealthStatus,
+  JourneyStepStatus,
+  JourneyType,
   Severity,
   StepStatus,
   ToolState,
@@ -68,6 +73,9 @@ export const ROLE_LABELS: Record<AgentRole, string> = {
   finalizer: 'Finalizer',
   planner: 'Artifact planner',
   composer: 'Report composer',
+  journeys: 'Journey analysis',
+  changes: 'Change intelligence',
+  brief: 'Client brief',
 }
 
 export const COVERAGE_STATUS: Record<CoverageStatus, { label: string; tone: BadgeTone }> = {
@@ -285,5 +293,64 @@ export function Confidence({ value, showBar = true }: { value: number; showBar?:
       ) : null}
       <span className="font-mono text-xs text-muted tabular-nums">{percent}%</span>
     </span>
+  )
+}
+
+export const JOURNEY_TYPE_LABEL: Record<JourneyType, string> = {
+  lead: 'Lead',
+  booking: 'Booking',
+  purchase: 'Purchase',
+  signup: 'Sign-up',
+  demo: 'Demo',
+  contact: 'Contact',
+  'content-discovery': 'Content discovery',
+  'portfolio-contact': 'Portfolio → contact',
+  support: 'Support',
+  custom: 'Journey',
+}
+
+export const JOURNEY_STEP: Record<JourneyStepStatus, { label: string; tone: BadgeTone; icon: LucideIcon; className: string; hint: string }> = {
+  ok: { label: 'Works', tone: 'success', icon: CheckCircle2, className: 'text-success', hint: 'Observed working as expected.' },
+  friction: { label: 'Friction', tone: 'medium', icon: AlertTriangle, className: 'text-medium', hint: 'Works, with avoidable friction.' },
+  blocked: { label: 'Blocked', tone: 'critical', icon: XCircle, className: 'text-critical', hint: 'Broken or not possible.' },
+  unverified: { label: 'Not verified', tone: 'neutral', icon: CircleDashed, className: 'text-subtle', hint: 'Not exercised or not observable in this audit.' },
+}
+
+export const JOURNEY_HEALTH: Record<JourneyHealthStatus, { label: string; tone: BadgeTone }> = {
+  healthy: { label: 'Healthy', tone: 'success' },
+  warning: { label: 'Warning', tone: 'medium' },
+  problem: { label: 'Problem', tone: 'critical' },
+  unknown: { label: 'Unknown', tone: 'neutral' },
+  'not-assessed': { label: 'Not assessed', tone: 'neutral' },
+}
+
+export const CONVERSION_LABEL: Record<ConversionType, string> = {
+  form: 'Form',
+  whatsapp: 'WhatsApp',
+  phone: 'Phone call',
+  email: 'Email',
+  booking: 'Booking',
+  purchase: 'Purchase',
+  signup: 'Sign-up',
+  demo: 'Demo request',
+  download: 'Download',
+  other: 'Conversion',
+}
+
+export const JOURNEY_DIMENSION_LABEL: Record<JourneyDimension, string> = {
+  visibility: 'Visibility',
+  friction: 'Friction',
+  tracking: 'Tracking',
+  mobile: 'Mobile',
+  performance: 'Performance',
+  accessibility: 'Accessibility',
+  continuity: 'Continuity',
+}
+
+export function JourneyHealthBadge({ status }: { status: JourneyHealthStatus }) {
+  return (
+    <Badge tone={JOURNEY_HEALTH[status].tone} dot>
+      {JOURNEY_HEALTH[status].label}
+    </Badge>
   )
 }

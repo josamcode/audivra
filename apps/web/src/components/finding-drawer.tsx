@@ -1,11 +1,13 @@
 import type { Artifact, EvidenceItem, FindingItem } from '@audivra/contracts'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowUpRight, Briefcase, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { ArrowUpRight, Briefcase, ChevronDown, ChevronUp, ExternalLink, Route, Waypoints } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import {
   Confidence,
   EvidenceTypeIcon,
   FindingTypeBadge,
+  JOURNEY_TYPE_LABEL,
   LevelText,
   SeverityBadge,
   VERIFICATION,
@@ -19,6 +21,7 @@ import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/separator'
 import { Sheet } from '@/components/ui/sheet'
 import { Tooltip } from '@/components/ui/tooltip'
+import { journeysQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -179,6 +182,39 @@ export function FindingDrawer({
   )
 }
 
+/** Journeys this finding gets in the way of (stored finding → journey links). */
+function AffectedJourneys({ auditId, refs }: { auditId: string; refs: string[] }) {
+  const journeys = useQuery({ ...journeysQuery(auditId), enabled: refs.length > 0 })
+  const linked = (journeys.data?.journeys ?? []).filter((j) => refs.includes(j.ref))
+  if (!linked.length) return null
+  return (
+    <section>
+      <SectionLabel>Journeys affected</SectionLabel>
+      <ul className="flex flex-col gap-1">
+        {linked.map((journey) => (
+          <li key={journey.ref}>
+            <Link
+              to="/audits/$auditId"
+              params={{ auditId }}
+              search={{ tab: 'journeys', journey: journey.ref }}
+              className="inline-flex max-w-full items-center gap-1.5 text-sm text-link hover:underline"
+            >
+              <Route className="size-3.5 shrink-0" />
+              <span className="truncate" dir="auto">
+                {journey.name}
+              </span>
+              <span className="shrink-0 text-xs text-muted">
+                {JOURNEY_TYPE_LABEL[journey.type]}
+                {journey.isPrimary ? ' · primary' : ''}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function FindingBody({
   auditId,
   finding,
@@ -233,19 +269,33 @@ function FindingBody({
       ) : null}
 
       <section>
-        <div className="mb-1.5 flex items-center justify-between">
+        <div className="mb-1.5 flex items-center justify-between gap-3">
           <SectionLabel className="mb-0">Evidence</SectionLabel>
-          {activeEvidence ? (
-            <Link
-              to="/audits/$auditId"
-              params={{ auditId }}
-              search={{ tab: 'evidence', ev: activeEvidence }}
-              className="inline-flex items-center gap-1 text-xs text-link hover:underline"
-            >
-              Open in evidence
-              <ArrowUpRight className="size-3" />
-            </Link>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {finding.evidenceRefs.length ? (
+              <Link
+                to="/audits/$auditId"
+                params={{ auditId }}
+                search={{ tab: 'evidence', view: 'graph', focus: `finding:${finding.ref}` }}
+                className="inline-flex items-center gap-1 text-xs text-link hover:underline"
+                title="What supports this finding, where it was captured and what produced it"
+              >
+                <Waypoints className="size-3" />
+                Evidence graph
+              </Link>
+            ) : null}
+            {activeEvidence ? (
+              <Link
+                to="/audits/$auditId"
+                params={{ auditId }}
+                search={{ tab: 'evidence', ev: activeEvidence }}
+                className="inline-flex items-center gap-1 text-xs text-link hover:underline"
+              >
+                Open in evidence
+                <ArrowUpRight className="size-3" />
+              </Link>
+            ) : null}
+          </div>
         </div>
         {finding.evidenceRefs.length === 0 ? (
           <p className="text-sm text-muted">
@@ -298,6 +348,8 @@ function FindingBody({
           </ul>
         </section>
       ) : null}
+
+      <AffectedJourneys auditId={auditId} refs={finding.journeyRefs} />
 
       <Section title="Why it matters">{finding.whyItMatters}</Section>
       <section>

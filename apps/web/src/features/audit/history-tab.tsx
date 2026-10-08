@@ -13,6 +13,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, GitCompareArrows, History as HistoryIcon, ImageOff } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
+import { Notice } from '@/components/states'
 import { COVERAGE_STATUS, SEVERITY_LABEL, SeverityBadge, StatusBadge } from '@/components/badges'
 import { CountCell } from '@/components/metric'
 import { Panel, PanelBody, PanelHeader, SectionLabel } from '@/components/panel'
@@ -20,16 +22,17 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/states'
 import { tagVariants } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
 import { useAuditNav } from '@/features/audit/audit-nav'
+import { ChangeIntelligencePanel, IssueTimelines, JourneyChanges } from '@/features/audit/change-intelligence'
 import { artifactUrl, ApiError } from '@/lib/api'
 import { formatDateTime, pluralize, urlPath } from '@/lib/format'
-import { comparisonQuery, isFinished, siteHistoryQuery } from '@/lib/queries'
+import { changesQuery, comparisonQuery, isFinished, siteHistoryQuery } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 const CHANGE: Record<FindingChangeStatus, { label: string; tone: string; hint: string }> = {
   regressed: { label: 'Regressed', tone: 'text-critical', hint: 'Still present and more severe than before' },
   new: { label: 'New', tone: 'text-high', hint: 'Not found in the earlier audit' },
   improved: { label: 'Improved', tone: 'text-low', hint: 'Still present but less severe' },
-  resolved: { label: 'Not found again', tone: 'text-success', hint: 'Reported earlier, absent now — usually fixed; confirm before relying on it' },
+  resolved: { label: 'Not found again', tone: 'text-success', hint: 'Not reported now; not proof of a fix' },
   unchanged: { label: 'Still present', tone: 'text-muted', hint: 'Present in both audits at the same severity' },
 }
 
@@ -274,13 +277,51 @@ function MetricChanges({ comparison }: { comparison: AuditComparison }) {
   )
 }
 
+function TrackingChanges({ tracking }: { tracking: AuditComparison['tracking'] }) {
+  const { added, removed, unchanged } = tracking
+  return (
+    <div>
+      <SectionLabel>Tracking</SectionLabel>
+      {added.length || removed.length ? (
+        <div className="flex flex-col gap-2 text-sm">
+          {added.length ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-xs text-muted">Now detected</span>
+              {added.map((name) => (
+                <span key={name} className={tagVariants({ kind: 'label' })}>
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {removed.length ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-xs text-muted">No longer detected</span>
+              {removed.map((name) => (
+                <span key={name} className={cn(tagVariants({ kind: 'label' }), 'text-muted line-through')}>
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : unchanged.length ? (
+        <p className="text-sm text-muted">Same tracking detected on page load: {unchanged.join(', ')}.</p>
+      ) : (
+        <p className="text-sm text-muted">No tracking tools detected on page load in either audit.</p>
+      )}
+    </div>
+  )
+}
+
 function StackChanges({ comparison }: { comparison: AuditComparison }) {
   const { added, removed, unchanged } = comparison.technologies
   const coverage = comparison.coverage.filter((item) => item.before !== item.after)
   return (
     <Panel>
-      <PanelHeader title="Technology & coverage" description="What the audits detected and ran" />
+      <PanelHeader title="Technology, tracking & coverage" description="What the audits detected and ran" />
       <PanelBody className="flex flex-col gap-4">
+        <TrackingChanges tracking={comparison.tracking} />
         <div>
           <SectionLabel>Technologies</SectionLabel>
           {added.length || removed.length ? (
@@ -555,6 +596,8 @@ export function HistoryTab({
     enabled: canCompare,
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   })
+  // Change intelligence and timelines always describe the comparison with the previous audit.
+  const changes = useQuery({ ...changesQuery(audit.id), enabled: canCompare })
 
   if (!canCompare) {
     return (
@@ -614,8 +657,24 @@ export function HistoryTab({
         </Panel>
       ) : (
         <>
+          {changes.data?.comparison && changes.data.comparison.previous.id === comparison.data.previous.id ? (
+            <ChangeIntelligencePanel audit={audit} changes={changes.data} />
+          ) : changes.data?.comparison ? (
+            <Notice
+              title="Change intelligence covers the comparison with the previous audit"
+              action={
+                <Button size="sm" variant="ghost" onClick={() => onCompareWith(undefined)}>
+                  Compare with it
+                </Button>
+              }
+            >
+              The interpretation explains the changes since {formatDateTime(changes.data.comparison.previous.createdAt)}. The comparison
+              below is with an earlier audit.
+            </Notice>
+          ) : null}
           <ChangeSummary comparison={comparison.data} />
           <FindingChanges comparison={comparison.data} onOpenFinding={(ref) => nav?.openFinding(ref)} />
+          <JourneyChanges comparison={comparison.data} />
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
             <MetricChanges comparison={comparison.data} />
             <StackChanges comparison={comparison.data} />
@@ -623,6 +682,7 @@ export function HistoryTab({
           <ScreenshotPairs pairs={comparison.data.screenshots} />
         </>
       )}
+      {changes.data?.timelines.length ? <IssueTimelines timelines={changes.data.timelines} currentAuditId={audit.id} /> : null}
       {history.data ? <Trends history={history.data} /> : null}
       {history.data ? <SiteAudits history={history.data} currentId={audit.id} comparedId={compared ?? null} /> : null}
       <p className="text-xs text-subtle">

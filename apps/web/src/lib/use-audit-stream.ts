@@ -6,7 +6,7 @@ import { queryKeys } from './queries'
 
 export type StreamState = 'idle' | 'connecting' | 'live' | 'reconnecting'
 
-type InvalidationTarget = 'audit' | 'findings' | 'evidence' | 'runs' | 'pages' | 'list' | 'visuals'
+type InvalidationTarget = 'audit' | 'findings' | 'evidence' | 'runs' | 'pages' | 'list' | 'visuals' | 'intelligence'
 
 /** Which cached resources an incoming event makes stale. */
 function targetsFor(event: ActivityEvent): InvalidationTarget[] {
@@ -15,6 +15,7 @@ function targetsFor(event: ActivityEvent): InvalidationTarget[] {
   if (type === 'finding.created') return ['findings', 'audit']
   if (type === 'artifact.created') return ['visuals', 'audit']
   if (type === 'report.ready') return ['visuals', 'audit']
+  if (type === 'journeys.recorded' || type === 'changes.analyzed' || type === 'brief.generated') return ['intelligence']
   if (type.startsWith('tool.')) return ['runs']
   if (
     type.startsWith('agent.started') ||
@@ -65,6 +66,13 @@ export function useAuditStream(auditId: string, enabled: boolean, ready: boolean
         void queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns(auditId) })
       }
       if (targets.has('list')) void queryClient.invalidateQueries({ queryKey: queryKeys.audits })
+      if (targets.has('intelligence')) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.journeys(auditId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.changes(auditId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.brief(auditId) })
+        void queryClient.invalidateQueries({ queryKey: ['audit', auditId, 'graph'] })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.report(auditId) })
+      }
       if (targets.has('visuals')) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.visuals(auditId) })
         void queryClient.invalidateQueries({ queryKey: queryKeys.report(auditId) })

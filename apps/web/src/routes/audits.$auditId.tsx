@@ -13,7 +13,9 @@ import { AuditHeader } from '@/features/audit/audit-header'
 import { AUDIT_TABS, AuditNavContext, type AuditNav, type AuditTab } from '@/features/audit/audit-nav'
 import { EvidenceTab, type EvidenceView } from '@/features/audit/evidence-tab'
 import { FindingsTab } from '@/features/audit/findings-tab'
+import { defaultGraphFocus } from '@/features/audit/evidence-graph'
 import { HistoryTab } from '@/features/audit/history-tab'
+import { JourneysTab } from '@/features/audit/journeys-tab'
 import { OverviewTab } from '@/features/audit/overview-tab'
 import { PagesTab } from '@/features/audit/pages-tab'
 import { RunsTab } from '@/features/audit/runs-tab'
@@ -27,6 +29,7 @@ import {
   findingsQuery,
   isPresenting,
   isTerminal,
+  journeysQuery,
   pagesQuery,
   queryKeys,
   visualsQuery,
@@ -41,6 +44,12 @@ export interface AuditSearch {
   /** Evidence ref selected in the evidence tab. */
   ev?: string
   view?: EvidenceView
+  /** Evidence graph focus, e.g. "finding:F3" (graph view). */
+  focus?: string
+  /** Where the graph was opened, once it has been re-centred (for Reset). */
+  origin?: string
+  /** Journey ref selected in the Journeys tab. */
+  journey?: string
   /** Findings filtered to one affected page (opened from the Pages tab). */
   page?: string
   /** Earlier audit to compare with in the History tab (defaults to the previous one). */
@@ -54,7 +63,10 @@ export const Route = createFileRoute('/audits/$auditId')({
     tab: AUDIT_TABS.includes(search.tab as AuditTab) ? (search.tab as AuditTab) : undefined,
     finding: text(search.finding),
     ev: text(search.ev),
-    view: search.view === 'gallery' ? 'gallery' : undefined,
+    view: search.view === 'gallery' || search.view === 'graph' ? search.view : undefined,
+    focus: text(search.focus),
+    origin: text(search.origin),
+    journey: text(search.journey),
     page: text(search.page),
     cmp: text(search.cmp),
   }),
@@ -120,6 +132,7 @@ function AuditPage() {
   const visuals = useQuery({ ...visualsQuery(auditId), refetchInterval: presenting ? 4000 : false })
   // Read-only view of the pages cache (filled by the Pages tab) for the tab count.
   const pages = useQuery({ ...pagesQuery(auditId), enabled: false })
+  const journeys = useQuery({ ...journeysQuery(auditId), enabled: !live })
   const now = useNow(live)
 
   // When regeneration finishes, refresh everything it produced.
@@ -144,16 +157,19 @@ function AuditPage() {
     [navigate],
   )
   const openFinding = useCallback((ref: string) => setSearch({ finding: ref }), [setSearch])
-  const nav = useMemo<AuditNav>(
-    () => ({
+  const nav = useMemo<AuditNav>(() => {
+    // Leaving a tab drops its own state (selected evidence, graph focus, journey).
+    const tabReset = { ev: undefined, view: undefined, focus: undefined, origin: undefined, journey: undefined, page: undefined }
+    return {
       auditId,
       openFinding,
-      openEvidence: (ref) => setSearch({ tab: 'evidence', ev: ref, view: undefined, finding: undefined }),
-      openTab: (next) => setSearch({ tab: next, ev: undefined, view: undefined }),
-      showPageFindings: (url) => setSearch({ tab: 'findings', page: url, ev: undefined, view: undefined }),
-    }),
-    [auditId, openFinding, setSearch],
-  )
+      openEvidence: (ref) => setSearch({ ...tabReset, tab: 'evidence', ev: ref, finding: undefined }),
+      openTab: (next) => setSearch({ ...tabReset, tab: next }),
+      showPageFindings: (url) => setSearch({ ...tabReset, tab: 'findings', page: url }),
+      openGraph: (focus) => setSearch({ ...tabReset, tab: 'evidence', view: 'graph', focus, finding: undefined }),
+      openJourney: (ref) => setSearch({ ...tabReset, tab: 'journeys', journey: ref, finding: undefined }),
+    }
+  }, [auditId, openFinding, setSearch])
 
   if (audit.isError && !audit.data) {
     return (
@@ -176,7 +192,7 @@ function AuditPage() {
         <AuditHeader audit={data} now={now} stream={stream} />
         <Tabs
           value={tab}
-          onValueChange={(next) => setSearch({ tab: next, ev: undefined, view: undefined, page: undefined })}
+          onValueChange={nav.openTab}
           barClassName="bg-surface"
           listClassName={pageFrame}
           items={[
@@ -186,6 +202,7 @@ function AuditPage() {
               label: 'Findings',
               count: findings.data ? findingList.length : data.findingCount,
             },
+            { value: 'journeys', label: 'Journeys', count: journeys.data?.journeys.length || null },
             { value: 'visuals', label: 'Visuals', count: visuals.data ? visualList.length : data.artifactCount },
             { value: 'evidence', label: 'Evidence', count: evidence.data?.length ?? data.evidenceCount },
             { value: 'pages', label: 'Pages', count: pages.data?.length ?? null },
@@ -218,6 +235,14 @@ function AuditPage() {
                 onClearPageFilter={() => setSearch({ page: undefined }, true)}
               />
             </TabPanel>
+            <TabPanel value="journeys">
+              <JourneysTab
+                audit={data}
+                findings={findingList}
+                selectedRef={search.journey ?? null}
+                onSelect={(ref) => setSearch({ journey: ref ?? undefined }, true)}
+              />
+            </TabPanel>
             <TabPanel value="visuals">
               <VisualsTab
                 audit={data}
@@ -238,7 +263,17 @@ function AuditPage() {
                 selectedRef={search.ev ?? null}
                 view={search.view ?? 'list'}
                 onSelect={(ref) => setSearch({ ev: ref ?? undefined }, true)}
-                onViewChange={(view) => setSearch({ view: view === 'list' ? undefined : view }, true)}
+                onViewChange={(view) => setSearch({ view: view === 'list' ? undefined : view, focus: undefined, origin: undefined }, true)}
+                graphFocus={
+                  search.focus ??
+                  defaultGraphFocus({
+                    evidenceRef: search.ev,
+                    findingRefs: findingList.map((f) => f.ref),
+                    evidenceRefs: (evidence.data ?? []).map((e) => e.ref),
+                  })
+                }
+                graphOrigin={search.origin ?? null}
+                onGraphFocusChange={(focus, origin) => setSearch({ focus, origin: origin ?? undefined })}
               />
             </TabPanel>
             <TabPanel value="pages">

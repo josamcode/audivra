@@ -47,7 +47,7 @@ const RUN_TONE: Record<string, BadgeTone> = {
   skipped: 'neutral',
 }
 
-function RunStatus({ status }: { status: string }) {
+export function RunStatus({ status }: { status: string }) {
   return (
     <Badge tone={RUN_TONE[status] ?? 'neutral'} dot>
       {titleCase(status)}

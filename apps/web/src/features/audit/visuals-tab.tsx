@@ -249,12 +249,12 @@ export function VisualsTab({
         </span>
         {finished ? (
           <Link
-            to="/audits/$auditId/report"
+            to="/audits/$auditId/client"
             params={{ auditId: audit.id }}
             className={buttonVariants({ size: 'sm' })}
           >
             <FileText />
-            Open report
+            Client view
           </Link>
         ) : null}
       </Toolbar>

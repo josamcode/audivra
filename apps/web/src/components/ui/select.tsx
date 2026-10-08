@@ -5,14 +5,18 @@ import { cn } from '@/lib/utils'
 export interface SelectOption<T extends string> {
   value: T
   label: string
+  /** Optional second line shown in the list (e.g. what an option means). */
+  description?: string
 }
 
 interface SelectProps<T extends string> {
   value: T
   onValueChange: (value: T) => void
   options: readonly SelectOption<T>[]
-  /** Accessible label (also rendered as a muted prefix inside the trigger). */
+  /** Accessible label (also rendered as a muted prefix inside the trigger unless `hideLabel`). */
   label: string
+  /** For form fields that have their own visible <Label>. */
+  hideLabel?: boolean
   className?: string
 }
 
@@ -22,6 +26,7 @@ export function Select<T extends string>({
   onValueChange,
   options,
   label,
+  hideLabel = false,
   className,
 }: SelectProps<T>) {
   return (
@@ -39,7 +44,7 @@ export function Select<T extends string>({
           className,
         )}
       >
-        <span className="text-muted">{label}</span>
+        {hideLabel ? null : <span className="text-muted">{label}</span>}
         <BaseSelect.Value className="truncate font-medium" />
         <BaseSelect.Icon className="ml-auto flex text-subtle">
           <ChevronsUpDown className="size-3.5" />
@@ -65,6 +70,9 @@ export function Select<T extends string>({
                   <BaseSelect.ItemText className="col-start-2 whitespace-nowrap">
                     {option.label}
                   </BaseSelect.ItemText>
+                  {option.description ? (
+                    <span className="col-start-2 max-w-96 text-xs whitespace-normal text-muted">{option.description}</span>
+                  ) : null}
                 </BaseSelect.Item>
               ))}
             </BaseSelect.List>

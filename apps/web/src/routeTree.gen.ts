@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SystemRouteImport } from './routes/system'
 import { Route as AuditsAuditIdRouteImport } from './routes/audits.$auditId'
 import { Route as AuditsNewRouteImport } from './routes/audits.new'
+import { Route as AuditsAuditIdClientRouteImport } from './routes/audits.$auditId_.client'
 import { Route as AuditsAuditIdReportRouteImport } from './routes/audits.$auditId_.report'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,6 +36,11 @@ const AuditsNewRoute = AuditsNewRouteImport.update({
   path: '/audits/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuditsAuditIdClientRoute = AuditsAuditIdClientRouteImport.update({
+  id: '/audits/$auditId_/client',
+  path: '/audits/$auditId/client',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuditsAuditIdReportRoute = AuditsAuditIdReportRouteImport.update({
   id: '/audits/$auditId_/report',
   path: '/audits/$auditId/report',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/system': typeof SystemRoute
   '/audits/$auditId': typeof AuditsAuditIdRoute
   '/audits/new': typeof AuditsNewRoute
+  '/audits/$auditId/client': typeof AuditsAuditIdClientRoute
   '/audits/$auditId/report': typeof AuditsAuditIdReportRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/system': typeof SystemRoute
   '/audits/$auditId': typeof AuditsAuditIdRoute
   '/audits/new': typeof AuditsNewRoute
+  '/audits/$auditId/client': typeof AuditsAuditIdClientRoute
   '/audits/$auditId/report': typeof AuditsAuditIdReportRoute
 }
 export interface FileRoutesById {
@@ -61,6 +69,7 @@ export interface FileRoutesById {
   '/system': typeof SystemRoute
   '/audits/$auditId': typeof AuditsAuditIdRoute
   '/audits/new': typeof AuditsNewRoute
+  '/audits/$auditId_/client': typeof AuditsAuditIdClientRoute
   '/audits/$auditId_/report': typeof AuditsAuditIdReportRoute
 }
 export interface FileRouteTypes {
@@ -70,6 +79,7 @@ export interface FileRouteTypes {
     | '/system'
     | '/audits/$auditId'
     | '/audits/new'
+    | '/audits/$auditId/client'
     | '/audits/$auditId/report'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -77,6 +87,7 @@ export interface FileRouteTypes {
     | '/system'
     | '/audits/$auditId'
     | '/audits/new'
+    | '/audits/$auditId/client'
     | '/audits/$auditId/report'
   id:
     | '__root__'
@@ -84,6 +95,7 @@ export interface FileRouteTypes {
     | '/system'
     | '/audits/$auditId'
     | '/audits/new'
+    | '/audits/$auditId_/client'
     | '/audits/$auditId_/report'
   fileRoutesById: FileRoutesById
 }
@@ -92,6 +104,7 @@ export interface RootRouteChildren {
   SystemRoute: typeof SystemRoute
   AuditsAuditIdRoute: typeof AuditsAuditIdRoute
   AuditsNewRoute: typeof AuditsNewRoute
+  AuditsAuditIdClientRoute: typeof AuditsAuditIdClientRoute
   AuditsAuditIdReportRoute: typeof AuditsAuditIdReportRoute
 }
 
@@ -125,6 +138,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuditsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/audits/$auditId_/client': {
+      id: '/audits/$auditId_/client'
+      path: '/audits/$auditId/client'
+      fullPath: '/audits/$auditId/client'
+      preLoaderRoute: typeof AuditsAuditIdClientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/audits/$auditId_/report': {
       id: '/audits/$auditId_/report'
       path: '/audits/$auditId/report'
@@ -140,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   SystemRoute: SystemRoute,
   AuditsAuditIdRoute: AuditsAuditIdRoute,
   AuditsNewRoute: AuditsNewRoute,
+  AuditsAuditIdClientRoute: AuditsAuditIdClientRoute,
   AuditsAuditIdReportRoute: AuditsAuditIdReportRoute,
 }
 export const routeTree = rootRouteImport

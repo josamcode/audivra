@@ -1,7 +1,8 @@
 import type { AuditDetail } from '@audivra/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ExternalLink, FileText, Loader2, RotateCw, Square } from 'lucide-react'
+import { ExternalLink, Loader2, NotebookPen, RotateCw, Square } from 'lucide-react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { StatusBadge } from '@/components/badges'
 import { pageFrame } from '@/components/page-header'
@@ -14,7 +15,9 @@ import { durationBetween, formatDateTime, formatDuration } from '@/lib/format'
 import { isFinished, isTerminal, queryKeys } from '@/lib/queries'
 import type { StreamState } from '@/lib/use-audit-stream'
 import { cn } from '@/lib/utils'
+import { ClientBriefSheet } from './client-brief'
 import { ExportMenu } from './export-menu'
+import { ViewToggle } from './view-toggle'
 
 function LiveIndicator({ state }: { state: StreamState }) {
   if (state === 'idle') return null
@@ -61,6 +64,7 @@ export function AuditHeader({
     onError: (error) => toast.error('Could not retry', { description: error.message }),
   })
 
+  const [briefOpen, setBriefOpen] = useState(false)
   const terminal = isTerminal(audit.status)
   const duration = durationBetween(audit.startedAt, audit.finishedAt, now)
 
@@ -100,6 +104,14 @@ export function AuditHeader({
                   <span className="truncate">{audit.clientName}</span>
                 </>
               ) : null}
+              {audit.template ? (
+                <>
+                  <span className="text-subtle">·</span>
+                  <span className="truncate" title={`Audit focus (template v${audit.template.version})`}>
+                    {audit.template.name}
+                  </span>
+                </>
+              ) : null}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -117,14 +129,13 @@ export function AuditHeader({
             ) : null}
             {isFinished(audit.status) ? (
               <>
-                <Link
-                  to="/audits/$auditId/report"
-                  params={{ auditId: audit.id }}
-                  className={buttonVariants({ size: 'sm' })}
-                >
-                  <FileText />
-                  Report
-                </Link>
+                <ViewToggle auditId={audit.id} active="internal" />
+                {audit.aiEnabled ? (
+                  <Button size="sm" onClick={() => setBriefOpen(true)}>
+                    <NotebookPen />
+                    <span className="hidden sm:inline">Client brief</span>
+                  </Button>
+                ) : null}
                 <ExportMenu audit={audit} />
               </>
             ) : null}
@@ -158,6 +169,7 @@ export function AuditHeader({
           </div>
         </div>
       </div>
+      {audit.aiEnabled && isFinished(audit.status) ? <ClientBriefSheet audit={audit} open={briefOpen} onOpenChange={setBriefOpen} /> : null}
     </header>
   )
 }

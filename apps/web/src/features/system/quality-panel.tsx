@@ -100,9 +100,77 @@ function Totals({ run }: { run: BenchmarkRunItem }) {
   )
 }
 
+function Check({ ok, label }: { ok: boolean | null | undefined; label: string }) {
+  if (ok === null || ok === undefined) return null
+  return (
+    <li className="flex gap-2">
+      <span className={cn('mt-1.5 size-1.5 shrink-0 rounded-full', ok ? 'bg-success' : 'bg-critical')} aria-hidden />
+      <span className="text-foreground">
+        {label}
+        <span className="ml-1.5 text-xs text-muted">{ok ? 'yes' : 'no'}</span>
+      </span>
+    </li>
+  )
+}
+
+/** Journey discovery and change-fact accuracy for one fixture (newer runs only). */
+function IntelligenceDetail({ fixture }: { fixture: BenchmarkFixtureResult }) {
+  const { journeys, changes } = fixture
+  if (!journeys && !changes) return null
+  return (
+    <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
+      {journeys ? (
+        <div>
+          <SectionLabel>Journeys</SectionLabel>
+          <p className="mb-1 text-xs text-muted">
+            {journeys.journeys} recorded{journeys.primaryType ? ` · primary: ${journeys.primaryType}` : ''} ·{' '}
+            {journeys.blockedSteps} blocked {journeys.blockedSteps === 1 ? 'step' : 'steps'}
+          </p>
+          <ul className="flex flex-col gap-1 text-sm">
+            <Check ok={journeys.primaryFound} label="Primary journey identified" />
+            <Check ok={journeys.primaryTypeCorrect} label="Primary journey type as expected" />
+            <Check ok={journeys.conversionCorrect} label="Ends in an expected conversion channel" />
+            <Check ok={!journeys.unexpectedProblems} label="No invented problems on a healthy site" />
+            <Check ok={journeys.localizedConsistent} label="Localized journeys stay in their language" />
+          </ul>
+          {journeys.notes.length ? (
+            <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted">
+              {journeys.notes.map((note, index) => (
+                <li key={index}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+      {changes ? (
+        <div>
+          <SectionLabel>Changes vs {changes.comparedWith}</SectionLabel>
+          <p className="mb-1 text-xs text-muted">
+            {changes.correct}/{changes.expected} known differences reported correctly by the comparison
+          </p>
+          <ul className="flex flex-col gap-1 text-sm">
+            {changes.details.map((detail) => (
+              <li key={detail.issueId} className="flex gap-2">
+                <span className={cn('mt-1.5 size-1.5 shrink-0 rounded-full', detail.correct ? 'bg-success' : 'bg-critical')} aria-hidden />
+                <span className="text-foreground">
+                  {detail.issueId}
+                  <span className="ml-1.5 text-xs text-muted">
+                    expected {detail.expected.replaceAll('-', ' ')} · got {detail.actual ? detail.actual.replaceAll('-', ' ') : 'nothing'}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function FixtureDetail({ fixture }: { fixture: BenchmarkFixtureResult }) {
   return (
     <div className="grid gap-4 bg-surface-muted px-4 py-3 lg:grid-cols-2">
+      <IntelligenceDetail fixture={fixture} />
       <div>
         <SectionLabel>Known issues</SectionLabel>
         {fixture.issues.length ? (

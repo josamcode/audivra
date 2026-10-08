@@ -5,7 +5,7 @@ import {
   type EvidenceSource,
   type EvidenceType,
 } from '@audivra/contracts'
-import { ArrowLeft, FileSearch, Images, List, Search, SearchX } from 'lucide-react'
+import { ArrowLeft, FileSearch, Images, List, Search, SearchX, Waypoints } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { EVIDENCE_TYPE, EvidenceTypeIcon } from '@/components/badges'
 import { EvidenceViewer, isImageArtifact } from '@/components/evidence-viewer'
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Select } from '@/components/ui/select'
+import { EvidenceGraphView } from '@/features/audit/evidence-graph'
 import { artifactUrl } from '@/lib/api'
 import { useMediaQuery } from '@/lib/hooks'
 import { urlPath } from '@/lib/format'
@@ -23,7 +24,7 @@ import { isTerminal } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 type All = 'all'
-export type EvidenceView = 'list' | 'gallery'
+export type EvidenceView = 'list' | 'gallery' | 'graph'
 
 const SOURCE_LABEL: Record<EvidenceSource, string> = {
   baseline: 'Baseline',
@@ -136,6 +137,9 @@ export function EvidenceTab({
   view,
   onSelect,
   onViewChange,
+  graphFocus,
+  graphOrigin,
+  onGraphFocusChange,
 }: {
   audit: AuditDetail
   evidence: EvidenceItem[]
@@ -146,6 +150,10 @@ export function EvidenceTab({
   view: EvidenceView
   onSelect: (ref: string | null) => void
   onViewChange: (view: EvidenceView) => void
+  /** Node the graph view is centred on, e.g. "finding:F3". */
+  graphFocus: string | null
+  graphOrigin: string | null
+  onGraphFocusChange: (focus: string, origin: string | null) => void
 }) {
   const [search, setSearch] = useState('')
   const [type, setType] = useState<EvidenceType | All>('all')
@@ -177,6 +185,19 @@ export function EvidenceTab({
       </Panel>
     )
   }
+
+  const viewSwitch = (
+    <SegmentedControl
+      label="Evidence view"
+      value={view}
+      onValueChange={onViewChange}
+      options={[
+        { value: 'list', label: 'List', icon: List },
+        { value: 'gallery', label: 'Screenshots', icon: Images },
+        { value: 'graph', label: 'Graph', icon: Waypoints },
+      ]}
+    />
+  )
 
   const toolbar = (
     <Toolbar>
@@ -210,15 +231,7 @@ export function EvidenceTab({
       <span className="text-xs text-muted tabular-nums">
         {filtering ? `${filtered.length} of ${evidence.length}` : evidence.length} items
       </span>
-      <SegmentedControl
-        label="Evidence view"
-        value={view}
-        onValueChange={onViewChange}
-        options={[
-          { value: 'list', label: 'List', icon: List },
-          { value: 'gallery', label: 'Screenshots', icon: Images },
-        ]}
-      />
+      {viewSwitch}
     </Toolbar>
   )
 
@@ -237,6 +250,18 @@ export function EvidenceTab({
           />
         </Panel>
       </div>
+    )
+  }
+
+  if (view === 'graph' && graphFocus) {
+    return (
+      <EvidenceGraphView
+        auditId={audit.id}
+        focus={graphFocus}
+        origin={graphOrigin}
+        onFocusChange={onGraphFocusChange}
+        viewSwitch={viewSwitch}
+      />
     )
   }
 

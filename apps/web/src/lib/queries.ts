@@ -46,6 +46,10 @@ export const queryKeys = {
   report: (id: string) => ['audit', id, 'report'] as const,
   comparison: (id: string, withId?: string) => ['audit', id, 'comparison', withId ?? 'previous'] as const,
   exports: (id: string) => ['audit', id, 'exports'] as const,
+  journeys: (id: string) => ['audit', id, 'journeys'] as const,
+  graph: (id: string, focus: string, depth: number) => ['audit', id, 'graph', focus, depth] as const,
+  changes: (id: string) => ['audit', id, 'changes'] as const,
+  brief: (id: string) => ['audit', id, 'brief'] as const,
   siteHistory: (siteKey: string) => ['site', siteKey, 'history'] as const,
   benchmarks: ['benchmarks'] as const,
   processes: ['system', 'processes'] as const,
@@ -110,6 +114,21 @@ export const comparisonQuery = (id: string, withId?: string) =>
 
 export const exportsQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.exports(id), queryFn: () => api.exports(id) })
+
+/** Polls while an intelligence job (journey analysis, change intelligence, client brief) is queued or running. */
+const whileRunning = (query: { state: { data?: { status: { running: boolean } } } }) => (query.state.data?.status.running ? 3000 : false)
+
+export const journeysQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.journeys(id), queryFn: () => api.journeys(id), refetchInterval: whileRunning })
+
+export const graphQuery = (id: string, focus: string, depth: number) =>
+  queryOptions({ queryKey: queryKeys.graph(id, focus, depth), queryFn: () => api.graph(id, focus, depth), placeholderData: keepPreviousData })
+
+export const changesQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.changes(id), queryFn: () => api.changes(id), refetchInterval: whileRunning })
+
+export const briefQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.brief(id), queryFn: () => api.brief(id), refetchInterval: whileRunning })
 
 export const siteHistoryQuery = (siteKey: string) =>
   queryOptions({ queryKey: queryKeys.siteHistory(siteKey), queryFn: () => api.siteHistory(siteKey) })
