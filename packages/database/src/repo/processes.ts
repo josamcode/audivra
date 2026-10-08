@@ -16,6 +16,7 @@ export interface OwnedProcessRecord {
   command: string
   cwd: string | null
   containerName: string | null
+  securityExecutionId?: string | null
 }
 
 /** Persistence for the process-ownership registry (tool-runtime keeps the live in-memory view). */
@@ -23,7 +24,7 @@ export const processStore = {
   async insert(db: Db, record: OwnedProcessRecord): Promise<void> {
     await db
       .insert(ownedProcesses)
-      .values({ ...record, command: record.command.slice(0, 2000), status: 'running' })
+      .values({ ...record, securityExecutionId: record.securityExecutionId ?? null, command: record.command.slice(0, 2000), status: 'running' })
       .onConflictDoNothing()
   },
 

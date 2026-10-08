@@ -19,11 +19,12 @@ export interface CreateEvidenceInput {
 
 type EvidenceRow = typeof evidence.$inferSelect
 
+/** Maps an audit-owned evidence row (every query here filters by audit, so the owner is set). */
 export function toEvidenceItem(row: EvidenceRow): EvidenceItem {
   return {
     id: row.id,
     ref: row.ref,
-    auditId: row.auditId,
+    auditId: row.auditId!,
     source: row.source,
     type: row.type,
     title: row.title,

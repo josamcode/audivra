@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm'
 import {
   bigserial,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -18,6 +20,9 @@ import type {
   AuditStage,
   AuditStatus,
   AuditSummary,
+  AuthorizationMethod,
+  AuthorizationStatus,
+  AuthorizationSubject,
   ArtifactPlacement,
   ArtifactType,
   BaselineStats,
@@ -28,6 +33,7 @@ import type {
   ClientBriefContent,
   CoverageItem,
   EffortLevel,
+  EngagementStatus,
   EvidenceSource,
   EvidenceType,
   FindingType,
@@ -36,7 +42,13 @@ import type {
   JourneyStep,
   JourneyType,
   Opportunity,
+  PolicyDecision,
   ReportPlan,
+  ScopeManifest,
+  SecurityActor,
+  SecurityEnvironment,
+  SecurityEventType,
+  SecurityEvidenceProvenance,
   Severity,
   StepStatus,
   ToolRunStatus,
@@ -166,13 +178,18 @@ export const agentRuns = pgTable(
   (t) => [index('agent_runs_audit_idx').on(t.auditId)],
 )
 
+/**
+ * Evidence belongs to exactly one owner: a Website Audit (`audit_id`) or a security engagement
+ * (`engagement_id`, recorded only by an allowed capability execution, with its security provenance).
+ */
 export const evidence = pgTable(
   'evidence',
   {
     id: text('id').primaryKey(),
-    auditId: text('audit_id')
-      .notNull()
-      .references(() => audits.id, { onDelete: 'cascade' }),
+    auditId: text('audit_id').references(() => audits.id, { onDelete: 'cascade' }),
+    engagementId: text('engagement_id').references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    securityExecutionId: text('security_execution_id'),
+    securityProvenance: jsonb('security_provenance').$type<SecurityEvidenceProvenance>(),
     /** Human/AI-facing reference, unique per audit, e.g. "EV-12". */
     ref: text('ref').notNull(),
     source: text('source').$type<EvidenceSource>().notNull(),
@@ -189,6 +206,9 @@ export const evidence = pgTable(
   (t) => [
     uniqueIndex('evidence_audit_ref_idx').on(t.auditId, t.ref),
     index('evidence_audit_idx').on(t.auditId),
+    uniqueIndex('evidence_engagement_ref_idx').on(t.engagementId, t.ref),
+    index('evidence_security_execution_idx').on(t.securityExecutionId),
+    check('evidence_single_owner', sql`(${t.auditId} is null) <> (${t.engagementId} is null)`),
   ],
 )
 
@@ -303,6 +323,8 @@ export const ownedProcesses = pgTable(
     command: text('command').notNull(),
     cwd: text('cwd'),
     containerName: text('container_name'),
+    /** Security capability execution that started the process (owner scope for its cancellation). */
+    securityExecutionId: text('security_execution_id'),
     status: text('status').$type<'running' | 'exited' | 'killed' | 'reaped' | 'gone'>().notNull(),
     exitCode: integer('exit_code'),
     startedAt: ts('started_at').notNull().defaultNow(),
@@ -383,4 +405,86 @@ export const clientBriefs = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('client_briefs_audit_idx').on(t.auditId)],
+)
+
+/**
+ * Security engagements: authorized security assessments. Authorization, scope, environment and the
+ * pinned policy profile are the only inputs the security broker trusts; every change increments
+ * `config_version` and is recorded in `security_events`.
+ */
+export const securityEngagements = pgTable(
+  'security_engagements',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    targetUrl: text('target_url').notNull(),
+    /** Same site identity as audits.site_key, linking an engagement to the site's Website Audits. */
+    siteKey: text('site_key').notNull(),
+    /** Null until chosen; policy is then evaluated as production (the most restrictive). */
+    environment: text('environment').$type<SecurityEnvironment>(),
+    status: text('status').$type<EngagementStatus>().notNull().default('draft'),
+    policyProfileKey: text('policy_profile_key').notNull(),
+    policyProfileVersion: integer('policy_profile_version').notNull(),
+    scope: jsonb('scope').$type<ScopeManifest>().notNull(),
+    scopeVersion: integer('scope_version').notNull().default(1),
+    scopeHash: text('scope_hash').notNull(),
+    configVersion: integer('config_version').notNull().default(1),
+    createdBy: text('created_by').notNull(),
+    evidenceSeq: integer('evidence_seq').notNull().default(0),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_engagements_updated_idx').on(t.updatedAt), index('security_engagements_site_idx').on(t.siteKey)],
+)
+
+/** Authorization records of an engagement (history is kept: new attempts add rows, revocation updates one). */
+export const securityAuthorizations = pgTable(
+  'security_authorizations',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    method: text('method').$type<AuthorizationMethod>().notNull(),
+    status: text('status').$type<AuthorizationStatus>().notNull(),
+    subject: jsonb('subject').$type<AuthorizationSubject>().notNull(),
+    reason: text('reason'),
+    /** Challenge value for methods that publish one (DNS TXT, well-known file); not a secret. */
+    challenge: text('challenge'),
+    reference: text('reference'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    verifiedAt: ts('verified_at'),
+    expiresAt: ts('expires_at'),
+    revokedAt: ts('revoked_at'),
+    createdBy: text('created_by').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_authorizations_engagement_idx').on(t.engagementId, t.createdAt)],
+)
+
+/**
+ * Append-only security audit trail: configuration changes and every capability request with its full
+ * decision. UPDATE and DELETE are rejected by a database trigger (see migration 0003).
+ */
+export const securityEvents = pgTable(
+  'security_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    type: text('type').$type<SecurityEventType>().notNull(),
+    level: text('level').$type<'info' | 'warn' | 'error'>().notNull().default('info'),
+    message: text('message').notNull(),
+    actor: jsonb('actor').$type<SecurityActor>().notNull(),
+    executionId: text('execution_id'),
+    capabilityId: text('capability_id'),
+    configVersion: integer('config_version').notNull(),
+    decision: jsonb('decision').$type<PolicyDecision>(),
+    data: jsonb('data').$type<Record<string, unknown>>(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_events_engagement_idx').on(t.engagementId, t.id), index('security_events_execution_idx').on(t.executionId)],
 )

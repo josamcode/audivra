@@ -22,6 +22,13 @@
       "when": 1791412721954,
       "tag": "0002_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791471784100,
+      "tag": "0003_security_foundation",
+      "breakpoints": true
     }
   ]
 }
