@@ -1,12 +1,14 @@
 {
   "$comment": "Ground truth for the Audivra quality benchmark. Patterns are case-insensitive regular expressions matched against a finding's title, description and observation (and category when given). Deterministic issues are planted and verifiable; subjective ones are reported but not scored as misses. 'absent' lists claims that are known to be false for the fixture (a matching finding is a false positive). 'tolerated' lists true-but-environmental observations that are never counted as false positives (e.g. the fixtures are served over plain HTTP on 127.0.0.1).",
-  "version": 1,
+  "version": 2,
   "fixtures": [
     {
       "id": "v1",
       "name": "Nile Smile Dental (v1)",
       "variant": "v1",
       "healthy": false,
+      "template": "lead-generation",
+      "journeys": { "primaryTypes": ["lead", "booking", "contact"], "conversion": "whatsapp|wa\\.me|form|booking|appointment|phone" },
       "issues": [
         {
           "id": "mobile-overflow",
@@ -205,6 +207,14 @@
       "name": "Nile Smile Dental (v2, partly fixed)",
       "variant": "v2",
       "healthy": false,
+      "template": "lead-generation",
+      "journeys": { "primaryTypes": ["lead", "booking", "contact"], "conversion": "whatsapp|wa\\.me|form|booking|appointment|phone" },
+      "changes": {
+        "comparedWith": "v1",
+        "notFoundAgain": ["js-error", "missing-alt", "arabic-mixed-language", "no-hreflang", "sitemap-404", "low-contrast", "security-headers"],
+        "stillPresent": ["mobile-overflow", "cta-not-focusable", "form-labels", "arabic-rtl", "no-tracking", "wrong-canonical"],
+        "new": ["contact-noindex", "heavy-hero"]
+      },
       "issues": [
         {
           "id": "mobile-overflow",
@@ -335,6 +345,13 @@
       "name": "Atlas Physio (healthy)",
       "variant": "healthy",
       "healthy": true,
+      "template": "bilingual",
+      "journeys": {
+        "primaryTypes": ["lead", "booking", "contact"],
+        "conversion": "whatsapp|wa\\.me|form|booking|appointment|phone|tel:",
+        "noProblems": true,
+        "localizedPrefix": "/ar/"
+      },
       "issues": [],
       "absent": [
         {

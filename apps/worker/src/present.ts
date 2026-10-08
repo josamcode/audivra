@@ -2,9 +2,10 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { summarizeLighthouse, type AuditContext } from '@audivra/audit-core'
-import { AiStageError, runComposer, runPlanner, type AgentProvider, type AuditTarget } from '@audivra/ai-runtime'
-import type { ArtifactSpec, ArtifactType } from '@audivra/contracts'
+import { AiStageError, runComposer, runPlanner, type AgentProvider } from '@audivra/ai-runtime'
+import type { ArtifactSpec, ArtifactType, ChangeReportItem } from '@audivra/contracts'
 import {
+  getChangeReport,
   listEvidence,
   replaceArtifacts,
   setPageTypes,
@@ -20,6 +21,8 @@ import {
   presentationContext,
   resolveSpecs,
 } from '@audivra/insights'
+import { target as auditTarget } from './audit-target.ts'
+import { analyzeChanges } from './intelligence.ts'
 
 /** Fewer resolved planner visuals than this and the deterministic set fills the gaps. */
 const MIN_PLANNED_ARTIFACTS = 2
@@ -37,8 +40,10 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
  *  1. indexes Lighthouse reports the auditor saved under tools/lighthouse/ as system evidence,
  *  2. labels the page inventory with the AI's page types,
  *  3. Artifact Planner → specs → resolver (grounding) → stored artifacts (deterministic fallback),
- *  4. Report Composer → validated report plan (default layout when unavailable).
- * Failures in 3–4 never lose findings: fallbacks keep the report complete and are reported honestly.
+ *  4. Change Intelligence, when an earlier audit of the site exists (interprets the deterministic
+ *     comparison; reused when already stored for the same pair),
+ *  5. Report Composer → validated report plan (default layout when unavailable).
+ * Failures in 3–5 never lose findings: fallbacks keep the report complete and are reported honestly.
  */
 export async function presentAudit(
   ctx: AuditContext,
@@ -51,7 +56,7 @@ export async function presentAudit(
 
   const context = await presentationContext(ctx.db, ctx.auditId)
   if (!context) throw new Error('Audit data could not be loaded')
-  const target: AuditTarget = { id: audit.id, url: audit.normalizedUrl, domain: audit.domain, clientName: audit.clientName }
+  const target = auditTarget(audit)
   const hasFindings = context.data.findings.length > 0
   const problems: string[] = []
 
@@ -82,18 +87,26 @@ export async function presentAudit(
   }
   const stored = await replaceArtifacts(ctx.db, ctx.auditId, artifacts)
 
-  // 4. Report composition (on the stored artifacts, so refs are final).
+  // 4. Change Intelligence (explains the deterministic comparison; never changes it).
+  const comparison = await buildComparison(ctx.db, ctx.auditId)
+  let changes: ChangeReportItem | null = comparison ? await getChangeReport(ctx.db, ctx.auditId, comparison.previous.id) : null
+  if (options.ai && hasFindings && comparison && !changes) {
+    try {
+      changes = await analyzeChanges(ctx, provider, audit, comparison)
+    } catch (error) {
+      if (ctx.signal.aborted || (error instanceof AiStageError && error.cancelled)) throw error
+      problems.push(`Change intelligence unavailable (${errorText(error).slice(0, 200)}); the comparison is shown without interpretation`)
+    }
+  }
+
+  // 5. Report composition (on the stored artifacts, so refs are final).
   let composed = false
   await updateAudit(ctx.db, ctx.auditId, { reportPlan: null })
   if (options.ai && hasFindings) {
     try {
       const data = await loadAuditData(ctx.db, ctx.auditId)
       if (!data) throw new Error('Audit data could not be loaded')
-      const { plan, issues } = await runComposer(ctx, provider, {
-        audit: target,
-        data,
-        comparison: await buildComparison(ctx.db, ctx.auditId),
-      })
+      const { plan, issues } = await runComposer(ctx, provider, { audit: target, data, comparison, changes })
       if (plan) {
         await updateAudit(ctx.db, ctx.auditId, { reportPlan: plan })
         composed = true
@@ -109,6 +122,7 @@ export async function presentAudit(
     `${stored.length} visual${stored.length === 1 ? '' : 's'} (${planned} planned, ${stored.length - planned} deterministic)`,
     options.ai && hasFindings ? (composed ? 'report composed' : 'default report layout') : 'default report layout (no AI findings)',
   ]
+  if (changes) parts.push('change intelligence ready')
   if (ingested) parts.push(`${ingested} auditor Lighthouse report(s) indexed`)
   return { message: parts.join(' · '), degraded: problems.length ? problems.join('; ') : null }
 }

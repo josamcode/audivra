@@ -6,10 +6,12 @@ import {
   createBoss,
   ensureQueues,
   failInterruptedBenchmarkRuns,
+  failInterruptedOnDemandRuns,
   getDb,
   processStore,
   QUEUES,
   runMigrations,
+  type EnrichJob,
   type StageJob,
   WORKER_INSTANCE,
 } from '@audivra/database'
@@ -42,6 +44,9 @@ const reaped = await reapStaleProcesses()
 if (reaped.reaped || reaped.gone) {
   log.info(reaped, 'closed process records left by a previous worker (owned processes only)')
 }
+
+const interruptedJobs = await failInterruptedOnDemandRuns(db, ['journeys', 'changes', 'brief'])
+if (interruptedJobs) log.warn({ interruptedJobs }, 'closed intelligence runs interrupted by a previous worker')
 
 const interruptedBenchmarks = await failInterruptedBenchmarkRuns(db)
 if (interruptedBenchmarks) log.warn({ interruptedBenchmarks }, 'closed benchmark runs interrupted by a previous worker')
@@ -84,6 +89,15 @@ for (const [queue, handler, concurrency] of handlers) {
   )
 }
 
+await boss.work<EnrichJob>(QUEUES.enrich, { localConcurrency: 2, pollingIntervalSeconds: 1 }, async (jobs) => {
+  for (const job of jobs) {
+    const jobLog = log.child({ jobId: job.id, queue: QUEUES.enrich, auditId: job.data.auditId, kind: job.data.kind })
+    jobLog.info('intelligence job started')
+    await pipeline.handleEnrich(job.data)
+    jobLog.info('intelligence job finished')
+  }
+})
+
 await boss.work<{ benchmarkRunId?: string }>(
   QUEUES.benchmark,
   { localConcurrency: 1, pollingIntervalSeconds: 2 },
@@ -96,7 +110,7 @@ await boss.work<{ benchmarkRunId?: string }>(
     }
   },
 )
-log.info({ queues: [...handlers.map(([q]) => q), QUEUES.benchmark], ai: config.AUDIVRA_AI }, 'worker ready')
+log.info({ queues: [...handlers.map(([q]) => q), QUEUES.enrich, QUEUES.benchmark], ai: config.AUDIVRA_AI }, 'worker ready')
 
 let shuttingDown = false
 async function shutdown(signal: string) {

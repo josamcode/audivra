@@ -8,7 +8,7 @@ import {
   runReviewer,
   runRevision,
   type AgentProvider,
-  type AuditTarget,
+  type PreviousJourney,
 } from '@audivra/ai-runtime'
 import { getConfig, type Logger } from '@audivra/config'
 import { AuditDraft, ReviewResult, type FinalAudit, type FindingBrief } from '@audivra/contracts'
@@ -20,21 +20,26 @@ import {
   listEvents,
   listEvidence,
   listFindings,
+  listJourneys,
   listSteps,
   listToolRuns,
   QUEUES,
   recordEvent,
   replaceFindings,
+  replaceJourneys,
   updateAudit,
   updateStep,
   upsertPages,
   type AuditRow,
   type Db,
+  type EnrichJob,
   type PgBoss,
   type QueueName,
 } from '@audivra/database'
 import { computeCoverage, toBrief } from '@audivra/insights'
 import { getSystemStatus, stopAuditContainers } from '@audivra/tool-runtime'
+import { target } from './audit-target.ts'
+import { handleEnrich } from './intelligence.ts'
 import { presentAudit } from './present.ts'
 import { executeStage, type StageDefinition } from './stage-runner.ts'
 
@@ -55,9 +60,7 @@ async function savePipelineState(ctx: AuditContext, audit: AuditRow, patch: Pipe
   await updateAudit(ctx.db, ctx.auditId, { options: next })
 }
 
-function target(audit: AuditRow): AuditTarget {
-  return { id: audit.id, url: audit.normalizedUrl, domain: audit.domain, clientName: audit.clientName }
-}
+
 
 function readJson<T>(ctx: AuditContext, relative: string, schema: { parse(v: unknown): T }): T | null {
   const file = ctx.ws.abs(relative)
@@ -81,10 +84,15 @@ function presentWithAi(audit: AuditRow): boolean {
   return audit.aiEnabled && pipelineState(audit).aiAvailable === true && getConfig().AUDIVRA_AI !== 'off'
 }
 
-/** Findings of the previous finished audit of the same site (stable issue keys across audits). */
-async function previousFindings(db: Db, audit: AuditRow): Promise<FindingBrief[]> {
+/** Findings and journeys of the previous finished audit of the same site (stable keys across audits). */
+async function previousAuditKeys(db: Db, audit: AuditRow): Promise<{ findings: FindingBrief[]; journeys: PreviousJourney[] }> {
   const previous = await getPreviousSiteAudit(db, audit)
-  return previous ? (await listFindings(db, previous.id)).map(toBrief) : []
+  if (!previous) return { findings: [], journeys: [] }
+  const [findings, journeys] = await Promise.all([listFindings(db, previous.id), listJourneys(db, previous.id)])
+  return {
+    findings: findings.map(toBrief),
+    journeys: journeys.map((j) => ({ journeyKey: j.journeyKey, name: j.name, type: j.type })),
+  }
 }
 
 export interface PipelineOptions {
@@ -282,7 +290,7 @@ export class Pipeline {
       const draft = latestDraft(ctx)
       if (!draft) throw new Error('No audit draft available to finalize')
       const review = readJson(ctx, 'agent/review.json', ReviewResult)
-      const previous = await previousFindings(ctx.db, audit)
+      const previous = await previousAuditKeys(ctx.db, audit)
       let final: FinalAudit
       let degraded: string | null = null
       try {
@@ -293,13 +301,14 @@ export class Pipeline {
             review,
             revised: state.revised === true,
             evidence: await listEvidence(ctx.db, ctx.auditId),
-            previous,
+            previous: previous.findings,
+            previousJourneys: previous.journeys,
           })
         ).final
       } catch (error) {
         if (ctx.signal.aborted) throw error
         degraded = error instanceof Error ? error.message : String(error)
-        final = fallbackFinal(draft, review, previous)
+        final = fallbackFinal(draft, review, previous.findings)
         await ctx.ws.writeJson('final/audit.json', final)
         await ctx.event(
           'agent.note',
@@ -425,6 +434,11 @@ export class Pipeline {
     else await this.refreshCoverage(auditId)
   }
 
+  /** Job: on-demand intelligence for a finished audit (journey analysis, change intelligence, client brief). */
+  async handleEnrich(job: EnrichJob): Promise<void> {
+    await handleEnrich(this.db, this.log, this.provider, job)
+  }
+
   /** After a stage failure left the audit partial: still produce deterministic visuals and coverage. */
   private async presentAfterFailure(auditId: string): Promise<void> {
     const audit = await getAuditRow(this.db, auditId)
@@ -537,11 +551,38 @@ async function persistFinal(ctx: AuditContext, final: FinalAudit): Promise<void>
       recommendation: f.recommendation,
       effort: f.effort,
       opportunity: f.opportunity,
+      journeyRefs: f.journeyIds,
       createdBy: 'ai-auditor',
       sourceRefs: f.sourceFindingIds,
       evidenceIds: f.evidenceIds.map((ref) => idByRef.get(ref)).filter((id): id is string => !!id),
     })),
   )
+  await replaceJourneys(
+    ctx.db,
+    ctx.auditId,
+    final.journeys.map((j) => ({
+      ref: j.id,
+      journeyKey: j.journeyKey,
+      type: j.type,
+      name: j.name,
+      goal: j.goal,
+      description: j.description,
+      isPrimary: j.isPrimary,
+      confidence: j.confidence,
+      steps: j.steps,
+      health: j.health,
+    })),
+    'audit',
+  )
+  if (final.journeys.length) {
+    const primary = final.journeys.find((j) => j.isPrimary)
+    await recordEvent(ctx.db, {
+      auditId: ctx.auditId,
+      type: 'journeys.recorded',
+      message: `${final.journeys.length} journey${final.journeys.length === 1 ? '' : 's'} recorded${primary ? `; primary: ${primary.steps.map((step) => step.label).join(' → ')}` : ''}`,
+      data: { count: final.journeys.length, primary: primary?.id ?? null },
+    })
+  }
   for (const f of final.findings) {
     await recordEvent(ctx.db, {
       auditId: ctx.auditId,

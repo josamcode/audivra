@@ -15,6 +15,7 @@ const review = (patch: Partial<ReviewResult>): ReviewResult => ({
   missingAreas: [],
   priorityProblems: [],
   materialGaps: false,
+  journeyReview: [],
   ...patch,
 })
 
