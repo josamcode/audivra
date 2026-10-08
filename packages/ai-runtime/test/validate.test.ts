@@ -27,6 +27,7 @@ function finding(overrides: Partial<DraftFinding> = {}): DraftFinding {
     recommendation: 'fix',
     effort: 'low',
     opportunity: null,
+    journeyIds: [],
     ...overrides,
   }
 }
@@ -50,6 +51,7 @@ function draft(findings: DraftFinding[]): AuditDraft {
     pagesInspected: [],
     technologies: [],
     findings,
+    journeys: [],
     limitations: [],
     suggestedFurtherVerification: [],
   }
@@ -208,6 +210,7 @@ describe('fallbackFinal', () => {
       missingAreas: [],
       priorityProblems: [],
       materialGaps: true,
+      journeyReview: [],
     }
     const final = fallbackFinal(d, review)
     expect(final.findings.map((f) => f.sourceFindingIds)).toEqual([['D2'], ['D3', 'D4']])

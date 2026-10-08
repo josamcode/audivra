@@ -1,12 +1,17 @@
 import {
   AuditDraft,
   FinalAudit,
+  JOURNEY_KEY_PATTERN,
   ReviewResult,
   SEVERITY_RANK,
   type DraftFinding,
+  type DraftJourney,
   type FinalFinding,
+  type FinalJourney,
   type FindingBrief,
   type FindingType,
+  type JourneyHealth,
+  type JourneyStep,
   type Severity,
 } from '@audivra/contracts'
 import { findingSimilarity, SIMILARITY_THRESHOLD, titleTokens } from '@audivra/insights'
@@ -73,6 +78,137 @@ function parseOrThrow<T>(
   return parsed.data
 }
 
+/** Normalizes model-written journey references ("j1", " J1 ", "J-1") to "J1". */
+export function normalizeJourneyId(id: string): string {
+  const match = id.trim().match(/^j-?(\d+)$/i)
+  return match ? `J${Number(match[1])}` : id.trim()
+}
+
+/** Kebab-case journey key from its type and name (deterministic fallback). */
+export function deriveJourneyKey(type: string, name: string): string {
+  const words = [...titleTokens(name)].filter((w) => /^[a-z0-9]+$/.test(w)).slice(0, 5)
+  const parts = [type, ...words]
+    .join('-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .split('-')
+    .filter(Boolean)
+    .slice(0, 8)
+  return parts.length ? parts.join('-') : 'journey'
+}
+
+export function cleanJourneyKey(key: string | undefined, type: string, name: string): string {
+  const cleaned = (key ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .split('-')
+    .filter(Boolean)
+    .slice(0, 8)
+    .join('-')
+  return cleaned && JOURNEY_KEY_PATTERN.test(cleaned) ? cleaned : deriveJourneyKey(type, name)
+}
+
+interface JourneyShape {
+  id: string
+  name: string
+  isPrimary: boolean
+  confidence: number
+  steps: JourneyStep[]
+  health: JourneyHealth[]
+}
+
+/**
+ * Shared journey checks: evidence references must exist (and, for final journeys, be cited by their
+ * sources); problems need evidence (a "friction"/"blocked" step without any becomes "unverified", a
+ * health verdict without evidence or findings becomes "unknown"); a journey without any evidence is
+ * dropped as unsupported; at most one journey is primary.
+ */
+export function checkJourneys<T extends JourneyShape>(
+  journeys: T[],
+  existingRefs: Set<string>,
+  findingIds: Set<string>,
+  issues: ValidationIssue[],
+  allowedEvidence?: (journey: T) => Set<string> | null,
+): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  let primary = false
+  for (const [index, journey] of journeys.entries()) {
+    let id = normalizeJourneyId(journey.id) || `J${index + 1}`
+    if (seen.has(id)) {
+      issues.push({ scope: id, message: `Duplicate journey ID renamed to J${journeys.length + index + 1}` })
+      id = `J${journeys.length + index + 1}`
+    }
+    const allowed = allowedEvidence?.(journey) ?? null
+    const keep = (refs: string[], scope: string) =>
+      filterRefs(refs, existingRefs, scope, issues).filter((ref) => {
+        if (!allowed || allowed.has(ref)) return true
+        issues.push({ scope, message: `Removed evidence ${ref} not cited by the source journey` })
+        return false
+      })
+    const steps = journey.steps.map((step, i) => {
+      const evidenceIds = keep(step.evidenceIds, `${id}.step${i + 1}`)
+      const url = step.url && /^https?:\/\//i.test(step.url.trim()) ? step.url.trim() : null
+      let status = step.status
+      if ((status === 'friction' || status === 'blocked') && evidenceIds.length === 0) {
+        issues.push({ scope: `${id}.step${i + 1}`, message: `Step "${step.label}" marked ${status} without evidence; set to unverified` })
+        status = 'unverified'
+      }
+      return { ...step, url, status, evidenceIds }
+    })
+    const dimensions = new Set<string>()
+    const health = journey.health
+      .filter((h) => {
+        if (dimensions.has(h.dimension)) return false
+        dimensions.add(h.dimension)
+        return true
+      })
+      .map((h) => {
+        const evidenceIds = keep(h.evidenceIds, `${id}.${h.dimension}`)
+        const findings = h.findingIds
+          .map((f) => f.trim())
+          .filter((f) => {
+            if (findingIds.has(f)) return true
+            issues.push({ scope: `${id}.${h.dimension}`, message: `Removed unknown finding reference ${f}` })
+            return false
+          })
+        const judged = h.status === 'healthy' || h.status === 'warning' || h.status === 'problem'
+        const status = judged && evidenceIds.length === 0 && findings.length === 0 ? 'unknown' : h.status
+        if (status !== h.status) {
+          issues.push({ scope: `${id}.${h.dimension}`, message: `${h.dimension} "${h.status}" had no evidence or findings; set to unknown` })
+        }
+        return { ...h, status, evidenceIds, findingIds: findings }
+      })
+    const evidenceCount =
+      steps.reduce((n, step) => n + step.evidenceIds.length, 0) + health.reduce((n, h) => n + h.evidenceIds.length, 0)
+    if (evidenceCount === 0) {
+      issues.push({ scope: id, message: `Journey "${journey.name}" dropped: no valid evidence for any step` })
+      continue
+    }
+    let isPrimary = journey.isPrimary
+    if (isPrimary && primary) {
+      issues.push({ scope: id, message: 'More than one primary journey; kept the first' })
+      isPrimary = false
+    }
+    primary ||= isPrimary
+    seen.add(id)
+    out.push({ ...journey, id, isPrimary, steps, health })
+  }
+  return out
+}
+
+/** Keeps only references to journeys that exist (normalized), dropping the rest with an issue. */
+export function filterJourneyIds(ids: string[], known: Set<string>, scope: string, issues: ValidationIssue[]): string[] {
+  const out: string[] = []
+  for (const raw of ids) {
+    const id = normalizeJourneyId(raw)
+    if (known.has(id)) {
+      if (!out.includes(id)) out.push(id)
+    } else issues.push({ scope, message: `Removed reference to unknown journey "${raw}"` })
+  }
+  return out
+}
+
 /**
  * Validates an auditor draft: schema, unique IDs and evidence references. Findings that lose all
  * their evidence are downgraded rather than silently presented as verified.
@@ -100,9 +236,14 @@ export function validateDraft(
     }
     return { ...finding, id, evidenceIds, type, confidence }
   })
+  const draftFindingIds = new Set(findings.map((f) => f.id))
+  const journeys: DraftJourney[] = checkJourneys(draft.journeys, existingRefs, draftFindingIds, issues)
+  const journeyIds = new Set(journeys.map((j) => j.id))
+  for (const finding of findings) finding.journeyIds = filterJourneyIds(finding.journeyIds, journeyIds, finding.id, issues)
   return {
     draft: {
       ...draft,
+      journeys,
       businessUnderstanding: {
         ...draft.businessUnderstanding,
         evidenceIds: filterRefs(
@@ -129,6 +270,7 @@ export function validateReview(
   const review = parseOrThrow(ReviewResult, value, 'Reviewer')
   const issues: ValidationIssue[] = []
   const ids = new Set(draft.findings.map((f) => f.id))
+  const journeyIds = new Set(draft.journeys.map((j) => j.id))
   const check = (id: string, scope: string) => {
     if (!ids.has(id)) issues.push({ scope, message: `Reviewer referenced unknown finding "${id}"` })
     return ids.has(id)
@@ -145,6 +287,13 @@ export function validateReview(
       duplicates: review.duplicates
         .map((d) => ({ ...d, findingIds: d.findingIds.filter((id) => check(id, 'duplicates')) }))
         .filter((d) => d.findingIds.length > 1),
+      journeyReview: review.journeyReview
+        .map((j) => ({ ...j, journeyId: normalizeJourneyId(j.journeyId) }))
+        .filter((j) => {
+          if (journeyIds.has(j.journeyId)) return true
+          issues.push({ scope: 'journeys', message: `Reviewer referenced unknown journey "${j.journeyId}"` })
+          return false
+        }),
     },
     issues,
   }
@@ -214,9 +363,31 @@ export function validateFinal(
   }
 
   const finalIds = new Set(findings.map((f) => f.id))
+  const draftJourneys = new Map(draft.journeys.map((j) => [j.id, j]))
+  const journeyEvidence = (j: DraftJourney) => new Set([...j.steps.flatMap((step) => step.evidenceIds), ...j.health.flatMap((h) => h.evidenceIds)])
+  const usedJourneyKeys = new Set<string>()
+  const sourced = final.journeys
+    .map((journey): FinalJourney | null => {
+      const sources = journey.sourceJourneyIds.map(normalizeJourneyId).filter((id) => draftJourneys.has(id))
+      if (sources.length === 0) {
+        issues.push({ scope: journey.id, message: `Journey "${journey.name}" rejected: no valid source draft journey` })
+        return null
+      }
+      const journeyKey = uniqueKey(cleanJourneyKey(journey.journeyKey, journey.type, journey.name), usedJourneyKeys)
+      return { ...journey, journeyKey, sourceJourneyIds: sources }
+    })
+    .filter((j): j is FinalJourney => j !== null)
+  const journeys = checkJourneys(sourced, existingRefs, finalIds, issues, (journey) => {
+    const allowed = new Set<string>()
+    for (const id of journey.sourceJourneyIds) journeyEvidence(draftJourneys.get(id)!).forEach((ref) => allowed.add(ref))
+    return allowed
+  })
+  const finalJourneyIds = new Set(journeys.map((j) => j.id))
+  for (const finding of findings) finding.journeyIds = filterJourneyIds(finding.journeyIds, finalJourneyIds, finding.id, issues)
   return {
     final: {
       ...final,
+      journeys,
       businessUnderstanding: {
         ...final.businessUnderstanding,
         evidenceIds: filterRefs(
@@ -291,11 +462,28 @@ export function fallbackFinal(
     })
     .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.confidence - a.confidence)
 
+  const rejectedJourneys = new Set((review?.journeyReview ?? []).filter((j) => j.verdict === 'rejected').map((j) => j.journeyId))
+  const keptJourneys = draft.journeys
+    .filter((j) => !rejectedJourneys.has(j.id))
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
+  const journeyIdMap = new Map(keptJourneys.map((j, index) => [j.id, `J${index + 1}`]))
+  const usedJourneyKeys = new Set<string>()
+  const findingIdMap = new Map<string, string>()
+  ordered.forEach((f, index) => f.sources.forEach((source) => findingIdMap.set(source, `F${index + 1}`)))
+  const journeys: FinalJourney[] = keptJourneys.map((j) => ({
+    ...j,
+    id: journeyIdMap.get(j.id)!,
+    journeyKey: uniqueKey(deriveJourneyKey(j.type, j.name), usedJourneyKeys),
+    sourceJourneyIds: [j.id],
+    health: j.health.map((h) => ({ ...h, findingIds: h.findingIds.map((id) => findingIdMap.get(id)).filter((id): id is string => !!id) })),
+  }))
+
   const usedKeys = new Set<string>()
   const findings: FinalFinding[] = ordered.map((f, index) => {
     const { sources, id: _draftId, ...rest } = f
     const issueKey = uniqueKey(stableIssueKey(f, previous), usedKeys)
-    return { ...rest, id: `F${index + 1}`, issueKey, sourceFindingIds: sources }
+    const journeyIds = rest.journeyIds.map((id) => journeyIdMap.get(id)).filter((id): id is string => !!id)
+    return { ...rest, id: `F${index + 1}`, issueKey, sourceFindingIds: sources, journeyIds }
   })
   const counts = findings.reduce<Record<string, number>>(
     (acc, f) => ({ ...acc, [f.severity]: (acc[f.severity] ?? 0) + 1 }),
@@ -315,6 +503,7 @@ export function fallbackFinal(
     businessUnderstanding: draft.businessUnderstanding,
     importantPageTypes: draft.importantPageTypes,
     technologies: draft.technologies,
+    journeys,
     findings,
     opportunities: findings
       .filter((f) => f.opportunity)
@@ -358,7 +547,32 @@ export function stableIssueKey(finding: Pick<DraftFinding, 'title' | 'category' 
 }
 
 /** Coerces model-written issue keys into the kebab-case format before schema validation. */
+/**
+ * Journey keys are matched across audits, so a malformed one ("WhatsApp Booking!") is cleaned
+ * before schema validation instead of failing the whole output.
+ */
+export function normalizeJourneyKeys(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { journeys?: unknown }).journeys)) return value
+  const record = value as { journeys: unknown[] }
+  return {
+    ...record,
+    journeys: record.journeys.map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw
+      const j = raw as Record<string, unknown>
+      return {
+        ...j,
+        journeyKey: cleanJourneyKey(
+          typeof j.journeyKey === 'string' ? j.journeyKey : undefined,
+          typeof j.type === 'string' ? j.type : 'journey',
+          typeof j.name === 'string' ? j.name : '',
+        ),
+      }
+    }),
+  }
+}
+
 function normalizeIssueKeys(value: unknown): unknown {
+  value = normalizeJourneyKeys(value)
   if (!value || typeof value !== 'object' || !Array.isArray((value as { findings?: unknown }).findings)) return value
   const record = value as { findings: unknown[] }
   return {

@@ -3,11 +3,15 @@ import type { AuditContext } from '@audivra/audit-core'
 import {
   AuditDraft,
   FinalAudit,
+  getTemplate,
   ReviewResult,
+  templateRef,
   toAgentJsonSchema,
   type ActivityEvent,
+  type AuditTemplate,
   type EvidenceItem,
   type FindingBrief,
+  type JourneyType,
   type SystemStatus,
 } from '@audivra/contracts'
 import { listEvidence, updateAgentRun } from '@audivra/database'
@@ -46,6 +50,31 @@ export interface AuditTarget {
   url: string
   domain: string
   clientName: string | null
+  /** Audit focus; audits created before templates existed use the general template. */
+  template?: AuditTemplate | null
+}
+
+/** The audit focus as auditor guidance: priorities and context, explicitly not a checklist. */
+export function focusSection(template: AuditTemplate | null | undefined): string {
+  const t = template ?? getTemplate(null)
+  return `## Audit focus: ${t.name} (${templateRef(t)})
+${t.promptAddendum}
+Priority areas: ${t.priorityAreas.join('; ')}.
+Journey types to look for first: ${t.suggestedJourneyTypes.join(', ')}.
+These are priorities, not a checklist. Investigate according to the evidence, and report material issues outside this focus too.`
+}
+
+/** One-line focus for roles that review or finalize rather than investigate. */
+export function focusLine(template: AuditTemplate | null | undefined): string {
+  const t = template ?? getTemplate(null)
+  return `Audit focus: ${t.name} — ${t.missionContext} Priority areas: ${t.priorityAreas.join('; ')}.`
+}
+
+/** Journeys of the previous audit of the same site (for stable journey keys). */
+export interface PreviousJourney {
+  journeyKey: string
+  name: string
+  type: JourneyType
 }
 
 export function evidenceIndex(items: EvidenceItem[]): string {
@@ -133,6 +162,8 @@ export async function runAuditor(
 Target website: ${input.audit.url}
 ${input.audit.clientName ? `Client / project: ${input.audit.clientName}\n` : ''}Audit ID: ${input.audit.id}
 Working directory (audit workspace): ${ctx.ws.root}
+
+${focusSection(input.audit.template)}
 
 Time budget: about ${budget} minutes in total. Started at ${new Date().toISOString()}. Aim to have your structured output ready by ${deadline.toISOString()} — check \`date\` occasionally.
 Safety ceilings (not targets — typical audits use a small fraction): ${limits.browser} browser actions, ${limits.terminal} terminal commands, ${limits.total} tool calls in total. If a ceiling or the time budget is reached, your tools are switched off and you will be asked to write up from the evidence already recorded — so record evidence as you go.
@@ -240,6 +271,7 @@ export async function runReviewer(
 Target website: ${input.audit.url}${input.audit.clientName ? ` (client: ${input.audit.clientName})` : ''}
 Working directory (audit workspace, read-only for you): ${ctx.ws.root}
 The draft is also saved at agent/draft.json; the baseline digest at baseline/summary.md.
+${focusLine(input.audit.template)}
 
 ## Audit draft
 \`\`\`json
@@ -371,6 +403,14 @@ ${feedback}`
   }
 }
 
+function previousJourneyKeys(previous: PreviousJourney[]): string {
+  if (previous.length === 0) return 'None — create new journey keys.'
+  return [
+    'Reuse a key exactly when a final journey is the same path:',
+    ...previous.map((j) => `- ${j.journeyKey} — ${j.name} (${j.type})`),
+  ].join('\n')
+}
+
 function previousKeys(previous: FindingBrief[]): string {
   const keyed = previous.filter((f) => f.issueKey)
   if (keyed.length === 0) return 'None — this is the first audit of this site (or earlier audits had no keys). Create new keys.'
@@ -391,6 +431,8 @@ export async function runFinalizer(
     evidence: EvidenceItem[]
     /** Findings of the previous audit of the same site (for stable issue keys). */
     previous?: FindingBrief[]
+    /** Journeys of the previous audit of the same site (for stable journey keys). */
+    previousJourneys?: PreviousJourney[]
   },
 ): Promise<{ agentRunId: string; final: FinalAudit; issues: ValidationIssue[] }> {
   const config = getConfig()
@@ -398,6 +440,7 @@ export async function runFinalizer(
   const userPrompt = `# Finalize the audit of ${input.audit.url}${input.audit.clientName ? ` (client: ${input.audit.clientName})` : ''}
 
 Revision pass happened: ${input.revised ? 'YES — the draft below is the revised draft and supersedes reviewer concerns it addressed.' : 'NO'}
+${focusLine(input.audit.template)}
 
 ## Draft
 \`\`\`json
@@ -412,6 +455,9 @@ ${evidenceIndex(input.evidence)}
 
 ## Issue keys from the previous audit of this site
 ${previousKeys(input.previous ?? [])}
+
+## Journey keys from the previous audit of this site
+${previousJourneyKeys(input.previousJourneys ?? [])}
 
 Produce the final structured audit.`
 

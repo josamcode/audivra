@@ -209,5 +209,8 @@ export function roleLabel(role: AgentRole): string {
     finalizer: 'Finalizer',
     planner: 'Artifact Planner',
     composer: 'Report Composer',
+    journeys: 'Journey analysis',
+    changes: 'Change intelligence',
+    brief: 'Client brief',
   }[role]
 }

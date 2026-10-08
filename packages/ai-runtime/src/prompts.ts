@@ -8,6 +8,9 @@ export type PromptName =
   | 'finalizer-system'
   | 'planner-system'
   | 'composer-system'
+  | 'journey-analyst-system'
+  | 'change-analyst-system'
+  | 'client-brief-system'
 
 export interface PromptFile {
   name: PromptName
@@ -25,9 +28,18 @@ export function loadPrompt(name: PromptName): PromptFile {
   return { name, path: file, version: match?.[1] ?? `${name}:unversioned`, text }
 }
 
-const ALL_PROMPTS: PromptName[] = ['auditor-system', 'reviewer-system', 'finalizer-system', 'planner-system', 'composer-system']
+const ALL_PROMPTS: PromptName[] = [
+  'auditor-system',
+  'reviewer-system',
+  'finalizer-system',
+  'planner-system',
+  'composer-system',
+  'journey-analyst-system',
+  'change-analyst-system',
+  'client-brief-system',
+]
 
-/** Current version of every role prompt, e.g. { auditor: 'auditor:v4', … } (stored with benchmark runs). */
+/** Current version of every role prompt, e.g. { auditor: 'auditor:v5', … } (stored with benchmark runs). */
 export function promptVersions(): Record<string, string> {
   return Object.fromEntries(ALL_PROMPTS.map((name) => [name.replace('-system', ''), loadPrompt(name).version]))
 }

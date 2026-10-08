@@ -7,6 +7,7 @@ import {
   toAgentJsonSchema,
   type Artifact,
   type AuditComparison,
+  type ChangeReportItem,
   type CoverageItem,
   type EvidenceItem,
   type FindingItem,
@@ -85,6 +86,21 @@ function comparisonText(comparison: AuditComparison | null): string {
   ].join('\n')
 }
 
+function journeyText(data: AuditData): string {
+  if (data.journeys.length === 0) return '(no journeys recorded for this audit)'
+  return data.journeys
+    .map(
+      (j) =>
+        `${j.ref}${j.isPrimary ? ' (primary)' : ''} "${j.name}" [${j.type}] — ${j.steps.map((s) => `${s.label} (${s.status})`).join(' → ')}${j.findingRefs.length ? ` — affected by ${j.findingRefs.join(', ')}` : ''}${j.health.length ? ` — ${j.health.map((h) => `${h.dimension} ${h.status}`).join(', ')}` : ''}`,
+    )
+    .join('\n')
+}
+
+function changeText(changes: ChangeReportItem | null): string {
+  if (!changes) return '(no change interpretation)'
+  return [`Headline: ${changes.analysis.headline}`, ...changes.analysis.insights.slice(0, 6).map((i) => `- [${i.kind} · ${i.importance}] ${i.title}`)].join('\n')
+}
+
 function businessText(data: AuditData): string {
   const b = data.row.summary?.businessUnderstanding
   if (!b) return '(not available)'
@@ -128,6 +144,9 @@ ${findingLines(data.findings, 'planner')}
 
 ## Opportunities
 ${opportunityLines(data)}
+
+## Journeys (stored; reference them with \`{ "journeyId" }\`)
+${journeyText(data)}
 
 ## Evidence (only these IDs exist)
 ${evidenceLines(data.evidence)}
@@ -185,7 +204,7 @@ export interface ComposerResult {
 export async function runComposer(
   ctx: AuditContext,
   provider: AgentProvider,
-  input: { audit: AuditTarget; data: AuditData; comparison: AuditComparison | null },
+  input: { audit: AuditTarget; data: AuditData; comparison: AuditComparison | null; changes?: ChangeReportItem | null },
 ): Promise<ComposerResult> {
   const config = getConfig()
   const prompt = loadPrompt('composer-system')
@@ -222,8 +241,14 @@ ${images.map((e) => `${e.ref} ${clip(e.title, 120)}${e.url ? ` — ${e.url}` : '
 ## Coverage of this audit
 ${coverageLines(data.coverage)}
 
+## Journeys (only these IDs exist)
+${journeyText(data)}
+
 ## Comparison with the previous audit
 ${comparisonText(input.comparison)}
+
+## Change interpretation
+${changeText(input.changes ?? null)}
 
 Return the report plan.`
 
@@ -254,6 +279,7 @@ Return the report plan.`
     artifacts: new Set(data.artifacts.map((a) => a.ref)),
     images: new Set(images.map((e) => e.ref)),
     opportunityTitles: (data.row.summary?.opportunities ?? []).map((o) => o.title),
+    journeys: new Set(data.journeys.map((j) => j.ref)),
   })
   await updateAgentRun(ctx.db, agentRunId, {
     validation: { issues: issues.slice(0, 200), issueCount: issues.length, usable: plan !== null },

@@ -1,4 +1,4 @@
-<!-- version: planner:v1 -->
+<!-- version: planner:v2 -->
 
 # Role: Artifact Planner
 
@@ -17,7 +17,7 @@ Good candidates:
 - a key high/medium finding whose proof is visual or numeric (annotated screenshot of the problem, a comparison of the affected vs. a healthy page);
 - comparisons the client cannot see from text alone (language versions, templates, mobile vs. desktop, before vs. after);
 - coverage questions (tracking presence vs. conversion events, localization completeness across pages);
-- the primary conversion journey when its steps or friction were actually observed;
+- the primary conversion journey (and at most one other important journey) when its steps or friction were actually observed — the task lists the audit's stored journeys;
 - trends, **only** when the site has at least two real audits (Audivra tells you which series exist).
 
 ## Never
@@ -46,7 +46,7 @@ Optional on any datum: `"tone": "good" | "warning" | "bad" | "neutral"`, `"note"
 - `matrix`: `{ "columns": [labels], "rows": [{ "label", "cells": [{ "status": "yes"|"no"|"partial"|"unknown"|"na", "note"?, "evidenceId"? } per column] }] }` — qualitative coverage (page × check, language × element).
 - `tracking_coverage`: `{ "rows": [{ "name", "kind": "analytics"|"tag-manager"|"advertising"|"session-recording"|"conversion-channel"|"other", "present": status, "eventObserved": status, "note"?, "evidenceId"? }] }` — "present" means the tag/channel exists; "eventObserved" is `yes` only if an event was actually observed, `unknown` if not tested.
 - `page_performance`: `{ "formFactor": "mobile"|"desktop", "columns": [from performance, lcp, fcp, cls, tbt, accessibility, seo, bestPractices, weight, requests], "rows": [{ "url", "label"? }] }` — Audivra fills the values from Lighthouse; choose pages with data.
-- `journey`: `{ "steps": [{ "label", "url"?, "kind": "page"|"action"|"outcome", "status": "ok"|"friction"|"blocked"|"unknown", "note"?, "evidenceId"?, "findingId"? } ×2–10] }` — a path the auditor actually walked.
+- `journey`: `{ "journeyId": "J1" }` for a stored journey (listed in the task) — Audivra draws its steps, statuses and evidence from the journey itself; do not restate the steps. Only for a path that is not a stored journey: `{ "steps": [{ "label", "url"?, "kind": "page"|"action"|"outcome", "status": "ok"|"friction"|"blocked"|"unknown", "note"?, "evidenceId"?, "findingId"? } ×2–10] }` — a path the auditor actually walked.
 - `funnel`: `{ "steps": [{ "label", "friction": "none"|"low"|"medium"|"high", "note"?, "evidenceId"?, "findingId"? } ×2–8] }` — steps and friction only, never traffic or conversion numbers.
 - `annotated_screenshot`: `{ "evidenceId", "coordinateSpace": "css-px"|"image-px"|"fraction", "viewportWidth"?, "regions": [{ "x", "y", "width", "height", "marker", "title", "description", "severity"?, "findingId"? } ×1–8] }`.
    - Prefer regions measured by the auditor (`metadata.regions` on the screenshot's evidence, CSS pixels): copy them with `"coordinateSpace": "css-px"` and `viewportWidth` from `metadata.viewport` (e.g. 390 for "390x844").
