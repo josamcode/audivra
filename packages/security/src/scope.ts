@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import {
   cidrContains,
   classifyIp,
@@ -13,6 +12,7 @@ import {
   type ScopeHostRule,
   type ScopeManifest,
 } from '@audivra/contracts'
+import { canonicalHash } from './canonical.ts'
 
 /*
  * The scope engine: the one place that decides whether a destination is inside an engagement's scope.
@@ -326,20 +326,7 @@ export function scopeIssues(manifest: ScopeManifest): string[] {
   return [...new Set(issues)]
 }
 
-function stable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stable)
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
-        .sort()
-        .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
-        .map((key) => [key, stable((value as Record<string, unknown>)[key])]),
-    )
-  }
-  return value
-}
-
 /** Content hash of a manifest (key order independent), recorded with every decision. */
 export function manifestHash(manifest: ScopeManifest): string {
-  return createHash('sha256').update(JSON.stringify(stable(manifest))).digest('hex')
+  return canonicalHash(manifest)
 }

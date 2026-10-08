@@ -1,6 +1,6 @@
-import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { engagementWorkspaceDir, getConfig, resolveInside, toWorkspaceRelative, type Logger } from '@audivra/config'
+import { engagementWorkspaceDir, getConfig, type Logger } from '@audivra/config'
 import {
   authorizationRequiredFor,
   parseIp,
@@ -11,15 +11,23 @@ import {
   type PolicyDecision,
   type ScopeEvaluation,
   type SecurityEvidenceItem,
+  type SecurityExecutionSnapshot,
 } from '@audivra/contracts'
 import { newId } from '@audivra/database'
 import { dockerImagePresent, killOwnedForExecution } from '@audivra/tool-runtime'
 import { evaluateAuthorizationCoverage } from './authorization.ts'
+import { compact } from './compact.ts'
 import type { CapabilityRegistry } from './capabilities/registry.ts'
-import type { CapabilityHandles, EvidenceRecorder, SecurityCapability, SecurityExecutionContext } from './capabilities/types.ts'
-import { deepFreeze } from './freeze.ts'
+import type { SecurityCapability } from './capabilities/types.ts'
 import { systemResolver, type Resolver } from './dns.ts'
-import { ScopedHttpClient, type NetworkAttempt } from './http-client.ts'
+import { NOT_STARTED_EXIT } from './execution/control.ts'
+import { executionEvent } from './execution/events.ts'
+import { failure, failureMessage } from './execution/failures.ts'
+import { createExecutionHandles } from './execution/handles.ts'
+import { buildExecutionSnapshot, contextFromSnapshot, snapshotHash } from './execution/snapshot.ts'
+import type { ExecutionQueue, ExecutionStore } from './execution/store.ts'
+import { ExecutionWorkspace } from './execution/workspace.ts'
+import { type NetworkAttempt } from './http-client.ts'
 import { effectivePolicy, evaluateCapabilityPolicy, type CapabilityPolicyResult } from './policy.ts'
 import { evaluateReadiness } from './readiness.ts'
 import { checkExecutionResources, type ResourceCheck, type ResourceCheckInput } from './resources.ts'
@@ -31,7 +39,8 @@ import type { EngagementSnapshot, SecurityStore } from './store.ts'
  *
  *   request → capability → input → engagement → readiness → authorization → scope (+ DNS)
  *           → destination authorization → environment/risk policy → resources → decision
- *           → [allowed only] executor → result → evidence + security events
+ *           → [allowed only] trusted snapshot → execute (in process)  or  submit (durable, queued)
+ *           → executor → result → evidence + security events
  *
  * Every request gets one complete, persisted decision explaining what was checked. Denied requests
  * never reach an executor. The executor receives a frozen context built from persisted engagement data
@@ -63,22 +72,39 @@ export interface BrokerOutcome {
   network: NetworkAttempt[]
 }
 
+/** Result of `submit`: the execution was accepted and queued, denied, or could not be queued. */
+export interface SubmitOutcome {
+  executionId: string
+  status: 'queued' | 'denied' | 'failed'
+  decision: PolicyDecision
+  error: string | null
+}
+
+type Allowed = {
+  kind: 'allowed'
+  executionId: string
+  correlationId: string
+  req: z.output<typeof BrokerRequest>
+  engagement: EngagementSnapshot
+  capability: SecurityCapability
+  input: unknown
+  policy: CapabilityPolicyResult
+  decision: PolicyDecision
+  decisionEventId: number
+}
+type Decided = Allowed | { kind: 'denied'; executionId: string; decision: PolicyDecision }
+
 export interface BrokerDependencies {
   registry: CapabilityRegistry
   store: SecurityStore
+  /** Where accepted durable executions are persisted and queued (required for `submit`). */
+  executions?: { store: ExecutionStore; queue: ExecutionQueue }
   resolver?: Resolver
   now?: () => Date
   /** Engagement workspace root (default: the configured data directory). */
   workspaceRoot?: (engagementId: string) => string
   checkResources?: (input: ResourceCheckInput) => Promise<ResourceCheck>
   log?: Logger
-}
-
-const OUTPUT_LIMIT = 20_000
-
-function compact(value: unknown): unknown {
-  const json = JSON.stringify(value ?? null)
-  return json.length > OUTPUT_LIMIT ? { truncated: true, size: json.length } : value
 }
 
 export class CapabilityBroker {
@@ -89,6 +115,7 @@ export class CapabilityBroker {
   readonly #workspaceRoot: (engagementId: string) => string
   readonly #checkResources: (input: ResourceCheckInput) => Promise<ResourceCheck>
   readonly #log: Logger | undefined
+  readonly #executions: BrokerDependencies['executions']
 
   constructor(deps: BrokerDependencies) {
     this.#registry = deps.registry
@@ -98,13 +125,81 @@ export class CapabilityBroker {
     this.#workspaceRoot = deps.workspaceRoot ?? engagementWorkspaceDir
     this.#checkResources = deps.checkResources ?? checkExecutionResources
     this.#log = deps.log
+    this.#executions = deps.executions
   }
 
   get registry(): CapabilityRegistry {
     return this.#registry
   }
 
+  /**
+   * Decides a request and, when it is allowed, runs it in this process (Phase 1 path: tests and the
+   * agent gateway). Nothing is persisted beyond the decision trail and evidence; durable runs use
+   * `submit`.
+   */
   async execute(request: unknown, options: { signal?: AbortSignal } = {}): Promise<BrokerOutcome> {
+    const decided = await this.#decide(request)
+    if (decided.kind === 'denied') return deniedOutcome(decided.executionId, decided.decision)
+    return this.#run(decided, options.signal)
+  }
+
+  /**
+   * Decides a request and, when it is allowed, accepts it as a durable execution: the trusted snapshot
+   * is persisted with the execution and a job naming only the execution id is queued for the worker.
+   * The request itself never reaches the worker.
+   */
+  async submit(request: unknown): Promise<SubmitOutcome> {
+    const executions = this.#executions
+    if (!executions) throw new Error('This broker cannot accept durable executions: it was created without an execution store and queue')
+    const decided = await this.#decide(request)
+    if (decided.kind === 'denied') return { executionId: decided.executionId, status: 'denied', decision: decided.decision, error: null }
+    const { executionId, decision } = decided
+    const meta = decided.capability.metadata
+    const snapshot = this.#snapshot(decided)
+    const hash = snapshotHash(snapshot)
+    const record = await executions.store.create({
+      id: executionId,
+      engagementId: decided.engagement.id,
+      capabilityId: meta.id,
+      capabilityVersion: meta.version,
+      environment: snapshot.environment,
+      configVersion: decided.engagement.configVersion,
+      correlationId: decided.correlationId,
+      requestedBy: decided.req.actor,
+      decisionEventId: decided.decisionEventId,
+      snapshot,
+      snapshotHash: hash,
+    })
+    await executionEvent(
+      this.#store,
+      record,
+      'execution.requested',
+      `${meta.name} accepted for execution with its trusted snapshot`,
+      { snapshotHash: hash, limits: snapshot.limits, runtime: snapshot.runtime, targets: snapshot.allowedTargets },
+      'info',
+      decided.req.actor,
+    )
+    // The job id is chosen up front so "queued" is always recorded before a worker can pick the job up.
+    const jobId = randomUUID()
+    try {
+      await executions.store.setJob(executionId, jobId)
+      await executionEvent(this.#store, record, 'execution.queued', 'Queued for the worker', { jobId })
+      await executions.queue.enqueue(executionId, jobId)
+      return { executionId, status: 'queued', decision, error: null }
+    } catch (error) {
+      const message = failureMessage(error)
+      await executions.store.update(
+        executionId,
+        { from: ['queued'] },
+        { status: 'failed', finishedAt: this.#now(), failure: failure('internal', 'execution.enqueue-failed', `Could not queue the execution: ${message}`), exit: { ...NOT_STARTED_EXIT, outcome: 'failed' } },
+      )
+      await executionEvent(this.#store, record, 'execution.failed', `${meta.name} could not be queued: ${message}`, {}, 'error')
+      return { executionId, status: 'failed', decision, error: message }
+    }
+  }
+
+  /** The decision path shared by `execute` and `submit`: every check, one persisted, explained decision. */
+  async #decide(request: unknown): Promise<Decided> {
     const executionId = newId('sx')
     const evaluatedAt = this.#now()
     const parsed = BrokerRequest.safeParse(request)
@@ -112,14 +207,14 @@ export class CapabilityBroker {
       const engagementId = typeof (request as { engagementId?: unknown })?.engagementId === 'string' ? (request as { engagementId: string }).engagementId : 'unknown'
       const decision = denial(executionId, engagementId, evaluatedAt, 'input', 'request.invalid', `Invalid capability request: ${issueText(parsed.error)}`)
       await this.#recordStandaloneDenial(engagementId, decision)
-      return deniedOutcome(executionId, decision)
+      return { kind: 'denied', executionId, decision }
     }
     const req = parsed.data
     const correlationId = req.correlationId ?? executionId
     const loaded = await this.#store.loadEngagement(req.engagementId)
     if (!loaded) {
       const decision = { ...denial(executionId, req.engagementId, evaluatedAt, 'engagement', 'engagement.not-found', 'No such security engagement'), correlationId, actor: req.actor }
-      return deniedOutcome(executionId, decision)
+      return { kind: 'denied', executionId, decision }
     }
     const { engagement, authorizations } = loaded
     const capability = this.#registry.get(req.capabilityId)
@@ -150,7 +245,7 @@ export class CapabilityBroker {
         decision,
       })
       this.#log?.info({ executionId, capabilityId: req.capabilityId, engagementId: engagement.id, rule: decision.rule }, 'security capability denied')
-      return deniedOutcome(executionId, decision)
+      return { kind: 'denied', executionId, decision }
     }
 
     const allowedEvent = await this.#store.recordEvent({
@@ -163,7 +258,32 @@ export class CapabilityBroker {
       configVersion: engagement.configVersion,
       decision,
     })
-    return this.#run(executionId, correlationId, req, engagement, capability, evaluation.input, evaluation.policy, decision, allowedEvent.id, options.signal)
+    return {
+      kind: 'allowed',
+      executionId,
+      correlationId,
+      req,
+      engagement,
+      capability,
+      input: evaluation.input,
+      policy: evaluation.policy,
+      decision,
+      decisionEventId: allowedEvent.id,
+    }
+  }
+
+  #snapshot(d: Allowed): SecurityExecutionSnapshot {
+    return buildExecutionSnapshot({
+      executionId: d.executionId,
+      correlationId: d.correlationId,
+      engagement: d.engagement,
+      decision: d.decision,
+      decisionEventId: d.decisionEventId,
+      capability: d.capability.metadata,
+      policy: d.policy,
+      input: d.input,
+      actor: d.req.actor,
+    })
   }
 
   /**
@@ -339,119 +459,54 @@ export class CapabilityBroker {
     return finish()
   }
 
-  async #run(
-    executionId: string,
-    correlationId: string,
-    req: z.output<typeof BrokerRequest>,
-    engagement: EngagementSnapshot,
-    capability: SecurityCapability,
-    input: unknown,
-    policy: CapabilityPolicyResult,
-    decision: PolicyDecision,
-    decisionEventId: number,
-    signal: AbortSignal | undefined,
-  ): Promise<BrokerOutcome> {
-    const meta = capability.metadata
-    const environment = engagement.environment!
-    const context: SecurityExecutionContext = deepFreeze({
-      executionId,
-      correlationId,
-      engagementId: engagement.id,
-      configVersion: engagement.configVersion,
-      environment,
-      authorization: { required: decision.authorization.required, state: decision.authorization.state, authorizationIds: decision.authorization.authorizationIds },
-      scope: { version: engagement.scopeVersion, hash: engagement.scopeHash, manifest: structuredClone(engagement.scope) },
-      policy: { profileKey: engagement.policyProfileKey, profileVersion: engagement.policyProfileVersion, risk: policy.risk, mutation: policy.mutation },
-      capability: { id: meta.id, version: meta.version, implementation: meta.implementation, riskClass: meta.riskClass, sideEffect: meta.sideEffect },
-      limits: { ...policy.limits },
-      actor: { ...req.actor },
-      allowedTargets: decision.scope!.evaluations.filter((e) => e.kind !== 'network').map((e) => e.destination.url!),
-      requestedAt: decision.evaluatedAt,
-    })
+  async #run(d: Allowed, signal: AbortSignal | undefined): Promise<BrokerOutcome> {
+    const { executionId, correlationId, decision, req } = d
+    const meta = d.capability.metadata
+    const engagement = d.engagement
+    // The same trusted snapshot a durable execution persists; context and handles come from it only.
+    const snapshot = this.#snapshot(d)
+    const context = contextFromSnapshot(snapshot)
 
     const controller = new AbortController()
-    const timeoutMs = Math.min(policy.limits.executionTimeoutSeconds, meta.timeoutProfile.maxSeconds) * 1000
+    const timeoutMs = snapshot.runtime.timeoutSeconds * 1000
     const timer = setTimeout(() => controller.abort(new Error(`Timed out after ${timeoutMs / 1000} s`)), timeoutMs)
     const onAbort = () => controller.abort(signal?.reason ?? new Error('Cancelled'))
     if (signal?.aborted) onAbort()
     signal?.addEventListener('abort', onAbort, { once: true })
 
-    const workspaceRoot = this.#workspaceRoot(engagement.id)
-    const dir = path.join(workspaceRoot, 'executions', executionId)
-    const evidence: SecurityEvidenceItem[] = []
-    let open = true
-    const recorder: EvidenceRecorder = {
-      record: async (item) => {
-        if (!open) throw new Error('Evidence can only be recorded while the execution is running')
-        const artifactPath = item.artifactPath ? (resolveInside(workspaceRoot, item.artifactPath) ? item.artifactPath.replace(/\\/g, '/') : null) : null
-        if (item.artifactPath && !artifactPath) throw new Error(`Artifact path escapes the engagement workspace: ${item.artifactPath}`)
-        const recorded = await this.#store.recordEvidence({
-          engagementId: engagement.id,
-          source: 'system',
-          type: item.type,
-          title: item.title,
-          summary: item.summary,
-          url: item.url ?? null,
-          artifactPath,
-          metadata: item.metadata,
-          provenance: {
-            engagementId: engagement.id,
-            executionId,
-            correlationId,
-            capabilityId: meta.id,
-            capabilityVersion: meta.version,
-            implementation: meta.implementation,
-            decisionEventId,
-            environment,
-            scopeVersion: engagement.scopeVersion,
-            scopeHash: engagement.scopeHash,
-            configVersion: engagement.configVersion,
-            policyProfile: { key: engagement.policyProfileKey, version: engagement.policyProfileVersion },
-            authorizationIds: decision.authorization.authorizationIds,
-            sensitivity: item.sensitivity ?? 'normal',
-          },
-        })
-        evidence.push(recorded)
-        return recorded
-      },
-    }
-    const http = new ScopedHttpClient({ manifest: context.scope.manifest, limits: context.limits, mutation: meta.sideEffect, resolver: this.#resolver, signal: controller.signal })
-    const handles: CapabilityHandles = {
-      http,
-      signal: controller.signal,
-      workspace: { root: workspaceRoot, dir, relative: (abs) => toWorkspaceRelative(workspaceRoot, abs) ?? '' },
-      evidence: recorder,
-      processOwner: { tool: meta.id, securityExecutionId: executionId },
-    }
+    const workspace = new ExecutionWorkspace(this.#workspaceRoot(engagement.id), executionId)
+    const { handles, registrar, http } = createExecutionHandles(snapshot, { workspace, signal: controller.signal, resolver: this.#resolver, store: this.#store })
     const event = (type: 'capability.started' | 'capability.completed' | 'capability.failed' | 'capability.cancelled', message: string, data: Record<string, unknown>, level: 'info' | 'warn' | 'error' = 'info') =>
       this.#store.recordEvent({ engagementId: engagement.id, type, level, message, actor: req.actor, executionId, capabilityId: meta.id, configVersion: engagement.configVersion, data })
 
     await event('capability.started', `${meta.name} started`, { correlationId, limits: context.limits, targets: context.allowedTargets })
     try {
-      const result = await capability.implementation.execute(context, input, handles)
-      open = false
+      await workspace.init()
+      const result = await d.capability.implementation.execute(context, d.input, handles)
+      registrar.close()
       await event('capability.completed', redact(result.summary).slice(0, 500), {
         output: compact(result.output),
-        evidence: evidence.map((e) => e.ref),
+        evidence: registrar.registered.map((e) => e.ref),
         requests: http.requestCount,
         network: http.attempts,
       })
-      return { executionId, status: 'completed', decision, output: result.output, summary: result.summary, evidence, error: null, network: http.attempts }
+      return { executionId, status: 'completed', decision, output: result.output, summary: result.summary, evidence: registrar.registered, error: null, network: http.attempts }
     } catch (error) {
-      open = false
+      registrar.close()
       const message = redact(error instanceof Error ? error.message : String(error)).slice(0, 1000)
       if (controller.signal.aborted) {
         const killed = await killOwnedForExecution(executionId)
         const reason = controller.signal.reason instanceof Error ? controller.signal.reason.message : 'Cancelled'
         await event('capability.cancelled', `${meta.name} stopped: ${reason}`, { reason, killedProcesses: killed, requests: http.requestCount, network: http.attempts }, 'warn')
-        return { executionId, status: 'cancelled', decision, output: null, summary: null, evidence, error: reason, network: http.attempts }
+        return { executionId, status: 'cancelled', decision, output: null, summary: null, evidence: registrar.registered, error: reason, network: http.attempts }
       }
       await event('capability.failed', `${meta.name} failed: ${message}`, { error: message, requests: http.requestCount, network: http.attempts }, 'error')
-      return { executionId, status: 'failed', decision, output: null, summary: null, evidence, error: message, network: http.attempts }
+      return { executionId, status: 'failed', decision, output: null, summary: null, evidence: registrar.registered, error: message, network: http.attempts }
     } finally {
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
       if (controller.signal.aborted) await killOwnedForExecution(executionId)
+      await workspace.cleanup().catch(() => undefined)
     }
   }
 }

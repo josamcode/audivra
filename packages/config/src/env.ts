@@ -55,6 +55,11 @@ const Env = z.object({
    * Operational threshold only: security *policy* lives in versioned policy profiles, not here.
    */
   SECURITY_MIN_FREE_DISK_MB: z.coerce.number().int().min(0).default(2048),
+  /**
+   * Security executions that may be active at once across every worker sharing the database (also the
+   * worker's pg-boss concurrency for the execution queue). Operational capacity, not policy.
+   */
+  SECURITY_EXECUTION_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
   CLAUDE_BIN: z.string().default('claude'),
 })

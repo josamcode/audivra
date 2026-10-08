@@ -11,6 +11,7 @@ import type {
   SecurityEnvironment,
   SecurityEvidenceItem,
 } from '@audivra/contracts'
+import type { RunProcessResult } from '@audivra/tool-runtime'
 import type { ScopedHttpClient } from '../http-client.ts'
 
 /**
@@ -51,18 +52,54 @@ export interface EvidenceRecorder {
   record(input: RecordEvidenceInput): Promise<SecurityEvidenceItem>
 }
 
+/** A process a capability starts through `handles.processes` (always owned by its execution). */
+export interface CapabilityProcessOptions {
+  command: string
+  args?: string[]
+  /** Working directory: one of the execution's workspace areas (default `tmp`). */
+  cwd?: 'inputs' | 'outputs' | 'artifacts' | 'tmp'
+  timeoutMs?: number
+  input?: string
+  maxBuffer?: number
+  /** Stream stdout / stderr into files in the execution's `outputs/` area (relative paths). */
+  stdoutFile?: string
+  stderrFile?: string
+}
+
+export interface CapabilityProcesses {
+  run(options: CapabilityProcessOptions): Promise<RunProcessResult>
+}
+
+/**
+ * This execution's private directory inside the engagement workspace and its areas (absolute paths).
+ * `relative()` turns a path inside the execution into the engagement-relative form evidence uses.
+ */
+export interface CapabilityWorkspace {
+  root: string
+  dir: string
+  inputs: string
+  outputs: string
+  artifacts: string
+  tmp: string
+  relative(path: string): string
+}
+
 /** Everything an executor may use. There is no other sanctioned way to reach the network or disk. */
 export interface CapabilityHandles {
   /** Scope-, DNS- and budget-enforcing HTTP client. */
   http: ScopedHttpClient
   /** Aborted on cancellation or timeout. */
   signal: AbortSignal
-  /** This execution's private directory inside the engagement workspace. */
-  workspace: { root: string; dir: string; relative(path: string): string }
+  workspace: CapabilityWorkspace
   evidence: EvidenceRecorder
   /**
+   * Starts a process owned by this execution: registered by PID + creation time, confined to the
+   * workspace, counted against the process limit and terminated exactly on cancellation or timeout.
+   */
+  processes: CapabilityProcesses
+  /**
    * Ownership metadata for `runProcess` (tool-runtime): processes started with it are registered by
-   * PID + creation time and terminated, exactly, when this execution is cancelled.
+   * PID + creation time and terminated, exactly, when this execution is cancelled. Prefer `processes`.
    */
   processOwner: { tool: string; securityExecutionId: string }
 }
