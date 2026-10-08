@@ -26,6 +26,7 @@ export async function buildAuditExport(db: Db, data: AuditData, comparison: Audi
       finishedAt: row.finishedAt?.toISOString() ?? null,
       durationMs: row.startedAt && row.finishedAt ? row.finishedAt.getTime() - row.startedAt.getTime() : null,
       aiEnabled: row.aiEnabled,
+      template: row.templateKey ? { key: row.templateKey, version: row.templateVersion } : null,
     },
     coverage: data.coverage,
     business: summary.businessUnderstanding ?? null,
@@ -35,6 +36,7 @@ export async function buildAuditExport(db: Db, data: AuditData, comparison: Audi
     baseline: row.baseline ?? null,
     metrics: data.catalog,
     pages: data.pages,
+    journeys: data.journeys.map(({ id: _id, auditId: _audit, ...journey }) => journey),
     findings: data.findings.map(({ id: _id, auditId: _audit, ...finding }) => finding),
     evidence: data.evidence.map((e) => ({
       ref: e.ref,

@@ -8,6 +8,8 @@ import {
   type EvidenceItem,
   type FindingBrief,
   type FindingItem,
+  type FindingTimeline,
+  type JourneyItem,
   type MetricCatalogEntry,
   type PageItem,
   type SiteHistory,
@@ -20,6 +22,8 @@ import {
   listArtifacts,
   listEvidence,
   listFindings,
+  listFindingSignals,
+  listJourneys,
   listPages,
   listSiteAudits,
   listSteps,
@@ -38,6 +42,7 @@ import {
   summarize,
   type MetricSnapshot,
 } from './compare.ts'
+import { buildFindingTimelines, compareJourneys, compareNames, trackingTools } from './changes.ts'
 import { computeCoverage } from './coverage.ts'
 
 export interface AuditData {
@@ -50,38 +55,47 @@ export interface AuditData {
   steps: AuditStep[]
   coverage: CoverageItem[]
   catalog: MetricCatalogEntry[]
+  journeys: JourneyItem[]
 }
 
 /** Loads everything presentation needs for one audit. Computes (and persists) coverage when missing. */
 export async function loadAuditData(db: Db, auditId: string): Promise<AuditData | undefined> {
   const row = await getAuditRow(db, auditId)
   if (!row) return undefined
-  const [findings, evidence, artifacts, pages, toolRuns, steps] = await Promise.all([
+  const [findings, evidence, artifacts, pages, toolRuns, steps, journeys] = await Promise.all([
     listFindings(db, auditId),
     listEvidence(db, auditId),
     listArtifacts(db, auditId),
     listPages(db, auditId),
     listToolRuns(db, auditId),
     listSteps(db, auditId),
+    listJourneys(db, auditId),
   ])
-  let coverage = row.coverage ?? null
+  // While the audit runs, the stored table is the snapshot taken after the baseline (AI stages still
+  // pending), so it is recomputed from the current steps instead of being trusted.
+  const inFlight = row.status === 'running' || row.status === 'queued'
+  let coverage = inFlight ? null : (row.coverage ?? null)
   if (!coverage || coverage.length === 0) {
     coverage = computeCoverage({ targetUrl: row.normalizedUrl, toolRuns, steps, baseline: row.baseline ?? null, evidence })
-    if (row.status !== 'running' && row.status !== 'queued') await updateAudit(db, auditId, { coverage })
+    if (!inFlight) await updateAudit(db, auditId, { coverage })
   }
-  return { row, findings, evidence, artifacts, pages, toolRuns, steps, coverage, catalog: buildMetricCatalog(evidence) }
+  return { row, findings, evidence, artifacts, pages, toolRuns, steps, coverage, catalog: buildMetricCatalog(evidence), journeys }
 }
 
 export function toBrief(f: FindingItem): FindingBrief {
   return { ref: f.ref, title: f.title, severity: f.severity, category: f.category, issueKey: f.issueKey, affectedUrls: f.affectedUrls }
 }
 
-/** Comparable metrics for an audit snapshot, with lab-noise thresholds. */
-export function metricSnapshots(data: Pick<AuditData, 'row' | 'findings'>): MetricSnapshot[] {
+/**
+ * Comparable metrics for an audit snapshot, with lab-noise thresholds. Finding totals count once the
+ * findings are final: the audit finished, or (while visuals are still being made) finalization completed.
+ */
+export function metricSnapshots(data: Pick<AuditData, 'row' | 'findings'> & { steps?: AuditStep[] }): MetricSnapshot[] {
   const b = data.row.baseline
   const lh = b?.lighthouse ?? null
   const critHigh = data.findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length
-  const hasFindings = data.row.aiEnabled && (data.row.status === 'completed' || data.row.status === 'partial')
+  const finalized = data.steps?.find((s) => s.stage === 'finalizing')?.status === 'completed'
+  const hasFindings = data.row.aiEnabled && (data.row.status === 'completed' || data.row.status === 'partial' || finalized)
   return [
     { key: 'lighthouse.performance', label: 'Performance score (mobile, start page)', unit: 'score', lowerIsBetter: false, noise: 3, value: lh?.performance ?? null },
     { key: 'lighthouse.lcp', label: 'LCP (mobile, start page)', unit: 'ms', lowerIsBetter: true, noise: 150, value: lh?.lcpMs ?? null },
@@ -129,6 +143,8 @@ export async function buildComparison(db: Db, auditId: string, withAuditId?: str
     findings,
     metrics: compareMetrics(metricSnapshots(current), metricSnapshots(previous)),
     technologies: compareTechnologies(technologies(row), technologies(previousRow)),
+    tracking: compareNames(trackingTools(current.evidence), trackingTools(previous.evidence)),
+    journeys: compareJourneys(current.journeys, previous.journeys),
     coverage: compareCoverage(current.coverage, previous.coverage),
     screenshots: pairScreenshots(
       { auditId: row.id, date: row.createdAt.toISOString(), evidence: current.evidence },
@@ -150,12 +166,27 @@ const HISTORY_SERIES: { key: string; label: string; unit: TrendSeries['unit']; l
 ]
 
 /** Real per-audit history for a site. Series appear only with at least MIN_TREND_POINTS real values. */
-export async function buildSiteHistory(db: Db, siteKey: string, options: { benchmark?: boolean } = {}): Promise<SiteHistory> {
-  const rows = (await listSiteAudits(db, siteKey)).filter((r) => r.benchmark === (options.benchmark ?? false))
+/**
+ * Measured history of a site's finished audits. `includeAuditId` adds an audit that is still running
+ * (the one whose visuals are being made), so its own measurements appear in its trend charts.
+ */
+export async function buildSiteHistory(
+  db: Db,
+  siteKey: string,
+  options: { benchmark?: boolean; includeAuditId?: string } = {},
+): Promise<SiteHistory> {
+  let rows = (await listSiteAudits(db, siteKey)).filter((r) => r.benchmark === (options.benchmark ?? false))
+  if (options.includeAuditId && !rows.some((r) => r.id === options.includeAuditId)) {
+    const current = await getAuditRow(db, options.includeAuditId)
+    if (current && current.siteKey === siteKey && current.benchmark === (options.benchmark ?? false)) {
+      rows = [...rows, current].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    }
+  }
   const audits: SiteHistory['audits'] = []
   const values = new Map<string, { auditId: string; at: string; value: number }[]>()
   for (const row of rows) {
     const findings = await listFindings(db, row.id)
+    const steps = row.id === options.includeAuditId ? await listSteps(db, row.id) : undefined
     const severityCounts: Record<string, number> = {}
     for (const f of findings) severityCounts[f.severity] = (severityCounts[f.severity] ?? 0) + 1
     audits.push({
@@ -166,7 +197,7 @@ export async function buildSiteHistory(db: Db, siteKey: string, options: { bench
       findingCount: findings.length,
       severityCounts,
     })
-    const snapshot = new Map(metricSnapshots({ row, findings }).map((m) => [m.key, m.value]))
+    const snapshot = new Map(metricSnapshots({ row, findings, steps }).map((m) => [m.key, m.value]))
     const hasFindings = row.aiEnabled
     snapshot.set('findings.verified', hasFindings ? findings.filter((f) => f.type === 'verified').length : null)
     snapshot.set('pages.discovered', row.baseline?.pagesDiscovered ?? null)
@@ -182,4 +213,27 @@ export async function buildSiteHistory(db: Db, siteKey: string, options: { bench
     points: values.get(s.key)!,
   }))
   return { siteKey, audits, series }
+}
+
+/**
+ * Issue timelines for an audit: every finished AI audit of the same site (same benchmark flag) up to
+ * and including this one, oldest first. Uses identity fields only (no prose or evidence).
+ */
+export async function buildAuditTimelines(db: Db, auditId: string): Promise<FindingTimeline[]> {
+  const row = await getAuditRow(db, auditId)
+  if (!row || !row.aiEnabled) return []
+  const audits = (await listSiteAudits(db, row.siteKey)).filter(
+    (r) => r.aiEnabled && r.benchmark === row.benchmark && r.createdAt.getTime() <= row.createdAt.getTime(),
+  )
+  if (audits.length < 2) return []
+  const signals = await listFindingSignals(db, audits.map((a) => a.id))
+  return buildFindingTimelines(
+    audits.map((a) => ({
+      id: a.id,
+      date: (a.startedAt ?? a.createdAt).toISOString(),
+      findings: signals
+        .filter((f) => f.auditId === a.id)
+        .map((f) => ({ ref: f.ref, title: f.title, severity: f.severity, category: f.category, issueKey: f.issueKey, affectedUrls: f.affectedUrls })),
+    })),
+  )
 }

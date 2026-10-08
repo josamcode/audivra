@@ -1,11 +1,17 @@
 import { z } from 'zod'
 import {
+  JOURNEY_TYPES,
   SEVERITIES,
+  TEMPLATE_KEYS,
+  type AuditComparison,
+  type BenchmarkChangeResult,
   type BenchmarkFixtureResult,
   type BenchmarkIssueResult,
+  type BenchmarkJourneyResult,
   type BenchmarkRunItem,
   type EvidenceItem,
   type FindingItem,
+  type JourneyItem,
 } from '@audivra/contracts'
 
 /**
@@ -31,11 +37,37 @@ export const BenchmarkExpectation = z.object({
 })
 export type BenchmarkExpectation = z.infer<typeof BenchmarkExpectation>
 
+/** Structural expectations about the journeys an audit of the fixture should discover. */
+export const JourneyExpectation = z.object({
+  /** The primary journey's type must be one of these. */
+  primaryTypes: z.array(z.enum(JOURNEY_TYPES)).min(1),
+  /** Regex matched against the primary journey's converting step (conversion type, label, URL). */
+  conversion: Pattern,
+  /** Healthy fixture: no blocked step and no "problem" health verdict. */
+  noProblems: z.boolean().default(false),
+  /** Localized section prefix (e.g. "/ar/"): a journey that enters it must stay in it. */
+  localizedPrefix: z.string().optional(),
+})
+export type JourneyExpectation = z.infer<typeof JourneyExpectation>
+
+/** Known differences between this fixture variant and an earlier one (by issue id of both fixtures). */
+export const ChangeExpectation = z.object({
+  comparedWith: z.string(),
+  notFoundAgain: z.array(z.string()).default([]),
+  stillPresent: z.array(z.string()).default([]),
+  new: z.array(z.string()).default([]),
+})
+export type ChangeExpectation = z.infer<typeof ChangeExpectation>
+
 export const FixtureExpectations = z.object({
   id: z.string(),
   name: z.string(),
   variant: z.string(),
   healthy: z.boolean(),
+  /** Audit focus the fixture is audited with (explicit, so benchmarks never depend on defaults). */
+  template: z.enum(TEMPLATE_KEYS).default('general'),
+  journeys: JourneyExpectation.optional(),
+  changes: ChangeExpectation.optional(),
   issues: z.array(BenchmarkExpectation),
   /** Claims known to be false for this fixture: a matching (non-info) finding is a false positive. */
   absent: z.array(z.object({ id: z.string(), description: z.string(), match: Pattern })),
@@ -149,6 +181,89 @@ export function scoreFixture(fixture: FixtureExpectations, input: ScoreInput): B
     unsupportedDetails,
     error: input.error ?? null,
   }
+}
+
+/** Scores the discovered journeys against the fixture's structure (never wording). */
+export function scoreJourneys(expectation: JourneyExpectation, journeys: JourneyItem[]): BenchmarkJourneyResult {
+  const notes: string[] = []
+  const primary = journeys.find((j) => j.isPrimary) ?? null
+  const conversion = primary ? (primary.steps.find((s) => s.conversionType) ?? primary.steps.at(-1) ?? null) : null
+  const conversionText = conversion ? `${conversion.conversionType ?? ''} ${conversion.label} ${conversion.url ?? ''}` : ''
+  const blocked = journeys.flatMap((j) => j.steps.filter((s) => s.status === 'blocked').map((s) => `${j.ref} ${s.label}`))
+  const problems = journeys.flatMap((j) => j.health.filter((h) => h.status === 'problem').map((h) => `${j.ref} ${h.dimension}`))
+  if (!primary) notes.push(journeys.length ? 'No journey was marked primary' : 'No journeys were recorded')
+  if (expectation.noProblems && (blocked.length || problems.length)) notes.push(`Unexpected on a healthy fixture: ${[...blocked, ...problems].join(', ')}`)
+
+  let localizedConsistent: boolean | null = null
+  if (expectation.localizedPrefix) {
+    const prefix = expectation.localizedPrefix
+    const pathOf = (url: string | null) => {
+      if (!url) return null
+      try {
+        return new URL(url).pathname
+      } catch {
+        return null
+      }
+    }
+    const localized = journeys.filter((j) => j.steps.some((s) => pathOf(s.url)?.startsWith(prefix)))
+    if (localized.length) {
+      localizedConsistent = localized.every((j) => {
+        const first = j.steps.findIndex((s) => pathOf(s.url)?.startsWith(prefix))
+        return j.steps.slice(first).every((s) => {
+          const path = pathOf(s.url)
+          return path === null || path.startsWith(prefix)
+        })
+      })
+      if (!localizedConsistent) notes.push(`A journey leaves ${prefix} after entering it`)
+    }
+  }
+  return {
+    journeys: journeys.length,
+    primaryFound: primary !== null,
+    primaryType: primary?.type ?? null,
+    primaryTypeCorrect: primary ? expectation.primaryTypes.includes(primary.type) : null,
+    conversionCorrect: conversion ? regex(expectation.conversion).test(conversionText) : null,
+    blockedSteps: blocked.length,
+    unexpectedProblems: expectation.noProblems && blocked.length + problems.length > 0,
+    localizedConsistent,
+    notes,
+  }
+}
+
+/**
+ * Scores the deterministic comparison between two fixture variants: an issue known to be gone must
+ * be "not found again", one that persists must be matched, one that is new must be new. Only issues
+ * both audits' scoring located can be checked; the rest are reported as not scorable.
+ */
+export function scoreChanges(
+  expectation: ChangeExpectation,
+  previous: BenchmarkFixtureResult,
+  current: BenchmarkFixtureResult,
+  comparison: AuditComparison | null,
+): BenchmarkChangeResult {
+  const refIn = (result: BenchmarkFixtureResult, id: string) => result.issues.find((i) => i.id === id)?.matchedFindingRef ?? null
+  const details: BenchmarkChangeResult['details'] = []
+  const statusOfPrevious = (ref: string) => comparison?.findings.find((c) => c.previous?.ref === ref)?.status ?? null
+  const statusOfCurrent = (ref: string) => comparison?.findings.find((c) => c.current?.ref === ref)?.status ?? null
+  for (const id of expectation.notFoundAgain) {
+    const ref = refIn(previous, id)
+    if (!ref) continue
+    const actual = statusOfPrevious(ref)
+    details.push({ issueId: id, expected: 'not-found-again', actual, correct: actual === 'resolved' })
+  }
+  for (const id of expectation.stillPresent) {
+    const ref = refIn(current, id)
+    if (!ref || !refIn(previous, id)) continue
+    const actual = statusOfCurrent(ref)
+    details.push({ issueId: id, expected: 'still-present', actual, correct: actual === 'unchanged' || actual === 'improved' || actual === 'regressed' })
+  }
+  for (const id of expectation.new) {
+    const ref = refIn(current, id)
+    if (!ref) continue
+    const actual = statusOfCurrent(ref)
+    details.push({ issueId: id, expected: 'new', actual, correct: actual === 'new' })
+  }
+  return { comparedWith: expectation.comparedWith, expected: details.length, correct: details.filter((d) => d.correct).length, details }
 }
 
 /** Run totals across fixtures (averages only over fixtures that produced a value). */

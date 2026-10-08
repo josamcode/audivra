@@ -30,7 +30,7 @@ export async function presentationContext(db: Db, auditId: string): Promise<Pres
   const root = auditWorkspaceDir(auditId)
   const sizes = new Map<string, { width: number; height: number } | null>()
   const [history, comparison, linkGraph] = await Promise.all([
-    buildSiteHistory(db, data.row.siteKey, { benchmark: data.row.benchmark }),
+    buildSiteHistory(db, data.row.siteKey, { benchmark: data.row.benchmark, includeAuditId: auditId }),
     buildComparison(db, auditId),
     readLinkGraph(auditId),
   ])
@@ -43,6 +43,7 @@ export async function presentationContext(db: Db, auditId: string): Promise<Pres
     history,
     comparison,
     linkGraph,
+    journeys: data.journeys,
     imageSize: async (workspacePath) => {
       if (sizes.has(workspacePath)) return sizes.get(workspacePath)!
       const file = resolveInside(root, workspacePath)

@@ -47,6 +47,20 @@ const finding = (id: string, severity: string, evidenceIds: string[]) => ({
   opportunity: null,
 })
 
+const journey = (evidenceIds: string[]) => ({
+  type: 'booking',
+  name: 'WhatsApp booking from the homepage',
+  goal: 'Book an appointment over WhatsApp.',
+  description: 'The homepage banner links to WhatsApp.',
+  isPrimary: true,
+  confidence: 0.8,
+  steps: [
+    { label: 'Homepage', url: `${fixture.url}/`, kind: 'page', action: 'Taps the WhatsApp banner', conversionType: null, status: 'friction', note: 'The banner overflows on mobile.', evidenceIds },
+    { label: 'WhatsApp chat', url: null, kind: 'outcome', action: '', conversionType: 'whatsapp', status: 'unverified', note: 'Opening WhatsApp is outside the browser.', evidenceIds: [] },
+  ],
+  health: [{ dimension: 'mobile', status: 'problem', note: 'Visitors must scroll sideways to reach the button.', evidenceIds, findingIds: [] as string[] }],
+})
+
 /** Stand-in for the Claude runtime: deterministic outputs for every role. */
 class ScriptedProvider implements AgentProvider {
   readonly id = 'scripted'
@@ -66,7 +80,8 @@ class ScriptedProvider implements AgentProvider {
         investigationSummary: 'Checked the mobile layout.',
         pagesInspected: [`${fixture.url}/`],
         technologies: [],
-        findings: [finding('D1', 'high', ['EV-1', this.shot]), finding('D2', 'medium', ['EV-2'])],
+        findings: [{ ...finding('D1', 'high', ['EV-1', this.shot]), journeyIds: ['J1'] }, finding('D2', 'medium', ['EV-2'])],
+        journeys: [{ id: 'J1', ...journey([this.shot]) }],
         limitations: [],
         suggestedFurtherVerification: [],
       },
@@ -90,13 +105,14 @@ class ScriptedProvider implements AgentProvider {
         importantPageTypes: [],
         technologies: [{ name: 'FixtureServer', category: 'Web server', confidence: 0.6, evidenceIds: ['EV-1'] }],
         findings: [
-          { ...finding('F1', 'high', ['EV-1', this.shot]), issueKey: 'mobile-banner-overflow', sourceFindingIds: ['D1'], verificationStatus: 'reviewer-approved' },
+          { ...finding('F1', 'high', ['EV-1', this.shot]), issueKey: 'mobile-banner-overflow', sourceFindingIds: ['D1'], verificationStatus: 'reviewer-approved', journeyIds: ['J1'] },
           { ...finding('F2', 'medium', ['EV-2']), issueKey: 'arabic-missing-rtl', sourceFindingIds: ['D2'], verificationStatus: 'reviewer-approved' },
         ],
         opportunities: [
           { title: 'Mobile layout fix', why: 'Removes sideways scrolling.', scope: 'Banner and template audit.', relatedFindingIds: ['F1'], impact: 'high', effort: 'low' },
           { title: 'Arabic RTL pass', why: 'Arabic visitors read right to left.', scope: 'dir attributes and mirrored layout.', relatedFindingIds: ['F2'], impact: 'medium', effort: 'medium' },
         ],
+        journeys: [{ id: 'J1', journeyKey: 'whatsapp-booking', sourceJourneyIds: ['J1'], ...journey([this.shot]) }],
         limitations: [{ kind: 'out-of-scope', text: 'No active security testing.' }],
         pagesInspected: [`${fixture.url}/`],
       },
@@ -131,6 +147,7 @@ beforeAll(async () => {
     normalizedUrl: `${fixture.url}/`,
     domain: new URL(fixture.url).host,
     aiEnabled: true,
+    template: { key: 'lead-generation', version: 1 },
   })
   auditId = audit.id
   // Inline mode runs every stage in this process, exactly as the benchmark does.
@@ -194,6 +211,12 @@ describe('exports', () => {
     // The client report never exposes internal run data.
     for (const secret of ['session-secret-123', 'scripted-model', 'promptVersion', auditId]) expect(html).not.toContain(secret)
     expect(html).not.toMatch(/(auditor|reviewer|finalizer|planner|composer):v\d/)
+    // Journeys and the audit focus reach the client report (same document as the Client view).
+    expect(html).toContain('Audit focus')
+    expect(html).toContain('Lead generation')
+    expect(html).toContain('Primary journey')
+    expect(html).toContain('WhatsApp booking from the homepage')
+    expect(html).toContain('Visitors must scroll sideways to reach the button.')
 
     const json = JSON.parse(readFileSync(files.get('json')!, 'utf8'))
     expect(json.schema).toBe(AUDIT_EXPORT_SCHEMA_VERSION)
@@ -205,6 +228,9 @@ describe('exports', () => {
     expect(json.artifacts.length).toBeGreaterThan(0)
     expect(json.coverage.length).toBeGreaterThan(10)
     expect(json.aiRuns.map((r: { role: string }) => r.role)).toEqual(['auditor', 'reviewer', 'finalizer', 'planner', 'composer'])
+    expect(json.audit.template).toEqual({ key: 'lead-generation', version: 1 })
+    expect(json.journeys.map((j: { ref: string; journeyKey: string; source: string }) => [j.ref, j.journeyKey, j.source])).toEqual([['J1', 'whatsapp-booking', 'audit']])
+    expect(json.findings[0].journeyRefs).toEqual(['J1'])
     const raw = readFileSync(files.get('json')!, 'utf8')
     expect(raw).not.toContain('data:image')
     expect(raw).not.toContain('session-secret-123')

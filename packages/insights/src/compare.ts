@@ -10,6 +10,7 @@ import {
   type ValueUnit,
 } from '@audivra/contracts'
 import { pagePath } from './catalog.ts'
+import { IN_PROGRESS } from './coverage.ts'
 
 const STOPWORDS = new Set(
   'the and for with from that this are was were has have not but its into over under than then them they their there these those which while what when where who whom why how all any can could should would may might must only also very more most less least such each other both few many much some same own just about above below between through during before after again further once here off out per via on in at to of by is be as or an a no nor too does did doing done'.split(' '),
@@ -186,9 +187,12 @@ export function compareTechnologies(current: string[], previous: string[]): Audi
   }
 }
 
+/** Coverage per capability; a capability still in progress (the stage running the comparison) is left out. */
 export function compareCoverage(current: CoverageItem[], previous: CoverageItem[]): AuditComparison['coverage'] {
   const prev = new Map(previous.map((c) => [c.capability, c]))
-  return current.map((c) => ({ capability: c.capability, label: c.label, before: prev.get(c.capability)?.status ?? null, after: c.status }))
+  return current
+    .filter((c) => !(c.status === 'partial' && c.reason === IN_PROGRESS))
+    .map((c) => ({ capability: c.capability, label: c.label, before: prev.get(c.capability)?.status ?? null, after: c.status }))
 }
 
 export function summarize(changes: FindingChange[]): AuditComparison['summary'] {

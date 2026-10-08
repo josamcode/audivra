@@ -7,6 +7,7 @@ const plan: ReportPlan = {
   topRiskFindingIds: ['F1', 'f-2', 'F99'],
   topOpportunityTitles: ['mobile fix ', 'Made-up work'],
   featuredArtifactRefs: ['A1', 'a2', 'A9'],
+  featuredJourneyRefs: [],
   majorFindingIds: ['F1', 'F2', 'F3'],
   findingProof: [
     { findingId: 'F1', artifactRef: 'A1', evidenceId: null },

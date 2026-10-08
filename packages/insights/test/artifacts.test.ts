@@ -24,6 +24,7 @@ function context(overrides: Partial<ResolveContext> = {}): ResolveContext {
     history: null,
     comparison: null,
     linkGraph: null,
+    journeys: [],
     imageSize: async (p) => (p === 'screenshots/mobile-home.png' ? { width: 780, height: 1688 } : null),
     ...overrides,
   }

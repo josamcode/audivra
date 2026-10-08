@@ -63,6 +63,9 @@ function fromTool(
   }
 }
 
+/** Reason of a capability whose stage is still running (not a coverage change). */
+export const IN_PROGRESS = 'In progress'
+
 function stepStatus(steps: AuditStep[], stage: AuditStep['stage']): AuditStep | undefined {
   return steps.find((s) => s.stage === stage)
 }
@@ -77,7 +80,7 @@ function fromStep(capability: CapabilityId, step: AuditStep | undefined, tools: 
     case 'skipped':
       return item(capability, /disabled|unavailable/i.test(step.message ?? '') ? 'unavailable' : 'skipped', tools, step.message ?? 'Skipped')
     case 'running':
-      return item(capability, 'partial', tools, 'In progress')
+      return item(capability, 'partial', tools, IN_PROGRESS)
     default:
       return item(capability, 'skipped', tools, 'Not run yet')
   }

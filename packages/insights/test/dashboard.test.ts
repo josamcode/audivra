@@ -36,6 +36,7 @@ function audit(id: string, siteKey: string, overrides: Partial<AuditBrief> = {})
     benchmark: false,
     aiEnabled: true,
     error: null,
+    template: null,
     ...overrides,
   }
 }

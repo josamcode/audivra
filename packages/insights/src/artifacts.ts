@@ -9,6 +9,7 @@ import {
   type Datum,
   type EvidenceItem,
   type FindingItem,
+  type JourneyItem,
   type MetricCatalogEntry,
   type Severity,
   type SiteHistory,
@@ -31,6 +32,8 @@ export interface ResolveContext {
   history: SiteHistory | null
   comparison: AuditComparison | null
   linkGraph: LinkGraph | null
+  /** Stored journeys of the audit (a `journey` spec may reference one by ID). */
+  journeys: JourneyItem[]
   /** Image dimensions for a workspace-relative path; null if missing/not an image. */
   imageSize: (workspacePath: string) => Promise<{ width: number; height: number } | null>
 }
@@ -416,6 +419,27 @@ export async function resolveArtifactSpec(spec: ArtifactSpec, ctx: ResolveContex
     }
     case 'journey':
     case 'funnel': {
+      const storedRef = spec.type === 'journey' ? str(data.journeyId, 10) : undefined
+      if (storedRef) {
+        // A stored journey: steps, statuses and evidence come from the validated journey, not the spec.
+        const journey = r.ctx.journeys.find((j) => j.ref.toLowerCase() === storedRef.trim().toLowerCase())
+        if (!journey) {
+          r.issues.push(`${where}: journey ${storedRef} does not exist`)
+          break
+        }
+        resolved = {
+          journeyId: journey.ref,
+          steps: journey.steps.slice(0, 10).map((step) => ({
+            label: step.label.slice(0, 80),
+            url: step.url ?? undefined,
+            kind: step.kind,
+            status: step.status === 'unverified' ? 'unknown' : step.status,
+            note: step.note ? step.note.slice(0, 200) : undefined,
+            evidenceId: r.validEvidenceRef(step.evidenceIds[0], `${where}.steps`),
+          })),
+        }
+        break
+      }
       const steps = asArray(data.steps).map((step, i) => {
         const s = asRecord(step)
         const base = {
@@ -611,6 +635,11 @@ export function availableSystemData(ctx: Omit<ResolveContext, 'imageSize'>): str
   lines.push((ctx.summary?.opportunities?.length ?? 0) >= 2 ? `impact_effort: ${ctx.summary!.opportunities!.length} opportunities` : 'impact_effort: unavailable')
   const kinds = new Set(ctx.evidence.map(evidenceKind))
   if (kinds.has('tracking')) lines.push('tracking_coverage: baseline tracking evidence exists (cite it)')
+  lines.push(
+    ctx.journeys.length
+      ? `journey (stored, use { "journeyId" }): ${ctx.journeys.map((j) => `${j.ref}${j.isPrimary ? ' (primary)' : ''} "${j.name}" — ${j.steps.map((s) => s.label).join(' → ')}`).join('; ')}`
+      : 'journey: no stored journeys for this audit',
+  )
   return lines
 }
 

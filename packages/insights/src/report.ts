@@ -2,9 +2,13 @@ import {
   REPORT_SCHEMA_VERSION,
   SEVERITIES,
   SEVERITY_RANK,
+  getTemplate,
   type Artifact,
   type AuditComparison,
+  type ChangeReportItem,
   type ClientReport,
+  type JourneyItem,
+  type ReportJourney,
   type Datum,
   type FindingItem,
   type LimitationItem,
@@ -56,7 +60,44 @@ function opportunityWhy(o: StoredOpportunity): string {
 
 export interface BuildReportOptions {
   comparison: AuditComparison | null
+  /** Stored Change Intelligence for this audit and the compared one, when generated. */
+  changes?: ChangeReportItem | null
   generatedAt?: Date
+}
+
+/** Local file paths (Windows or the audit workspace) never belong in client-facing text. */
+const WINDOWS_PATH = /\b[A-Za-z]:\\[^\s"'`)<>]+/g
+const WORKSPACE_PATH = /(?:\.\/)?\b(?:screenshots|tools|browser|baseline|network|notes|scripts|agent|tmp|final|exports)\/[\w./%-]+\.(?:png|jpe?g|webp|gif|json|jsonl|html?|md|txt|log|mjs|cjs|js|ts|csv|har|xml)\b/gi
+const SHELL_COMMAND = /`(?:curl|wget|node|npx|pnpm|npm|lighthouse|pa11y|httpx|katana|docker|python3?|bash|sh|grep|unlighthouse-ci|linkinator|testssl(?:\.sh)?)\b[^`]*`/gi
+
+/**
+ * Client-safe text: strips local paths and shell commands the AI may have quoted while describing
+ * how something was observed. Facts and public URLs are kept.
+ */
+export function clientSafeText(text: string): string {
+  return text
+    .replace(SHELL_COMMAND, (match) => (/^`(?:curl|wget)/i.test(match) ? 'a direct request' : 'an automated check'))
+    .replace(WINDOWS_PATH, '')
+    .replace(WORKSPACE_PATH, '')
+    .replace(/\(\s*(?:see|saved (?:to|as)|file:?)?\s*\)/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([.,;:])/g, '$1')
+    .trim()
+}
+
+/** A stored journey as the client sees it. */
+export function toReportJourney(j: JourneyItem): ReportJourney {
+  return {
+    ref: j.ref,
+    name: j.name,
+    type: j.type,
+    goal: clientSafeText(j.goal),
+    description: clientSafeText(j.description),
+    isPrimary: j.isPrimary,
+    steps: j.steps.map((s) => ({ label: s.label, url: s.url, kind: s.kind, status: s.status, note: clientSafeText(s.note), conversionType: s.conversionType })),
+    health: j.health.filter((h) => h.status !== 'not-assessed').map((h) => ({ dimension: h.dimension, status: h.status, note: clientSafeText(h.note) })),
+    findingRefs: j.findingRefs,
+  }
 }
 
 /** Builds the client report model from persisted data. No AI calls; reproducible at any time. */
@@ -106,18 +147,18 @@ export function buildClientReport(data: AuditData, options: BuildReportOptions):
 
   const toReportFinding = (f: FindingItem): ReportFinding => ({
     ref: f.ref,
-    title: f.title,
+    title: clientSafeText(f.title),
     severity: f.severity,
     category: f.category,
     type: f.type,
     confidence: f.confidence,
     verificationStatus: f.verificationStatus,
-    description: f.description,
-    observed: f.observed,
-    whyItMatters: f.whyItMatters,
-    businessImpact: f.businessImpact,
+    description: clientSafeText(f.description),
+    observed: clientSafeText(f.observed),
+    whyItMatters: clientSafeText(f.whyItMatters),
+    businessImpact: clientSafeText(f.businessImpact),
     businessImpactLevel: f.businessImpactLevel,
-    recommendation: f.recommendation,
+    recommendation: clientSafeText(f.recommendation),
     effort: f.effort,
     affectedUrls: f.affectedUrls,
     evidenceRefs: f.evidenceRefs,
@@ -202,11 +243,35 @@ export function buildClientReport(data: AuditData, options: BuildReportOptions):
   ]
 
   const failedStage = data.steps.some((s) => s.status === 'failed')
+
+  // Journeys the composer chose to feature; otherwise the primary journey alone.
+  const journeyByRef = new Map(data.journeys.map((j) => [j.ref, j]))
+  const featuredJourneys = (plan?.featuredJourneyRefs?.length ? plan.featuredJourneyRefs.map((r) => journeyByRef.get(r)) : data.journeys.filter((j) => j.isPrimary))
+    .filter((j): j is JourneyItem => !!j)
+    .slice(0, 2)
+
+  const changeReport = options.changes && options.comparison && options.changes.previousAuditId === options.comparison.previous.id ? options.changes : null
+  const changes: ClientReport['changes'] = changeReport
+    ? {
+        previousDate: options.comparison!.previous.finishedAt ?? options.comparison!.previous.createdAt,
+        headline: clientSafeText(changeReport.analysis.headline),
+        summary: clientSafeText(changeReport.analysis.summary),
+        insights: changeReport.analysis.insights.slice(0, 6).map((i) => ({
+          kind: i.kind,
+          importance: i.importance,
+          title: clientSafeText(i.title),
+          description: clientSafeText(i.description),
+          basis: i.basis,
+          findingRefs: i.currentFindingIds.filter((r) => findingByRef.has(r)),
+        })),
+      }
+    : null
   return {
     schema: REPORT_SCHEMA_VERSION,
     generatedAt: (options.generatedAt ?? new Date()).toISOString(),
     title: `Website audit — ${row.domain}`,
     site: { url: row.normalizedUrl, domain: row.domain, clientName: row.clientName },
+    focus: row.templateKey ? getTemplate(row.templateKey).name : null,
     audit: {
       date: (row.startedAt ?? row.createdAt).toISOString(),
       durationMs: row.startedAt && row.finishedAt ? row.finishedAt.getTime() - row.startedAt.getTime() : null,
@@ -214,7 +279,7 @@ export function buildClientReport(data: AuditData, options: BuildReportOptions):
       complete: row.status === 'completed' && !failedStage && row.aiEnabled,
     },
     snapshot: {
-      lines: plan?.executiveSnapshot.length ? plan.executiveSnapshot : fallbackSnapshot(summary.executiveSummary),
+      lines: (plan?.executiveSnapshot.length ? plan.executiveSnapshot : fallbackSnapshot(summary.executiveSummary)).map(clientSafeText),
       findings: {
         total: findings.length,
         bySeverity,
@@ -238,7 +303,9 @@ export function buildClientReport(data: AuditData, options: BuildReportOptions):
     visuals,
     opportunities,
     actionPlan,
+    journeys: featuredJourneys.map(toReportJourney),
     comparison: options.comparison,
+    changes,
     appendix: {
       otherFindings,
       artifacts: appendixArtifacts,
@@ -274,6 +341,8 @@ export interface PlanRefs {
   /** Evidence refs that have an image file (usable as proof). */
   images: Set<string>
   opportunityTitles: string[]
+  /** Journey refs (J*) of the audit. */
+  journeys?: Set<string>
 }
 
 const findingRef = (ref: string) => {
@@ -283,6 +352,10 @@ const findingRef = (ref: string) => {
 const artifactRef = (ref: string) => {
   const match = ref.trim().match(/^a-?(\d+)$/i)
   return match ? `A${Number(match[1])}` : ref.trim()
+}
+const journeyRef = (ref: string) => {
+  const match = ref.trim().match(/^j-?(\d+)$/i)
+  return match ? `J${Number(match[1])}` : ref.trim()
 }
 const evidenceRef = (ref: string) => {
   const match = ref.trim().match(/^ev-?(\d+)$/i)
@@ -353,6 +426,7 @@ export function sanitizeReportPlan(plan: ReportPlan, refs: PlanRefs): { plan: Re
       then: actions(plan.actionPlan.then, 'then').slice(0, 6),
       later: actions(plan.actionPlan.later, 'later').slice(0, 6),
     },
+    featuredJourneyRefs: known(plan.featuredJourneyRefs ?? [], journeyRef, refs.journeys ?? new Set(), 'featuredJourneys').slice(0, 2),
   }
   if (sanitized.executiveSnapshot.length < 3) {
     issues.push('Executive snapshot too short; the summary-derived snapshot is used')

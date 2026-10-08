@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises'
 import yazl from 'yazl'
 import { auditWorkspaceDir } from '@audivra/config'
 import { EXPORT_KINDS, type ExportItem, type ExportKind } from '@audivra/contracts'
-import type { Db } from '@audivra/database'
+import { getChangeReport, type Db } from '@audivra/database'
 import { buildClientReport, buildComparison, loadAuditData, type AuditData } from '@audivra/insights'
 import { brokenLinksCsv, findingsCsv, pagesCsv, performanceCsv } from './csv.ts'
 import { buildAuditExport } from './data-export.ts'
@@ -60,7 +60,8 @@ async function write(auditId: string, filename: string, content: string | Buffer
 
 async function reportFor(db: Db, data: AuditData) {
   const comparison = await buildComparison(db, data.row.id)
-  return { report: buildClientReport(data, { comparison }), comparison }
+  const changes = comparison ? await getChangeReport(db, data.row.id, comparison.previous.id) : null
+  return { report: buildClientReport(data, { comparison, changes }), comparison }
 }
 
 /** Generates one export from persisted data. Never re-runs the audit. */
