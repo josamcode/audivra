@@ -111,10 +111,20 @@ export class ExecutionWorkspace {
   }
 
   /** Removes scratch space. Idempotent: running it again (or on a workspace that was never created) is a no-op. */
+  /**
+   * Private directory for Audivra's own per-execution infrastructure files (the network gateway's
+   * bundled program, its trusted policy and its bounded decision log). It is never mounted into the
+   * executor container — only into the Audivra-controlled gateway container.
+   */
+  get gatewayDir(): string {
+    return path.join(this.dir, '.gateway')
+  }
+
   async cleanup(): Promise<{ removedBytes: number }> {
     const tmp = this.area('tmp')
     const removedBytes = await directorySize(tmp)
     await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
+    await rm(this.gatewayDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
     return { removedBytes }
   }
 

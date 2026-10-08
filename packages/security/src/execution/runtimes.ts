@@ -61,7 +61,8 @@ export function isolationFor(capability: SecurityCapabilityMetadata): ExecutionI
   return {
     mode: 'isolated-container',
     runtime: { id: runtime.id, version: runtime.version, image: runtimeImageRef(runtime) },
-    network: 'none',
+    // scoped-egress capabilities reach the network only through the execution's gateway; others get none.
+    network: execution.network === 'scoped-egress' ? 'scoped-egress' : 'none',
     container: { ...runtime.limits },
   }
 }

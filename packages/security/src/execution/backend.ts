@@ -1,4 +1,4 @@
-import type { ContainerFacts, ExecutionMode, SecurityExecutionSnapshot } from '@audivra/contracts'
+import type { ContainerFacts, ExecutionMode, NetworkFacts, SecurityExecutionSnapshot } from '@audivra/contracts'
 import { killOwnedForExecution } from '@audivra/tool-runtime'
 import type { CapabilityHandles, SecurityCapability, SecurityExecutionContext } from '../capabilities/types.ts'
 import type { ExecutionEventType } from './events.ts'
@@ -49,6 +49,8 @@ export type BackendExit = (
 ) & {
   /** What an isolated backend observed of the execution's container. */
   container?: ContainerFacts
+  /** What an isolated backend observed of the execution's private network and gateway. */
+  network?: NetworkFacts
 }
 
 /** What an execution left behind with a backend when its worker stopped (from `resume`). */
@@ -60,11 +62,15 @@ export interface BackendRemains {
   running: RunningExecution | null
 }
 
-/** A resource a backend created for an execution (e.g. its container), proven by exact name and labels. */
+/** A resource a backend created for an execution (container or network), proven by exact name and labels. */
 export interface OwnedResource {
   executionId: string
   engagementId: string
   name: string
+  /** `container` | `network`. */
+  kind: 'container' | 'network'
+  /** Resource role, e.g. executor, gateway, net-internal, net-egress. */
+  role: string
   state: string
 }
 
@@ -89,7 +95,7 @@ export interface ExecutionBackend {
   /** Terminates the execution's owned resources; the runtime stops waiting for the work afterwards. */
   terminate(running: RunningExecution): Promise<{ terminated: number }>
   /** Removes what the execution owns with this backend and its scratch space. Idempotent; throws if anything remains. */
-  cleanup(prepared: PreparedExecution): Promise<{ removedBytes: number; container?: ContainerFacts }>
+  cleanup(prepared: PreparedExecution): Promise<{ removedBytes: number; container?: ContainerFacts; network?: NetworkFacts }>
   /** Recovery: finds what the execution left behind, without starting or changing anything. */
   resume(spec: BackendSpec): Promise<BackendRemains>
   /** Recovery: resources this backend created for executions, proven by exact name and labels. */

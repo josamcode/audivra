@@ -7,6 +7,7 @@ import {
   redact,
   type ContainerFacts,
   type ExecutionExit,
+  type NetworkFacts,
   type ExecutionMode,
   type ExecutionFailure,
   type ExecutionResult,
@@ -119,6 +120,8 @@ interface RunState {
   mode: ExecutionMode
   /** What the isolated backend observed of the execution's container. */
   container: ContainerFacts | null
+  /** What the isolated backend observed of the execution's private network and gateway. */
+  network: NetworkFacts | null
   registrar: ArtifactRegistrar | null
   processes: ExecutionProcesses | null
   startedAtMs: number
@@ -309,6 +312,7 @@ export class ExecutionRuntime {
       backend: null,
       mode: modeOf(row),
       container: null,
+      network: null,
       registrar: null,
       processes: null,
       startedAtMs: Date.now(),
@@ -466,6 +470,7 @@ export class ExecutionRuntime {
       state.registrar?.close()
       state.code = raced.exit.code
       if (raced.exit.container) state.container = raced.exit.container
+      if (raced.exit.network) state.network = raced.exit.network
       return raced.exit.status === 'succeeded'
         ? this.#result(state, 'succeeded', null, raced.exit.summary, raced.exit.output)
         : this.#result(state, 'failed', classifyFailure(raced.exit.error))
@@ -483,6 +488,7 @@ export class ExecutionRuntime {
     for (const process of capabilityProcesses(liveOwnedForExecution(state.row.id))) state.stopped.add(process.id)
     const observed = (exit: BackendExit) => {
       if (exit.container) state.container = exit.container
+      if (exit.network) state.network = exit.network
       return true
     }
     await backend.cancel(running, message)
@@ -565,11 +571,21 @@ export class ExecutionRuntime {
       processes: { started: result.processesStarted, terminated: state.stopped.size, reaped: state.reaped },
       artifacts: { registered: result.evidenceRefs.length, bytes: result.artifactBytes },
       abandoned: state.abandoned,
-      runtime: { backend: state.mode, container: state.container },
+      runtime: { backend: state.mode, container: state.container, network: state.network },
     }
     const now = this.#now()
     const done = await this.#executions.update(id, { from: [current], ownerId }, { status, finishedAt: now, heartbeatAt: now, exit, failure: fail })
     if (!done) return (await this.#executions.get(id))?.status ?? current
+    if (state.network) {
+      const d = state.network.decisions
+      await this.#event(
+        row,
+        'execution.network-summary',
+        d ? `Network: ${d.allowed} allowed, ${d.denied} denied of ${d.requested} request${d.requested === 1 ? '' : 's'}` : 'Network: the gateway recorded no decisions',
+        { gateway: state.network.gateway, networks: state.network.networks, decisions: d },
+        d && d.denied > 0 ? 'warn' : 'info',
+      )
+    }
     await this.#terminalEvent(row, status, fail, exit, result)
     return status
   }
@@ -598,6 +614,7 @@ export class ExecutionRuntime {
         const cleaned = await state.backend.cleanup(state.prepared)
         removedBytes = cleaned.removedBytes
         if (cleaned.container) state.container = cleaned.container
+        if (cleaned.network) state.network = cleaned.network
       } else if (state.workspace) removedBytes = (await state.workspace.cleanup()).removedBytes
     } catch (cause) {
       error = failureMessage(cause)
@@ -689,6 +706,7 @@ export class ExecutionRuntime {
       backend: null,
       mode: modeOf(row),
       container: null,
+      network: null,
       registrar: null,
       processes: null,
       startedAtMs: row.startedAt?.getTime() ?? Date.now(),
@@ -794,6 +812,7 @@ export class ExecutionRuntime {
       state.registrar?.close()
       state.code = exit.code
       if (exit.container) state.container = exit.container
+      if (exit.network) state.network = exit.network
       result = exit.status === 'succeeded' ? this.#result(state, 'succeeded', null, exit.summary, exit.output) : this.#result(state, 'failed', classifyFailure(exit.error))
     } else {
       result = empty(failure('worker-interrupted', 'runtime.worker-interrupted', `The worker holding this execution stopped while it was ${row.status}${container === 'missing' ? ' and its container no longer exists' : ''}`))

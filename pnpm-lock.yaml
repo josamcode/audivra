@@ -478,6 +478,9 @@ importers:
       '@audivra/tool-runtime':
         specifier: workspace:*
         version: link:../tool-runtime
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -4160,8 +4163,8 @@ packages:
   launch-editor@2.14.2:
     resolution: {integrity: sha512-NHJEb30MGBCkmZXLZwz25t37QR4aY03ZzPYUJXOJaOa92uWwExI9SBQUuIznBYc1xkD7cJNGX7oc3Nl3sq2kQQ==}
 
-  legacy-javascript@0.0.1:
-    resolution: {integrity: sha512-lPyntS4/aS7jpuvOlitZDFifBCb4W8L/3QU0PLbUTUj+zYah8rfVjYic88yG7ZKTxhS5h9iz7duT8oUXKszLhg==}
+  legacy-javascript@0.0.2:
+    resolution: {integrity: sha512-6cMw8OPPX9VOgnWwL6Y7vbNCpd45/RmGMrcSJGaOF4FZfTdEbtlSDUs2ZvHleTUsqSDuKthzHvD6C//jW8ETBA==}
 
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
@@ -7234,12 +7237,12 @@ snapshots:
 
   '@paulirish/trace_engine@0.0.53':
     dependencies:
-      legacy-javascript: 0.0.1
+      legacy-javascript: 0.0.2
       third-party-web: 0.30.0
 
   '@paulirish/trace_engine@0.0.65':
     dependencies:
-      legacy-javascript: 0.0.1
+      legacy-javascript: 0.0.2
       third-party-web: 0.30.0
 
   '@pinojs/redact@0.4.0': {}
@@ -9984,7 +9987,7 @@ snapshots:
       picocolors: 1.1.1
       shell-quote: 1.12.0
 
-  legacy-javascript@0.0.1: {}
+  legacy-javascript@0.0.2: {}
 
   levn@0.4.1:
     dependencies:

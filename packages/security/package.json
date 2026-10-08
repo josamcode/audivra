@@ -16,6 +16,7 @@
     "@audivra/contracts": "workspace:*",
     "@audivra/database": "workspace:*",
     "@audivra/tool-runtime": "workspace:*",
+    "esbuild": "^0.28.2",
     "zod": "^4.6.5"
   }
 }

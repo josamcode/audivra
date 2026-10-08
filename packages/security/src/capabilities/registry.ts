@@ -90,7 +90,14 @@ function checkExecutionShape(metadata: SecurityCapabilityMetadata, implementatio
   if (typeof implementation.programInput !== 'function' || typeof implementation.collect !== 'function') fail('an isolated-container capability must provide program, programInput and collect')
   if (!executorProgramPath(implementation.program)) fail(`executor program ${String(implementation.program)} is not a reviewed executor shipped with Audivra`)
   if (!findApprovedRuntime(execution.runtime)) fail(`runtime ${String(execution.runtime)} is not an approved runtime`)
-  if (metadata.requiresNetwork) fail('isolated executions have no network in this version (the controlled egress layer is a later phase)')
+  // Network: `none` means no network at all; `scoped-egress` means the execution-private gateway. An
+  // isolated capability that needs the network must use the gateway, and declaring scoped-egress is
+  // itself the declaration that it needs the network.
+  if (execution.network === 'scoped-egress') {
+    if (!metadata.requiresNetwork) fail('a scoped-egress capability must declare requiresNetwork')
+  } else if (metadata.requiresNetwork) {
+    fail('an isolated capability that requires the network must declare the scoped-egress network profile')
+  }
   if (metadata.resourceProfile.containerImage !== null) fail('an isolated capability names an approved runtime, never an image')
   if (metadata.resourceProfile.spawnsProcesses) fail('an isolated capability starts no host processes')
 }

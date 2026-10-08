@@ -1,3 +1,4 @@
+import { egressCheckCapability } from './egress-check.ts'
 import { httpObserveCapability } from './http-observe.ts'
 import { isolatedCheckCapability } from './isolated-check.ts'
 import { CapabilityRegistry } from './registry.ts'
@@ -18,5 +19,5 @@ export function createDefaultRegistry(): CapabilityRegistry {
  * capability catalog shown to people and agents.
  */
 export function createRuntimeRegistry(): CapabilityRegistry {
-  return createDefaultRegistry().register(runtimeCheckCapability).register(isolatedCheckCapability)
+  return createDefaultRegistry().register(runtimeCheckCapability).register(isolatedCheckCapability).register(egressCheckCapability)
 }

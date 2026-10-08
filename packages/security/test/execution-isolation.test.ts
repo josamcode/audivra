@@ -148,10 +148,11 @@ describe('capability execution modes', () => {
   it('registers the shipped diagnostics with exactly the shape their mode requires', () => {
     expect(createDefaultRegistry().list().map((c) => c.id)).toEqual(['discovery.http-observe'])
     const runtime = createRuntimeRegistry()
-    expect(runtime.list().map((c) => [c.id, c.execution?.mode ?? 'in-process'])).toEqual([
-      ['diagnostic.isolated-check', 'isolated-container'],
-      ['diagnostic.runtime-check', 'in-process'],
-      ['discovery.http-observe', 'in-process'],
+    expect(runtime.list().map((c) => [c.id, c.execution?.mode ?? 'in-process', c.execution?.network ?? 'none'])).toEqual([
+      ['diagnostic.egress-check', 'isolated-container', 'scoped-egress'],
+      ['diagnostic.isolated-check', 'isolated-container', 'none'],
+      ['diagnostic.runtime-check', 'in-process', 'none'],
+      ['discovery.http-observe', 'in-process', 'none'],
     ])
     expect(runtime.get('diagnostic.isolated-check')!.implementation.execute).toBeUndefined()
     expect(isolatedCheckCapability.metadata.execution).toEqual({ mode: 'isolated-container', runtime: 'node-sandbox' })
@@ -164,7 +165,9 @@ describe('capability execution modes', () => {
     expect(register(isolated({}, { execute: inProcessToo }))).toThrow(/must not provide an in-process execute/)
     expect(register(isolated({}, { collect: undefined }))).toThrow(/must provide program, programInput and collect/)
     expect(register(isolated({ execution: { mode: 'isolated-container', runtime: 'ubuntu-latest' } }))).toThrow(/not an approved runtime/)
-    expect(register(isolated({ requiresNetwork: true }))).toThrow(/no network in this version/)
+    expect(register(isolated({ requiresNetwork: true }))).toThrow(/must declare the scoped-egress network profile/)
+    expect(register(isolated({ execution: { mode: 'isolated-container', runtime: 'node-sandbox', network: 'scoped-egress' } }))).toThrow(/must declare requiresNetwork/)
+    expect(register(isolated({ execution: { mode: 'in-process', runtime: null, network: 'scoped-egress' } }))).toThrow()
     expect(register(isolated({ resourceProfile: { disk: 'small', containerImage: 'alpine:latest', spawnsProcesses: false } }))).toThrow(/never an image/)
     expect(register(isolated({ resourceProfile: { disk: 'small', containerImage: null, spawnsProcesses: true } }))).toThrow(/starts no host processes/)
     for (const program of ['../../package.json', 'missing.mjs', '/etc/passwd', 'isolated-check.MJS']) {
@@ -274,6 +277,7 @@ describe('container security profile', () => {
     command: ['node', '/audivra/inputs/program/main.mjs'],
     limits: RUNTIME.limits,
     user: '1000:1000',
+    network: 'none',
     mounts: { inputs: 'D:\\w\\executions\\sx_0123456789abcd\\inputs', outputs: 'D:\\w\\executions\\sx_0123456789abcd\\outputs', artifacts: 'D:\\w\\executions\\sx_0123456789abcd\\artifacts' },
   }
 
@@ -318,13 +322,17 @@ describe('container security profile', () => {
     expect(() => containerNameFor('sx_../../etc')).toThrow()
     expect(() => containerNameFor('abc')).toThrow()
     const listing = [
-      'audivra-sx-abcdefghijk123\tsx_abcdefghijk123\tengage0001\trunning',
-      'audivra-impostor\tsx_abcdefghijk124\tengage0001\trunning',
-      'audivra-sx-abcdefghijk125\tsx_abcdefghijk126\tengage0001\texited',
-      'audivra-sx-abcdefghijk127\tnot-an-id\tengage0001\texited',
+      'audivra-sx-abcdefghijk123\tsx_abcdefghijk123\tengage0001\texecutor\trunning',
+      'audivra-gw-sx-abcdefghijk123\tsx_abcdefghijk123\tengage0001\tgateway\trunning',
+      'audivra-impostor\tsx_abcdefghijk124\tengage0001\texecutor\trunning',
+      'audivra-sx-abcdefghijk125\tsx_abcdefghijk126\tengage0001\texecutor\texited',
+      'audivra-sx-abcdefghijk127\tnot-an-id\tengage0001\texecutor\texited',
       '',
     ].join('\n')
-    expect(parseOwnedContainers(listing)).toEqual([{ executionId: 'sx_abcdefghijk123', engagementId: 'engage0001', name: 'audivra-sx-abcdefghijk123', state: 'running' }])
+    expect(parseOwnedContainers(listing)).toEqual([
+      { executionId: 'sx_abcdefghijk123', engagementId: 'engage0001', name: 'audivra-sx-abcdefghijk123', kind: 'container', role: 'executor', state: 'running' },
+      { executionId: 'sx_abcdefghijk123', engagementId: 'engage0001', name: 'audivra-gw-sx-abcdefghijk123', kind: 'container', role: 'gateway', state: 'running' },
+    ])
   })
 })
 
@@ -386,7 +394,7 @@ describe('isolated backend decisions (scripted docker CLI)', () => {
     expect(verbs()).not.toContain('rm')
     expect(verbs()).not.toContain('create')
     const backend = new IsolatedContainerBackend({ docker })
-    await expect(backend.removeOwnedResource({ executionId, engagementId: 'eng0000001', name, state: 'exited' })).rejects.toThrow(/could not be proven/)
+    await expect(backend.removeOwnedResource({ executionId, engagementId: 'eng0000001', name, kind: 'container', role: 'executor', state: 'exited' })).rejects.toThrow(/could not be proven/)
     expect(verbs()).not.toContain('rm')
   })
 
