@@ -79,6 +79,7 @@ const draft = {
   pagesInspected: ['https://example.com/'],
   technologies: [],
   findings: [finding],
+  journeys: [],
   limitations: [],
   suggestedFurtherVerification: [],
 }
@@ -106,6 +107,14 @@ describe('agent output schemas', () => {
       pagesInspected: [],
     }
     expect(FinalAudit.safeParse(final).success).toBe(false)
+  })
+
+  it('accepts drafts from before journeys existed', () => {
+    const { journeys: _journeys, ...older } = draft
+    const parsed = AuditDraft.safeParse({ ...older, findings: [finding] })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.journeys).toEqual([])
+    expect(parsed.data?.findings[0]?.journeyIds).toEqual([])
   })
 
   it('produces a JSON schema suitable for the Claude CLI', () => {

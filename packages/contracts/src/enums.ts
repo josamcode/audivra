@@ -95,7 +95,11 @@ export const TOOL_RUN_STATUSES = ['running', 'completed', 'failed', 'skipped'] a
 export const ToolRunStatus = z.enum(TOOL_RUN_STATUSES)
 export type ToolRunStatus = z.infer<typeof ToolRunStatus>
 
-export const AGENT_ROLES = ['auditor', 'reviewer', 'revision', 'finalizer', 'planner', 'composer'] as const
+/**
+ * Pipeline roles plus three on-demand ones: journey analysis (audits from before journeys existed),
+ * change intelligence (interprets the deterministic comparison) and the client brief.
+ */
+export const AGENT_ROLES = ['auditor', 'reviewer', 'revision', 'finalizer', 'planner', 'composer', 'journeys', 'changes', 'brief'] as const
 export const AgentRole = z.enum(AGENT_ROLES)
 export type AgentRole = z.infer<typeof AgentRole>
 

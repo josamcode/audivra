@@ -3,7 +3,8 @@ import { Category, EffortLevel, FindingType, ImpactLevel, Severity, Verification
 import { LimitationItem, StoredBusinessUnderstanding, Technology } from './agent-outputs.ts'
 import { Artifact, Datum } from './artifacts.ts'
 import { CoverageItem } from './coverage.ts'
-import { AuditComparison } from './history.ts'
+import { AuditComparison, ChangeBasis, ChangeKind } from './history.ts'
+import { ConversionType, JourneyDimension, JourneyHealthStatus, JourneyStepKind, JourneyStepStatus, JourneyType } from './journeys.ts'
 
 /** What the Report Composer returns: selection, ordering and short client-facing framing. */
 export const ActionItem = z.object({
@@ -53,6 +54,11 @@ export const ReportPlan = z.object({
     then: z.array(ActionItem).max(6),
     later: z.array(ActionItem).max(6),
   }),
+  featuredJourneyRefs: z
+    .array(z.string())
+    .max(2)
+    .default([])
+    .describe('Journeys (J*) to show the client: the primary journey, plus at most one other that matters. Empty when no journey is supported.'),
 })
 export type ReportPlan = z.infer<typeof ReportPlan>
 
@@ -100,7 +106,48 @@ export type ReportOpportunity = z.infer<typeof ReportOpportunity>
 export const ReportAction = z.object({ title: z.string(), why: z.string(), findingRefs: z.array(z.string()) })
 export type ReportAction = z.infer<typeof ReportAction>
 
-export const REPORT_SCHEMA_VERSION = 'audivra.report.v1'
+/** A journey as the client sees it: path, step states and explained health — no internal IDs beyond refs. */
+export const ReportJourney = z.object({
+  ref: z.string(),
+  name: z.string(),
+  type: JourneyType,
+  goal: z.string(),
+  description: z.string(),
+  isPrimary: z.boolean(),
+  steps: z.array(
+    z.object({
+      label: z.string(),
+      url: z.string().nullable(),
+      kind: JourneyStepKind,
+      status: JourneyStepStatus,
+      note: z.string(),
+      conversionType: ConversionType.nullable(),
+    }),
+  ),
+  health: z.array(z.object({ dimension: JourneyDimension, status: JourneyHealthStatus, note: z.string() })),
+  findingRefs: z.array(z.string()),
+})
+export type ReportJourney = z.infer<typeof ReportJourney>
+
+/** The interpreted "what changed" for the client, on top of the deterministic comparison. */
+export const ReportChanges = z.object({
+  previousDate: z.string(),
+  headline: z.string(),
+  summary: z.string(),
+  insights: z.array(
+    z.object({
+      kind: ChangeKind,
+      importance: z.enum(['high', 'medium', 'low']),
+      title: z.string(),
+      description: z.string(),
+      basis: ChangeBasis,
+      findingRefs: z.array(z.string()),
+    }),
+  ),
+})
+export type ReportChanges = z.infer<typeof ReportChanges>
+
+export const REPORT_SCHEMA_VERSION = 'audivra.report.v2'
 
 /**
  * The client report model. Built deterministically from persisted audit data (+ the composer's plan
@@ -112,6 +159,8 @@ export const ClientReport = z.object({
   generatedAt: z.string(),
   title: z.string(),
   site: z.object({ url: z.string(), domain: z.string(), clientName: z.string().nullable() }),
+  /** Audit focus (template name), when one was chosen. */
+  focus: z.string().nullable(),
   audit: z.object({
     date: z.string(),
     durationMs: z.number().nullable(),
@@ -141,7 +190,10 @@ export const ClientReport = z.object({
   visuals: z.array(Artifact).describe('Report-placement artifacts not already used above, in priority order.'),
   opportunities: z.array(ReportOpportunity),
   actionPlan: z.object({ doFirst: z.array(ReportAction), then: z.array(ReportAction), later: z.array(ReportAction) }),
+  /** The primary journey first; at most one more. */
+  journeys: z.array(ReportJourney),
   comparison: AuditComparison.nullable(),
+  changes: ReportChanges.nullable(),
   appendix: z.object({
     otherFindings: z.array(ReportFinding),
     artifacts: z.array(Artifact),

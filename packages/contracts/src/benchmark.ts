@@ -14,6 +14,39 @@ export const BenchmarkIssueResult = z.object({
 })
 export type BenchmarkIssueResult = z.infer<typeof BenchmarkIssueResult>
 
+/** How the fixture audit's journeys compare with the fixture's ground truth (structure only, never wording). */
+export const BenchmarkJourneyResult = z.object({
+  journeys: z.number(),
+  primaryFound: z.boolean(),
+  primaryType: z.string().nullable(),
+  primaryTypeCorrect: z.boolean().nullable(),
+  /** The primary journey ends in an expected conversion channel (WhatsApp, form, booking…). */
+  conversionCorrect: z.boolean().nullable(),
+  blockedSteps: z.number(),
+  /** A healthy fixture got a blocked step or a "problem" health verdict. */
+  unexpectedProblems: z.boolean(),
+  /** Journeys that enter a localized section stay in it (no silent language switch). Null when not applicable. */
+  localizedConsistent: z.boolean().nullable(),
+  notes: z.array(z.string()),
+})
+export type BenchmarkJourneyResult = z.infer<typeof BenchmarkJourneyResult>
+
+/** Deterministic change facts between two fixture variants against the known differences. */
+export const BenchmarkChangeResult = z.object({
+  comparedWith: z.string(),
+  expected: z.number(),
+  correct: z.number(),
+  details: z.array(
+    z.object({
+      issueId: z.string(),
+      expected: z.enum(['new', 'not-found-again', 'still-present']),
+      actual: z.string().nullable(),
+      correct: z.boolean(),
+    }),
+  ),
+})
+export type BenchmarkChangeResult = z.infer<typeof BenchmarkChangeResult>
+
 export const BenchmarkFixtureResult = z.object({
   fixture: z.string(),
   healthy: z.boolean(),
@@ -33,6 +66,10 @@ export const BenchmarkFixtureResult = z.object({
   falsePositiveDetails: z.array(z.object({ ref: z.string(), title: z.string(), reason: z.string() })),
   unsupportedDetails: z.array(z.object({ ref: z.string(), title: z.string(), reason: z.string() })),
   error: z.string().nullable(),
+  /** Audit focus the fixture was audited with (older runs: absent). */
+  template: z.string().nullable().optional(),
+  journeys: BenchmarkJourneyResult.nullable().optional(),
+  changes: BenchmarkChangeResult.nullable().optional(),
 })
 export type BenchmarkFixtureResult = z.infer<typeof BenchmarkFixtureResult>
 

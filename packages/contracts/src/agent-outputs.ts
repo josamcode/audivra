@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { Category, EffortLevel, FindingType, ImpactLevel, Severity, VerificationStatus } from './enums.ts'
+import { DraftJourney, FinalJourney } from './journeys.ts'
 
 /**
  * Structured outputs produced by the AI roles. These are validated twice:
@@ -79,6 +80,10 @@ const findingCore = {
   recommendation: z.string().describe('Concrete, actionable fix an engineer can act on.'),
   effort: EffortLevel.describe('Rough effort to fix.'),
   opportunity: Opportunity.nullable().describe('Client-work opportunity this finding exposes, if any.'),
+  journeyIds: z
+    .array(z.string())
+    .default([])
+    .describe('Journeys (J*) this finding affects — friction, breakage, missing measurement or slowness on their steps. Empty if none.'),
 }
 
 export const DraftFinding = z.object({
@@ -95,6 +100,11 @@ export const AuditDraft = z.object({
     .describe('Concise summary of what you investigated and how (not your private reasoning).'),
   pagesInspected: z.array(z.string()).describe('URLs you actually inspected.'),
   technologies: z.array(Technology),
+  journeys: z
+    .array(DraftJourney)
+    .max(6)
+    .default([])
+    .describe('The important visitor journeys you identified (primary first), with evidence per step. Empty only if the site has no meaningful journey.'),
   findings: z.array(DraftFinding),
   limitations: z.array(z.string()).describe('What you could not check or verify, and why.'),
   suggestedFurtherVerification: z.array(z.string()),
@@ -121,6 +131,18 @@ export const ReviewResult = z.object({
     }),
   ),
   priorityProblems: z.array(z.object({ description: z.string(), findingIds: z.array(z.string()) })),
+  journeyReview: z
+    .array(
+      z.object({
+        journeyId: z.string(),
+        verdict: z.enum(['approved', 'rejected', 'needs-verification']),
+        reason: z
+          .string()
+          .describe('Why: is it really a path the site supports? Is the primary choice justified? Were steps skipped or the conversion assumed?'),
+      }),
+    )
+    .default([])
+    .describe('One verdict per draft journey.'),
   materialGaps: z
     .boolean()
     .describe('True only if a focused verification pass would materially change the audit.'),
@@ -182,6 +204,11 @@ export const FinalAudit = z.object({
   businessUnderstanding: BusinessUnderstanding,
   importantPageTypes: z.array(PageType),
   technologies: z.array(Technology),
+  journeys: z
+    .array(FinalJourney)
+    .max(6)
+    .default([])
+    .describe('Supported journeys only (rejected ones removed), primary first, with stable journey keys.'),
   findings: z.array(FinalFinding),
   opportunities: z.array(FinalOpportunity).describe('Prioritized, highest value first.'),
   limitations: z.array(LimitationItem).describe('Categorized, one concise sentence each.'),

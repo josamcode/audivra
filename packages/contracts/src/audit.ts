@@ -26,6 +26,7 @@ import {
 } from './agent-outputs.ts'
 import { CoverageItem } from './coverage.ts'
 import { ReportPlan } from './report.ts'
+import { AuditTemplateKey, AuditTemplateUsage } from './templates.ts'
 import { normalizeTargetUrl } from './url.ts'
 
 export const CreateAuditInput = z.object({
@@ -35,6 +36,8 @@ export const CreateAuditInput = z.object({
     .min(1, 'Enter a website URL')
     .refine((value) => normalizeTargetUrl(value).ok, { message: 'Enter a valid http(s) website URL' }),
   clientName: z.string().trim().max(120).optional(),
+  /** Audit focus (template); General website when omitted. */
+  template: AuditTemplateKey.optional(),
 })
 export type CreateAuditInput = z.infer<typeof CreateAuditInput>
 
@@ -81,6 +84,8 @@ export const AuditListItem = z.object({
   severityCounts: SeverityCounts,
   findingCount: z.number(),
   benchmark: z.boolean(),
+  /** Audit focus used; null for audits created before templates existed. */
+  template: AuditTemplateUsage.nullable(),
 })
 export type AuditListItem = z.infer<typeof AuditListItem>
 
@@ -182,6 +187,8 @@ export const FindingItem = z.object({
   issueKey: z.string().nullable(),
   /** Artifacts (A*) that visualize this finding. */
   artifactRefs: z.array(z.string()),
+  /** Journeys (J*) this finding affects. */
+  journeyRefs: z.array(z.string()),
   createdBy: z.string(),
   rank: z.number(),
 })

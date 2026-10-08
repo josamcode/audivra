@@ -183,6 +183,8 @@ export const PagePerformanceData = z.object({
 })
 
 export const JourneyData = z.object({
+  /** Set when the journey is a stored journey of the audit (J*); its steps come from that journey. */
+  journeyId: z.string().optional(),
   steps: z
     .array(
       z.object({
