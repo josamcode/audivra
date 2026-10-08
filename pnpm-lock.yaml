@@ -14,6 +14,9 @@ importers:
       '@audivra/config':
         specifier: workspace:*
         version: link:packages/config
+      '@audivra/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@audivra/database':
         specifier: workspace:*
         version: link:packages/database
@@ -23,6 +26,9 @@ importers:
       '@audivra/reporting':
         specifier: workspace:*
         version: link:packages/reporting
+      '@audivra/security':
+        specifier: workspace:*
+        version: link:packages/security
       '@audivra/tool-runtime':
         specifier: workspace:*
         version: link:packages/tool-runtime
