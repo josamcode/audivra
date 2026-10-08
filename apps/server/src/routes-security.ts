@@ -1,9 +1,10 @@
+import { createReadStream, readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Logger } from '@audivra/config'
 import { redact } from '@audivra/contracts'
 import type { Db } from '@audivra/database'
-import { authorizationMethods, createDefaultRegistry, LOCAL_USER, SecurityRequestError, SecurityService } from '@audivra/security'
+import { authorizationMethods, createDefaultRegistry, ExecutionService, LOCAL_USER, SecurityRequestError, SecurityService } from '@audivra/security'
 
 interface Deps {
   db: Db
@@ -11,17 +12,23 @@ interface Deps {
   security?: SecurityService
 }
 
+/** Small text artifacts are shown inline (redacted); everything else is a download. */
+const TEXT_ARTIFACT = /\.(txt|json|log|md|csv)$/i
+const INLINE_TEXT_LIMIT = 256 * 1024
+
 type App = FastifyInstance<Server, IncomingMessage, ServerResponse, Logger>
 
 /**
- * Security engagements (Phase 1: configuration and readiness). Deliberately absent: any endpoint that
- * executes a capability. Capability execution goes through the CapabilityBroker only, from platform
- * code, never from a generic HTTP request.
+ * Security engagements: configuration, readiness and the inspection and control of durable executions.
+ * Deliberately absent: any endpoint that creates or runs an execution, or that takes a command, an
+ * executable or an image. Executions come into being only through the CapabilityBroker, from platform
+ * code, never from a generic HTTP request; the API can list, read and cancel them.
  *
  * Every response passes through redaction; configuration changes are made as the local user.
  */
 export function registerSecurityRoutes(app: App, deps: Deps): void {
   const service = deps.security ?? new SecurityService({ db: deps.db })
+  const executions = new ExecutionService({ db: deps.db })
   const registry = createDefaultRegistry()
 
   async function respond(reply: FastifyReply, work: () => Promise<unknown>, status = 200) {
@@ -83,6 +90,41 @@ export function registerSecurityRoutes(app: App, deps: Deps): void {
   )
 
   app.get<{ Params: { id: string } }>('/api/security/engagements/:id/evidence', (request, reply) => respond(reply, () => service.listEvidence(request.params.id)))
+
+  // ── Executions: inspect and control (never create) ───────────────────────────────────────────────
+
+  app.get<{ Params: { id: string } }>('/api/security/engagements/:id/executions', (request, reply) => respond(reply, () => executions.list(request.params.id)))
+
+  app.get<{ Params: { executionId: string } }>('/api/security/executions/:executionId', (request, reply) => respond(reply, () => executions.get(request.params.executionId)))
+
+  app.get<{ Params: { executionId: string } }>('/api/security/executions/:executionId/events', (request, reply) =>
+    respond(reply, () => executions.events(request.params.executionId)),
+  )
+
+  app.get<{ Params: { executionId: string } }>('/api/security/executions/:executionId/evidence', (request, reply) =>
+    respond(reply, () => executions.evidence(request.params.executionId)),
+  )
+
+  /** Idempotent: a queued execution is cancelled at once; a running one is stopped by its worker. */
+  app.post<{ Params: { executionId: string } }>('/api/security/executions/:executionId/cancel', (request, reply) =>
+    respond(reply, () => executions.cancel(request.params.executionId, LOCAL_USER), 202),
+  )
+
+  /** Files the execution registered as evidence (only those), resolved inside its workspace. */
+  app.get<{ Params: { executionId: string; '*': string } }>('/api/security/executions/:executionId/artifacts/*', async (request, reply) => {
+    try {
+      const { file, name } = await executions.artifact(request.params.executionId, request.params['*'])
+      void reply.header('X-Content-Type-Options', 'nosniff')
+      if (TEXT_ARTIFACT.test(name) && statSync(file).size <= INLINE_TEXT_LIMIT) {
+        return reply.type('text/plain; charset=utf-8').send(redact(readFileSync(file, 'utf8')))
+      }
+      void reply.header('Content-Disposition', `attachment; filename="${name.replace(/[^\w.-]/g, '_')}"`)
+      return reply.type('application/octet-stream').send(createReadStream(file))
+    } catch (error) {
+      if (error instanceof SecurityRequestError) return reply.status(error.status).send({ error: redact(error.message) })
+      throw error
+    }
+  })
 
   /** Capability catalog (policy metadata only — what exists, not a way to run it). */
   app.get('/api/security/capabilities', (_request, reply) => respond(reply, async () => registry.list()))
