@@ -12,6 +12,7 @@ if (process.env.E2E_RESET === '1') {
   await runMigrations(url)
   const handle = createDb(url, 1)
   await handle.pool.query('truncate audits cascade')
+  await handle.pool.query('truncate security_engagements cascade')
   await handle.close()
 }
 
