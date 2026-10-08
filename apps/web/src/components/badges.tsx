@@ -439,4 +439,7 @@ export const FAILURE_KIND_LABEL: Record<ExecutionFailureKind, string> = {
   'runtime-unavailable': 'Runtime unavailable',
   'runtime-failed': 'Runtime failed',
   'resource-limit': 'Resource limit',
+  'network-setup-failed': 'Network setup failed',
+  'gateway-unavailable': 'Gateway unavailable',
+  'network-cleanup-failed': 'Network cleanup failed',
 }

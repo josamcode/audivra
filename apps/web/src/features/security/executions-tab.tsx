@@ -102,6 +102,25 @@ function containerText(detail: SecurityExecutionDetail): string | null {
   return `${outcome} · ${container.removed ? 'removed' : 'not removed — kept for a later cleanup'}`
 }
 
+/** For a scoped-egress execution: the network profile, the gateway's state, and its scope decision counts. */
+function networkText(detail: SecurityExecutionDetail): { label: string; detail: string | null } | null {
+  if (detail.trusted.isolation.network !== 'scoped-egress') return null
+  const network = detail.exit?.runtime?.network
+  const gateway = network?.gateway
+  const decisions = network?.decisions
+  const gatewayState = gateway ? (gateway.removed ? 'cleaned' : gateway.ready ? 'ran' : 'did not become ready') : detail.finishedAt ? 'not created' : 'starting'
+  return {
+    label: 'Scoped egress through an execution-private gateway',
+    detail: [
+      `gateway ${gatewayState}`,
+      decisions ? `${decisions.allowed} allowed, ${decisions.denied} denied of ${decisions.requested} request${decisions.requested === 1 ? '' : 's'}` : null,
+      network && network.networks.length ? `${network.networks.filter((n) => n.removed).length}/${network.networks.length} networks removed` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }
+}
+
 const actorText = (actor: SecurityExecutionDetail['requestedBy']) =>
   actor.kind === 'agent' ? `Agent run ${actor.agentRunId ?? ''}` : actor.kind === 'system' ? 'Audivra' : (actor.id ?? 'User')
 
@@ -205,6 +224,7 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
   const { trusted, failure } = detail
   const runtime = runtimeText(detail)
   const container = containerText(detail)
+  const network = networkText(detail)
   const isolated = trusted.isolation.mode === 'isolated-container'
   return (
     <Panel className="self-start" id="execution-detail">
@@ -256,6 +276,19 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
               ),
             },
             ...(container ? [{ label: 'Container', value: <span data-testid="execution-container">{container}</span> }] : []),
+            ...(network
+              ? [
+                  {
+                    label: 'Network',
+                    value: (
+                      <span data-testid="execution-network">
+                        {network.label}
+                        {network.detail ? <span className="block text-xs text-muted">{network.detail}</span> : null}
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
             { label: 'Requested by', value: actorText(detail.requestedBy) },
             { label: 'Created', value: formatDateTime(detail.createdAt) },
             { label: 'Started', value: formatDateTime(detail.startedAt) },
