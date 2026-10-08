@@ -54,16 +54,21 @@ const IpLiteral = z
 /** Upper bound on one CIDR block, so a scope can never silently cover the internet. */
 export const MAX_CIDR_ADDRESSES = 65_536n
 
-const CidrBlock = z
-  .string()
-  .trim()
-  .max(64)
-  .transform((value, ctx) => {
-    const cidr = parseCidr(value)
-    if (!cidr) return invalid(ctx, value, `"${value}" is not a CIDR block (e.g. 10.0.0.0/24)`)
-    if (cidrSize(cidr) > MAX_CIDR_ADDRESSES) return invalid(ctx, value, `${cidr.text} is too broad (at most 65,536 addresses per block)`)
-    return cidr.text
-  })
+const cidrBlock = (maxAddresses: bigint | null) =>
+  z
+    .string()
+    .trim()
+    .max(64)
+    .transform((value, ctx) => {
+      const cidr = parseCidr(value)
+      if (!cidr) return invalid(ctx, value, `"${value}" is not a CIDR block (e.g. 10.0.0.0/24)`)
+      if (maxAddresses !== null && cidrSize(cidr) > maxAddresses) return invalid(ctx, value, `${cidr.text} is too broad (at most 65,536 addresses per block)`)
+      return cidr.text
+    })
+/** A block that is part of the scope (bounded). */
+const CidrBlock = cidrBlock(MAX_CIDR_ADDRESSES)
+/** A block excluded from the scope: excluding more only narrows it, so any size is fine. */
+const ExcludedCidrBlock = cidrBlock(null)
 
 export const Port = z.number().int().min(1).max(65_535)
 
@@ -146,7 +151,7 @@ export const ScopeManifest = z.strictObject({
       hosts: z.array(HostPattern).max(50).default([]),
       pathPrefixes: z.array(PathPrefix).max(50).default([]),
       addresses: z.array(IpLiteral).max(50).default([]),
-      cidrs: z.array(CidrBlock).max(20).default([]),
+      cidrs: z.array(ExcludedCidrBlock).max(20).default([]),
     })
     .prefault({}),
   dependencies: z.array(ScopeDependency).max(50).default([]),
