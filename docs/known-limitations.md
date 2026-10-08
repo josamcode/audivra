@@ -36,9 +36,12 @@ Honest boundaries of the current version.
   the stop signal is abandoned (handles revoked, owned processes terminated) rather than pre-empted. Execution
   concurrency is a platform-wide setting, not yet a per-engagement policy limit.
 - Isolated executions (Phase 2B) run in a container with no network, a read-only root and only their workspace
-  mounted; there is **no controlled network-egress layer yet**, so capabilities that need the network cannot be
-  isolated. Containers share the Docker VM kernel; the artifact budget of a bind-mounted workspace is enforced by
-  polling. Details: [security-executions.md](security-executions.md#phase-2b-limitations).
+  mounted. Containers share the Docker VM kernel; the artifact budget of a bind-mounted workspace is enforced by
+  polling.
+- Controlled network egress (Phase 2C) gives a networked isolated execution a single route — an Audivra-controlled,
+  execution-private gateway that enforces the trusted scope. **Only HTTP is mediated** (HTTPS `CONNECT` is refused,
+  not tunnelled), and containment is proven for this project's Windows + WSL2 + Docker Desktop setup, not asserted as
+  universal. Details: [security-executions.md](security-executions.md#phase-2c-limitations).
 
 ## Platform and safety
 

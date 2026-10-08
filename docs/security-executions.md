@@ -1,19 +1,23 @@
-# Security executions (Phase 2A: the durable runtime · Phase 2B: the isolated backend)
+# Security executions (Phase 2A: the durable runtime · Phase 2B: the isolated backend · Phase 2C: controlled egress)
 
 Phase 1 ([security-engagements.md](security-engagements.md)) decides *whether* a capability may run. Phase 2A
 adds the platform that runs an allowed request **durably**: persisted with an immutable snapshot of the trusted
 configuration it was approved under, carried out by the existing pg-boss worker, cancellable, bounded by
 Audivra's own timeout and limits, and reconciled after a crash. Phase 2B adds the **isolated container backend**
 behind the same lifecycle: capabilities that declare it run in an approved, execution-scoped container
-([below](#phase-2b-the-isolated-container-backend)).
+([below](#phase-2b-the-isolated-container-backend)). Phase 2C adds **controlled network egress**: a capability
+that declares it reaches the network only through an Audivra-controlled, execution-private gateway that enforces
+the trusted scope ([below](#phase-2c-controlled-network-egress)).
 
-> Phases 2A and 2B are runtime engineering only. They add no scanner, no vulnerability test, no active network
-> testing and no new security tooling. The only new capabilities, `diagnostic.runtime-check` (in-process) and
-> `diagnostic.isolated-check` (isolated), never contact the target.
+> Phases 2A, 2B and 2C are runtime engineering only. They add no scanner, no vulnerability test, no active network
+> testing and no new security tooling. The new capabilities — `diagnostic.runtime-check` (in-process),
+> `diagnostic.isolated-check` (isolated, no network) and `diagnostic.egress-check` (isolated, scoped egress) — only
+> prove the platform; the first two never contact anything, and the third only requests the engagement's own
+> in-scope target plus deliberately out-of-scope probes that are denied.
 >
-> **Phase 2B provides execution/container isolation, but does not yet implement the later controlled
-> network-egress layer.** Isolated containers have no network at all, and a capability that needs the network
-> cannot be declared isolated yet.
+> **Phase 2C mediates HTTP egress; it does not provide HTTPS/CONNECT mediation, and containment is proven for this
+> project's Windows + WSL2 + Docker Desktop setup, not asserted for arbitrary operating systems.** See the
+> [guarantees and limitations](#phase-2c-limitations) below.
 
 ```
 request ─► Capability Broker ─► decision (persisted) ─► [allowed] execution + trusted snapshot (persisted, hashed)
@@ -32,6 +36,7 @@ request ─► Capability Broker ─► decision (persisted) ─► [allowed] ex
 | Broker | `CapabilityBroker.submit()` in `packages/security/src/broker.ts` |
 | Capability | `packages/security/src/capabilities/runtime-check.ts`, `isolated-check.ts`; `createRuntimeRegistry()` in `catalog.ts` |
 | Isolated backend (2B) | `packages/security/src/execution/container-backend.ts`, approved runtimes in `runtimes.ts`, reviewed executor programs in `packages/security/executors/` (`executors.ts`) |
+| Controlled egress (2C) | the gateway source `packages/security/gateway/main.ts` (bundled by `gateway-bundle.ts`), the network lifecycle in `container-backend.ts`, the networked executor `executors/egress-check.mjs` and capability `capabilities/egress-check.ts` |
 | Worker | `apps/worker/src/security-executions.ts`, wired in `apps/worker/src/main.ts` |
 | Process ownership | `reapStaleProcessesForExecution`, `liveOwnedForExecution` in `packages/tool-runtime/src/processes.ts` |
 | API | `apps/server/src/routes-security.ts` (inspect and cancel only) |
@@ -500,6 +505,127 @@ Isolation costs about 1.6 s per execution on this machine, almost all of it dock
 - Container control goes through the docker CLI (≈ 0.3 s per call on Docker Desktop).
 - On Windows, Node ends a crashed worker's child processes with it (a kill-on-close job object); the docker CLI
   helpers die too, but containers keep running under Docker and are reconciled as above.
+
+## Phase 2C: controlled network egress
+
+A `none`-network isolated capability runs with `--network none`. A capability that declares
+`execution.network: 'scoped-egress'` (and `requiresNetwork: true`) reaches the network **only** through an
+Audivra-controlled gateway that is private to its execution and enforces the trusted scope. The executor is never
+trusted to self-enforce scope, and neither a request nor a model can broaden it.
+
+```
+executor container ──(only reachable peer)──► gateway container ──► approved destination
+  on the execution-private INTERNAL network            on the internal network + a private EGRESS network
+  (no DNS for and no route to anything else)           (runs the real Phase 1 scope engine)
+```
+
+### The two networks
+
+Each scoped-egress execution owns two Docker bridge networks, created before the executor so its only route exists
+from the moment it starts:
+
+- **internal** `audivra-net-<execution id>` — created `--internal` (no external route). The executor and the
+  gateway are both attached; the gateway joins it with the network alias `egress`.
+- **egress** `audivra-egr-<execution id>` — an ordinary private bridge the gateway is also attached to, so the
+  gateway (and only the gateway) can reach approved destinations.
+
+The executor is attached to the **internal network only**. On this project's Windows + WSL2 + Docker Desktop
+setup this was verified to mean: it can resolve and reach the gateway alias `egress`, but it cannot resolve any
+external name (Docker's embedded DNS does not forward external queries on an internal network) and has no route to
+the host, the Docker bridge gateway, or the internet (a raw-IP connect returns `ENETUNREACH`; a name is
+`EAI_AGAIN`). The executor's only usable path is the gateway. The networked diagnostic self-checks this: direct
+connects to `host.docker.internal` and `8.8.8.8` fail, and the fixtures confirm zero traffic reaches them.
+
+### The gateway
+
+`packages/security/gateway/main.ts` is a small HTTP forward proxy. It is **bundled with esbuild** (cached under
+`<data>/security/.gateway/`), so it carries the *real* Phase 1 scope engine — scope is interpreted in exactly one
+place, never reimplemented. It runs in the same approved runtime image (no new image), with the same hardening as
+an executor: non-root, `--cap-drop ALL`, `no-new-privileges`, read-only root, private tmpfs, memory/CPU/PID
+limits, no Docker socket. It mounts **only** its own `.gateway` directory (the bundled program, the trusted policy
+and its decision log) — never the executor's inputs/outputs/artifacts, the repository, host paths or secrets. It is
+given no Audivra credential and no database access.
+
+For each request the gateway:
+
+1. accepts only **absolute-form** HTTP (a classic forward proxy); anything else is denied;
+2. accepts only `GET`/`HEAD`; **`CONNECT` and every other method are denied** (HTTPS tunnelling is not mediated in
+   this phase — it is refused, never passed through);
+3. takes a slot from the execution's **request budget** (total, per-second rate, concurrency) from the snapshot;
+4. evaluates the URL by name with `evaluateUrl` (scheme, host, subdomain rules, **port**, exclusions, dependencies);
+5. resolves the host itself (the executor has no external DNS) and evaluates **every resolved address** with
+   `evaluateNetworkDestination` (loopback / private / link-local / IPv6-local are refused unless the scope's
+   `networks` list them, the destination is that IP literal, or it is a `localhost` name — a public name that
+   resolves to an internal address is refused);
+6. connects to an address it just approved (pinned; no second lookup), rewriting the `Host` header. On Docker
+   Desktop a loopback destination is dialled through `host.docker.internal` (the only way to reach a host service);
+   the scope *decision* uses the real address, only the physical dial target is translated.
+
+The gateway **does not follow redirects itself**: it returns the 3xx to the executor, whose client follows it with a
+**new request back through the gateway**, which re-evaluates the new destination. An out-of-scope redirect target is
+therefore denied and receives zero traffic — proven with a fixture that 302-redirects out of scope.
+
+### Policy flow and no downgrade
+
+```
+engagement scope + effective limits ──► trusted execution snapshot ──► gateway policy.json (manifest + limits)
+```
+
+The network profile is declared by the capability, resolved at decision time, and recorded in the snapshot
+(`isolation.network`). The gateway is given **only** `{ manifest, limits }` from the snapshot, staged read-only; the
+executor never receives it and could not change it. A request has no field for a network, a host, a port or a
+backend (strict schemas), and `CapabilityBroker.execute()` (the in-process path) refuses networked isolated
+capabilities. The worker picks the backend and the profile from the verified snapshot and never falls back. All of
+this is tested.
+
+### Observability
+
+Network decisions are **policy-level, not packet capture**. The gateway appends a bounded JSONL decision log
+(`.gateway/gateway.jsonl`, at most 2000 entries) with, per decision: time, decision, rule, host, port, resolved
+address. On exit it writes a summary. The runtime records `execution.network-preparing`, `execution.gateway-started`,
+`execution.network-ready` and a final `execution.network-summary` (counts: requested / allowed / denied, and denials
+by rule) in the append-only security events, plus `execution.network-cleanup-failed` if teardown is incomplete. The
+counts and the gateway/network state are on the execution's `exit.runtime.network` and shown in the UI.
+
+### Ownership, cancellation, cleanup and recovery
+
+Every network resource carries the same ownership labels as containers (`audivra.owner=security-execution`,
+`audivra.execution`, `audivra.engagement`, `audivra.role`) and a name derived from the execution id. Cancellation
+and timeout stop the executor **and** the gateway and remove both networks; cleanup removes, by exact name after the
+labels prove ownership, the executor container, the gateway container, then the two networks (containers first — a
+network with an attached container cannot be removed), and is idempotent. Recovery lists owned containers and
+networks, reconciles a crashed execution's resources exactly, removes resources left by final executions, and leaves
+any labelled resource that belongs to no execution of this database untouched. Two executions never share a gateway
+or a network; cancelling one leaves the other running. All of this is proven with real Docker.
+
+### Measured overhead
+
+Windows + Docker Desktop, median of 4 runs:
+
+| | isolated, no network (2B) | scoped egress (2C) |
+| --- | --- | --- |
+| whole execution (`run()`) | ~1.9 s | ~12.3 s |
+| prepare → started | ~0.66 s | ~3.77 s (network + gateway setup ~3.1 s; gateway-ready → executor-started ~0.2 s) |
+| cleanup | ~0.38 s | ~2.27 s (removing the gateway container and two networks as well) |
+
+Scoped egress adds roughly 3 s of setup and 1.9 s of cleanup over a network-less isolated execution, almost all of
+it docker CLI round trips for the two networks and the gateway container. The `diagnostic.egress-check` run time
+also includes its own ~3 s containment self-check (a deliberate direct-connect attempt that times out).
+
+### Phase 2C limitations
+
+- **Only HTTP is mediated.** HTTPS via `CONNECT` is refused, not tunnelled; there is no TLS interception. A networked
+  capability in this phase speaks plaintext HTTP to the gateway. HTTPS mediation is later work.
+- **Containment is proven for Windows + WSL2 + Docker Desktop**, the project's environment, via the probes and the
+  zero-traffic fixture tests above. It is not asserted as universal containment for arbitrary operating systems or
+  Docker configurations; the guarantee rests on Docker's `--internal` network having no external route.
+- The executor reaches a **host** loopback service through `host.docker.internal` (a Docker Desktop convenience for
+  local fixtures and dev targets); the scope decision still uses the real address.
+- The gateway shares the Docker VM kernel with the executor (namespaces/cgroups), like any container here — process
+  isolation, not a VM.
+- The request budget, rate and concurrency are enforced by the gateway from the snapshot; they bound HTTP requests
+  through the gateway, not raw packets (the executor has no raw route anyway).
+- One approved runtime image is reused for the gateway; there is no separate, smaller gateway image.
 
 ## Known limitations
 

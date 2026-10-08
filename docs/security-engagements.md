@@ -14,8 +14,9 @@ Engagement → Authorization → Scope → Environment policy → Capability →
 >
 > **Phase 2A** adds the durable execution runtime that carries out allowed requests — persisted executions with an
 > immutable trusted snapshot, the pg-boss worker, cancellation, timeouts, limits and crash recovery. **Phase 2B** adds
-> the isolated container backend for capabilities that declare it. Neither runs security tests, and there is no
-> network egress layer yet; see [security-executions.md](security-executions.md).
+> the isolated container backend for capabilities that declare it, and **Phase 2C** adds controlled network egress
+> through an execution-private gateway that enforces the same scope. None runs security tests; see
+> [security-executions.md](security-executions.md).
 
 The rule underneath everything:
 
