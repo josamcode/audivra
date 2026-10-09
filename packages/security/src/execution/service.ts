@@ -1,12 +1,13 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { engagementWorkspaceDir, resolveInside } from '@audivra/config'
-import type { SecurityActor, SecurityEventItem, SecurityEvidenceItem, SecurityExecutionDetail, SecurityExecutionItem } from '@audivra/contracts'
+import type { SecurityActor, SecurityEventItem, SecurityEvidenceItem, SecurityExecutionDetail, SecurityExecutionItem, SecurityObservation } from '@audivra/contracts'
 import {
   findExecutionArtifactEvidence,
   getEngagementRow,
   listSecurityEvents,
   listSecurityEvidence,
+  listSecurityObservations,
   toSecurityExecutionDetail,
   toSecurityExecutionItem,
   type Db,
@@ -53,6 +54,13 @@ export class ExecutionService {
   async evidence(id: string): Promise<SecurityEvidenceItem[]> {
     const row = await this.#row(id)
     return listSecurityEvidence(this.#db, row.engagementId, id)
+  }
+
+  /** The normalized observations this execution contributed (it may share a merged observation with others). */
+  async observations(id: string): Promise<SecurityObservation[]> {
+    const row = await this.#row(id)
+    const all = await listSecurityObservations(this.#db, row.engagementId)
+    return all.filter((o) => o.contributions.some((c) => c.executionId === id))
   }
 
   async cancel(id: string, actor: SecurityActor = LOCAL_USER): Promise<SecurityExecutionDetail> {

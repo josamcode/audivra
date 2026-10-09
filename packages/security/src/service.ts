@@ -7,8 +7,10 @@ import {
   normalizeTargetUrl,
   parseIp,
   RequestAuthorizationInput,
+  isTerminalExecutionStatus,
   ScopeManifest,
   SECURITY_POLICY_PROFILES,
+  sensorStateToCoverage,
   siteKeyFor,
   UpdateEngagementInput,
   UpdateScopeInput,
@@ -22,8 +24,14 @@ import {
   type SecurityEventItem,
   type SecurityEventType,
   type SecurityEvidenceItem,
+  type SecurityObservation,
+  type SensorCoverageItem,
+  type SensorResult,
+  type ObservationScopeClass,
+  type ObservationType,
 } from '@audivra/contracts'
 import {
+  countObservationsByType,
   createEngagementRecord,
   getEngagementRow,
   insertAuthorization,
@@ -31,6 +39,7 @@ import {
   listEngagementRows,
   listSecurityEvents,
   listSecurityEvidence,
+  listSecurityObservations,
   recordSecurityEvent,
   revokeAuthorization,
   siteAuditStats,
@@ -41,7 +50,9 @@ import {
 } from '@audivra/database'
 import type { z } from 'zod'
 import { AUTHORIZATION_PROVIDERS, authorizationMethods, toAuthorizationItem } from './authorization.ts'
+import { createDefaultRegistry } from './capabilities/catalog.ts'
 import { systemResolver, type Resolver } from './dns.ts'
+import { createDbExecutionStore } from './execution/store.ts'
 import { effectivePolicy } from './policy.ts'
 import { applyLifecycleAction, derivedStatus, evaluateReadiness } from './readiness.ts'
 import { evaluateNetworkDestination, evaluateUrl, manifestHash } from './scope.ts'
@@ -138,6 +149,53 @@ export class SecurityService {
   async listEvidence(id: string): Promise<SecurityEvidenceItem[]> {
     await this.#row(id)
     return listSecurityEvidence(this.#db, id)
+  }
+
+  /** Read-only: the normalized, deduplicated observations sensors have recorded for this engagement. */
+  async listObservations(id: string, filters: { type?: ObservationType; asset?: string; scopeClass?: ObservationScopeClass } = {}): Promise<SecurityObservation[]> {
+    await this.#row(id)
+    return listSecurityObservations(this.#db, id, filters)
+  }
+
+  /** A small summary for the overview: observation counts by type and by scope classification. */
+  async observationSummary(id: string): Promise<{ total: number; byType: Record<string, number>; byScopeClass: Record<string, number> }> {
+    await this.#row(id)
+    const byType = await countObservationsByType(this.#db, id)
+    const observations = await listSecurityObservations(this.#db, id)
+    const byScopeClass: Record<string, number> = {}
+    for (const o of observations) {
+      const key = o.scopeClass ?? 'n/a'
+      byScopeClass[key] = (byScopeClass[key] ?? 0) + 1
+    }
+    return { total: observations.length, byType, byScopeClass }
+  }
+
+  /**
+   * Sensor coverage for the engagement: every shipped sensor and the state of its most recent execution,
+   * in the shared coverage vocabulary. A sensor that has not run is `skipped` — explicit, never omitted —
+   * so coverage shows what was and was not exercised.
+   */
+  async sensorCoverage(id: string): Promise<SensorCoverageItem[]> {
+    await this.#row(id)
+    const sensors = createDefaultRegistry()
+      .list()
+      .filter((m) => m.sensor)
+    const rows = await createDbExecutionStore(this.#db).listForEngagement(id) // newest first
+    return sensors.map((meta): SensorCoverageItem => {
+      const tool = meta.sensor!.tool
+      const latest = rows.find((r) => r.capabilityId === meta.id)
+      if (!latest) return { capabilityId: meta.id, name: meta.name, tool, status: 'skipped', lastExecutionId: null, lastRunAt: null, observations: 0, reason: 'Not run for this engagement yet' }
+      const output = (latest.result?.output ?? null) as SensorResult | null
+      const lastRunAt = (latest.finishedAt ?? latest.createdAt).toISOString()
+      if (!isTerminalExecutionStatus(latest.status)) {
+        return { capabilityId: meta.id, name: meta.name, tool, status: 'skipped', lastExecutionId: latest.id, lastRunAt, observations: output?.observations ?? 0, reason: 'In progress' }
+      }
+      if (latest.status === 'succeeded' && output) {
+        return { capabilityId: meta.id, name: meta.name, tool, status: sensorStateToCoverage[output.state], lastExecutionId: latest.id, lastRunAt, observations: output.observations, reason: output.reason }
+      }
+      // A non-success terminal state (failed, timed-out, cancelled, interrupted): the sensor did not complete.
+      return { capabilityId: meta.id, name: meta.name, tool, status: 'failed', lastExecutionId: latest.id, lastRunAt, observations: 0, reason: `Execution ${latest.status}` }
+    })
   }
 
   policyProfiles() {
