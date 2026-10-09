@@ -3,7 +3,7 @@ import path from 'node:path'
 import fastifyStatic from '@fastify/static'
 import Fastify, { LogController, type FastifyError } from 'fastify'
 import { auditWorkspaceDir, getConfig, REPO_ROOT, resolveInside, type Logger } from '@audivra/config'
-import { CreateAuditInput, getTemplate, normalizeTargetUrl, type AuditStage, type SystemHealth } from '@audivra/contracts'
+import { CreateAuditInput, getTemplate, normalizeTargetUrl, type AiSystemStatus, type AuditStage, type SystemHealth } from '@audivra/contracts'
 import {
   createAuditRecord,
   enqueueStage,
@@ -29,6 +29,7 @@ import {
   type QueueName,
 } from '@audivra/database'
 import { getSystemStatus } from '@audivra/tool-runtime'
+import { createProviderRegistry } from '@audivra/ai-runtime'
 import { loadAuditData, loadDashboard } from '@audivra/insights'
 import { sensorRuntimeStatuses, type SecurityService } from '@audivra/security'
 import type { EventHub } from './events-hub.ts'
@@ -86,6 +87,13 @@ export async function buildApp(deps: AppDeps) {
     // their availability alongside the audit tools in the same System → Tools view.
     const sensors = await sensorRuntimeStatuses()
     return { ...status, tools: [...status.tools, ...sensors] }
+  })
+
+  /** Read-only AI provider status: preferred provider, health and capability profiles. No secrets. */
+  app.get('/api/system/ai', async (): Promise<AiSystemStatus> => {
+    const registry = createProviderRegistry()
+    const providers = await Promise.all(registry.list().map(async (p) => ({ health: await p.health(), capabilities: p.capabilities() })))
+    return { preferred: getConfig().AI_PROVIDER, enabled: getConfig().AUDIVRA_AI !== 'off', providers }
   })
 
   /** Liveness of the database and of the worker that consumes the audit queues (pg-boss instance registry). */
