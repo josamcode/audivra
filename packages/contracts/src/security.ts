@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { EvidenceSource, EvidenceType } from './enums.ts'
+import { ObservationType } from './security-observation.ts'
 import { MutationClass, RiskClass, SecurityEnvironment } from './security-classes.ts'
 import { PolicyProfileKey, POLICY_PERMISSIONS } from './security-policy.ts'
 import { ExecutionLimits, Port, ScopeEvaluation, ScopeHost, ScopeManifest } from './security-scope.ts'
@@ -91,6 +92,13 @@ export const SecurityCapabilityMetadata = z.strictObject({
   evidenceTypes: z.array(EvidenceType),
   /** Identifier of the implementation, e.g. `builtin/http-observe@1`. */
   implementation: z.string().min(3).max(120),
+  /** Present when the capability is a sensor (an approved external tool): the tool and what it observes. */
+  sensor: z
+    .strictObject({
+      tool: z.string().min(1).max(40),
+      observationTypes: z.array(ObservationType).min(1),
+    })
+    .optional(),
   /** How it must be carried out (omitted: in-process). */
   execution: CapabilityExecution.optional(),
 })
