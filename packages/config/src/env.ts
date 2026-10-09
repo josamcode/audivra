@@ -30,6 +30,8 @@ const Env = z.object({
   SERVER_PORT: z.coerce.number().int().default(4310),
   WEB_PORT: z.coerce.number().int().default(4300),
   AUDIVRA_AI: z.enum(['claude', 'off']).default('claude'),
+  /** Preferred AI provider adapter id the router selects first (e.g. `claude-code-cli`). */
+  AI_PROVIDER: z.string().default('claude-code-cli'),
   AUDITOR_MODEL: optionalString,
   AUDITOR_EFFORT: optionalString,
   REVIEWER_MODEL: optionalString,
