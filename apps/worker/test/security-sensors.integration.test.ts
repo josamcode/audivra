@@ -42,6 +42,8 @@ async function imageReady(runtimeId: string): Promise<boolean> {
 const httpxReady = await imageReady('httpx')
 const katanaReady = await imageReady('katana')
 const semgrepReady = await imageReady('semgrep')
+const schemathesisReady = await imageReady('schemathesis')
+const nucleiReady = await imageReady('nuclei')
 
 const handle = testDb()
 const { db, pool } = handle
@@ -83,6 +85,48 @@ function startSite(extPort?: () => number): Promise<Fixture> {
         <form action="/login" method="post"><input name="user"><input name="pass"></form></body></html>`)
     }
     res.end(`<!doctype html><html><head><title>${req.url}</title></head><body><a href="/">home</a></body></html>`)
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as import('node:net').AddressInfo).port
+      const fixture: Fixture = { port, hits: () => hits, close: () => server.close() }
+      fixtures.push(fixture)
+      resolve(fixture)
+    })
+  })
+}
+
+/** A tiny OpenAPI 3 schema and a host server implementing it; `/widgets/{id}` returns a schema-violating body. */
+const OPENAPI_SCHEMA = JSON.stringify({
+  openapi: '3.0.0',
+  info: { title: 'Fixture API', version: '1.0.0' },
+  paths: {
+    '/ping': { get: { operationId: 'ping', responses: { '200': { description: 'ok', content: { 'application/json': { schema: { type: 'object', properties: { pong: { type: 'boolean' } }, required: ['pong'] } } } } } } },
+    '/widgets/{id}': {
+      get: {
+        operationId: 'getWidget',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: { '200': { description: 'ok', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } }, required: ['id', 'name'] } } } } },
+      },
+    },
+  },
+})
+function startApi(): Promise<Fixture> {
+  let hits = 0
+  const server = http.createServer((req, res) => {
+    hits++
+    const url = new URL(req.url ?? '/', 'http://x')
+    if (url.pathname === '/ping') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ pong: true }))
+    }
+    if (url.pathname.startsWith('/widgets/')) {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ id: 1, name: 12345 })) // name must be a string -> contract divergence
+    }
+    res.writeHead(404, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not found' }))
   })
   return new Promise((resolve, reject) => {
     server.once('error', reject)
@@ -236,4 +280,41 @@ describe.skipIf(!semgrepReady)('semgrep sensor (static analysis, no network)', (
     // Static analysis is a no-network capability: its isolation declares no gateway.
     expect(done.snapshot.isolation).toMatchObject({ mode: 'isolated-container', network: 'none' })
   }, 180_000)
+})
+
+describe.skipIf(!schemathesisReady)('schemathesis sensor (API, through the gateway)', () => {
+  it('exercises an in-scope API from a staged schema and records operation and contract-divergence observations', async () => {
+    const api = await startApi()
+    const engagement = await readyEngagement('schemathesis api', api.port)
+    const id = await submit(engagement.id, 'api.contract-test', { schema: OPENAPI_SCHEMA, schemaFormat: 'json', url: `http://127.0.0.1:${api.port}`, maxExamples: 8 })
+    const done = await settled(id)
+    expect(done.status, JSON.stringify(done.failure)).toBe('succeeded')
+    expect(sensorResult(done).tool).toBe('schemathesis')
+
+    const obs = await executions.observations(id)
+    const operations = byType(obs, 'api-operation')
+    expect(operations.some((o) => o.subject.includes('/ping'))).toBe(true)
+    expect(operations.every((o) => o.contributions[0]!.tool === 'schemathesis')).toBe(true)
+    // The /widgets response violates its schema -> an api-validation signal (not an auto-finding).
+    expect(byType(obs, 'api-validation').length).toBeGreaterThanOrEqual(1)
+    // The API received traffic only through the gateway (it is the in-scope target).
+    expect(api.hits()).toBeGreaterThan(0)
+  }, 240_000)
+})
+
+describe.skipIf(!nucleiReady)('nuclei sensor (web signals, through the gateway)', () => {
+  it('runs only Audivra templates and records web-signal observations as heuristics', async () => {
+    const site = await startSite()
+    const engagement = await readyEngagement('nuclei signals', site.port)
+    const id = await submit(engagement.id, 'web.signal-scan', { url: `http://127.0.0.1:${site.port}/` })
+    const done = await settled(id)
+    expect(done.status, JSON.stringify(done.failure)).toBe('succeeded')
+    expect(sensorResult(done).tool).toBe('nuclei')
+
+    const signals = byType(await executions.observations(id), 'web-signal')
+    expect(signals.length).toBeGreaterThanOrEqual(1)
+    expect(signals.every((o) => o.sourceType === 'tool-heuristic')).toBe(true)
+    expect(signals.every((o) => o.contributions[0]!.tool === 'nuclei')).toBe(true)
+    expect(signals.some((o) => o.subject === 'audivra-missing-hsts')).toBe(true)
+  }, 240_000)
 })
