@@ -744,6 +744,161 @@ integration suite: httpx inspect ~6–9 s, katana crawl ~15–25 s (bounded by i
 - The sensor tool images are large (~1–1.6 GB each) and reuse the Node runtime for the gateway; there is no slimmer,
   purpose-built sensor image yet.
 
+## Phase 3B: dynamic & API security sensors
+
+Phase 3B extends the Phase 3A sensor architecture to dynamic web and API analysis **without a parallel
+execution system**: the new sensors are ordinary `defineSensor()` adapters, run through the same Broker →
+durable execution → isolated runtime → controlled egress → structured observation → evidence path.
+Nothing here builds the autonomous hypothesis engine, and no scanner result becomes a verified finding.
+
+### New sensors
+
+- **`api.contract-test` (Schemathesis)** — property-based testing of a staged OpenAPI/GraphQL schema
+  against an in-scope API, reached only through the gateway (Schemathesis's `--proxy`). Audivra controls
+  the schema (staged read-only), the base URL, the limits and the runtime; no arbitrary arguments. Its
+  JSON run report is normalized into `api-operation` (operations exercised), `api-validation` (contract/
+  schema divergences) and `api-workflow` (stateful-phase signals). A divergence is a signal to review,
+  not an auto-generated client finding, and Schemathesis's own severity is stored but is **not** Audivra's
+  severity. Staging / isolated-lab only.
+- **`web.signal-scan` (Nuclei)** — template-driven web signals against an in-scope URL through the gateway.
+  It runs **only Audivra's reviewed, staged templates** (`-templates <staged dir>`), never the image's
+  bundled public set and never a user/model path; OAST (`-no-interactsh`) and template updates
+  (`-disable-update-check`) are off. The reviewed templates are passive, info-severity header checks
+  (`sensors/nuclei-templates.ts`). Matches become `web-signal` observations with source type
+  `tool-heuristic` — a signal to verify, never a verdict. Staging / isolated-lab only; requires
+  authorization.
+
+Both reuse the 3A model wholesale (adapter, approved runtime pinned by digest, bounded raw evidence,
+observations, provenance, dedupe, coverage, tool health, scoped egress). The only architectural extensions
+were additive: new observation types/families, a documented confidence basis, planning metadata, more
+coverage states, and a correlation query.
+
+### Dynamic observation model
+
+New `OBSERVATION_TYPES`: `api-operation`, `api-validation`, `api-workflow`, `web-signal`,
+`oast-interaction`, `traffic-flow`, `dependency-vulnerability`. Types roll up into coarse **families**
+(`observationFamily()`): `web`, `api`, `tls`, `traffic`, `dependency`, `source`, `oast`, `discovery`, used
+only for grouping in the API/UI.
+
+**Confidence basis, not tool severity.** `OBSERVATION_SOURCE_TYPES` gained `tool-heuristic` and
+`version-inferred`; `CONFIDENCE_BY_SOURCE` documents the default confidence each basis carries (a direct
+deterministic read = 1, a fingerprint = 0.8, a scanner heuristic = 0.5, a version suspicion = 0.4). An
+adapter picks confidence from the basis — never from the tool's marketing severity field (which is only
+recorded in `value`). Corroboration from independent sensors is represented by multiple contributions on
+one deduplicated observation (the reasoning layer in a later phase weighs supporting/differing sensors);
+dedupe keeps every contribution and evidence ref, so disagreement is never discarded.
+
+**Cross-sensor correlation.** `SecurityService.correlateByAsset()` groups observations by their normalized
+asset, most-corroborated first, so httpx's technology, katana's endpoint and a Nuclei signal on the *same*
+asset are queryable together (`GET …/observations/correlate`, surfaced as "Correlated assets" in the UI).
+This is the minimum for Phase 4 to consume later — not the full security graph.
+
+**Planning metadata.** Each sensor's `metadata.sensor` now carries `requiredInputs`, `costClass` and
+`typicalDurationSeconds`, so a future planner can reason about what a sensor needs and costs without
+running it. The deterministic policy — not this metadata — remains authoritative for what may run where.
+
+### Coverage and environment eligibility
+
+`SensorCoverageItem` gained a `family` and a wider status set (`SENSOR_COVERAGE_STATES`): `ran`, `partial`,
+`failed`, `skipped`, `unavailable`, plus `blocked` (not permitted in this engagement's environment — e.g.
+Nuclei/Schemathesis in production), `missing-input` and `not-applicable`. "Not run" is never read as
+"secure"; a sensor not eligible here is reported `blocked` with the reason, not hidden.
+
+### OAST / Interactsh
+
+The OAST **provider abstraction** and a **deterministic in-process provider** are implemented
+(`sensors/oast.ts`): per-execution correlation ids, expiry, execution ownership (only the owning execution
+may poll/release), bounded storage, and a clean `oastInteractionObservation()` mapping to an
+`oast-interaction` observation. No shared/public OAST infrastructure is used or started. Standing up a
+**private** OAST service (and enabling it in Nuclei) is deferred deliberately to the next phase; the
+abstraction fixes the contract that deployment must meet.
+
+### The TLS / HTTPS runtime gap (testssl, mitmproxy)
+
+Phase 2C mediates **HTTP only** — `CONNECT` is refused and there is no TLS interception. The clean,
+boundary-preserving resolution (documented here, **deferred** for implementation) is a gateway extension:
+
+> A scope-validated `CONNECT` mode. The gateway parses the `CONNECT host:port`, validates host, resolved
+> IP and port against the trusted scope **before** connecting, pins the connection to that exact IP, then
+> opens a raw TCP tunnel with **no interception** (it never sees plaintext). Scope, destination/IP pinning,
+> port policy, execution ownership and the decision log work exactly as for HTTP; only the final hop is an
+> opaque tunnel instead of a parsed HTTP forward.
+
+This unblocks TLS-native sensors (testssl.sh) and a future mitmproxy traffic layer without attaching the
+executor to unrestricted networking. It is a required runtime extension; until it exists, `testssl` stays
+in the Website Audit path and **mitmproxy is deferred** (it is a separate traffic-observation/replay layer,
+never the scope gateway, and needs this extension to be useful).
+
+### Vulnerability data (Trivy, OSV-Scanner)
+
+A sensor container must never get arbitrary internet access, and the gateway only reaches in-scope
+engagement targets — not a public vulnerability-DB host. The intended model (documented, **deferred**):
+
+> Audivra host-manages a **versioned, immutable vulnerability database** out-of-band (downloaded and
+> pinned by the host, outside any sensor execution), then stages it **read-only** into the sensor
+> container. Trivy runs fully offline (`trivy fs --skip-db-update --offline-scan --cache-dir <staged>`
+> over a staged source tree); results become `dependency-vulnerability` observations (a version/advisory
+> match is a signal, not a verdict). The responsibility split is: *Audivra updates trusted data → the
+> sensor receives local immutable data.*
+
+The adapter is a small future step once the host-managed DB provisioning exists (a ~hundreds-of-MB
+download that must not run implicitly — the same no-implicit-pull stance as images). **OSV-Scanner is
+rejected** for this portfolio: it needs the same offline-DB (or network) treatment and adds no material
+value over Trivy for dependency scanning.
+
+### ZAP and RESTler
+
+- **ZAP** stays in the **Website Audit** path (`zap-baseline.py`, unchanged). A sensor-model ZAP is
+  **deferred (partial)**: its passive web signal overlaps Nuclei, and its JVM baseline — spidering through
+  an upstream proxy, multi-minute runs — is a heavier, finickier integration than the clean Nuclei fit.
+  Migrating the passive subset to a `defineSensor()` adapter (JSON report → `web-signal`) is a later step;
+  the Website Audit and Security Assessment paths stay cleanly separate.
+- **RESTler** is **deferred** after evaluation: it is a stateful .NET fuzzer that compiles an OpenAPI into
+  a grammar and explores producer/consumer sequences — a large image, long multi-phase runs, less
+  deterministic artifacts, and isolated-lab-only in practice. Its stateful exploration partly overlaps
+  Schemathesis's stateful phase. The cost is not justified for Phase 3B.
+
+### Open-source portfolio decision
+
+| Tool | Decision | Reason |
+| --- | --- | --- |
+| **Schemathesis** | **INTEGRATED** | `api.contract-test`: staged schema + gateway-reached API fit scoped egress cleanly; JSON report → API observations. |
+| **Nuclei** | **INTEGRATED** | `web.signal-scan`: Audivra-only reviewed templates, gateway, OAST off; JSONL → `web-signal` heuristics. Staging/lab only. |
+| **OAST / Interactsh** | **PARTIAL** | Provider abstraction + deterministic local fixture implemented; private deployment deferred. No public OAST used. |
+| **ZAP** | **DEFERRED (partial)** | Website Audit path kept; sensor-model passive ZAP overlaps Nuclei and is a heavier JVM/proxy integration. |
+| **testssl.sh** | **DEFERRED** | Needs the scope-validated `CONNECT`/TLS-tunnel gateway extension (designed above) before it can migrate. |
+| **mitmproxy** | **DEFERRED** | Separate traffic-observation/replay layer, not the scope gateway; needs the TLS extension to be useful. |
+| **Trivy** | **DEFERRED** | Clean only with a host-managed offline vuln DB staged read-only (designed above); DB provisioning deferred. |
+| **OSV-Scanner** | **REJECTED** | Same offline-DB/network constraint as Trivy with no material added value for this portfolio. |
+| **RESTler** | **DEFERRED** | Heavy stateful .NET fuzzer; cost/isolation not justified for 3B; overlaps Schemathesis's stateful phase. |
+
+### Measured overhead
+
+Windows + Docker Desktop, end-to-end `run()` from the integration suite: Schemathesis (bounded, 8
+examples) ~6–15 s; Nuclei (2 reviewed templates) ~5–10 s. Both are dominated by container start plus the
+Phase 2C gateway setup (~3 s) and cleanup (~2 s). The Nuclei image is large (~1.3 GB, bundled templates we
+do not use); Schemathesis is small (~157 MB).
+
+### Security invariants (unchanged, re-proven)
+
+The new sensors cannot choose images (runtime pinned by digest), pass arbitrary CLI arguments (argv built
+by Audivra from validated input; Nuclei templates are staged and Audivra-only), bypass or expand scope
+(gateway enforces it; discovered out-of-scope destinations are recorded, never contacted or authorized),
+downgrade isolation (no in-process `execute`), gain unrestricted network (scoped egress only; Semgrep has
+none), modify trusted policy, or write outside the execution workspace.
+
+### Phase 3B limitations
+
+- No correlation/verification *reasoning* yet — observations remain signals; Phase 4 turns corroborated,
+  verified observations into findings. Conflicting-sensor handling beyond "all contributions retained" is
+  future work.
+- testssl, mitmproxy, Trivy (and OSV) wait on the two documented runtime extensions (TLS `CONNECT`
+  mediation; host-managed offline vuln DB).
+- OAST is an abstraction + local fixture; no private server runs yet, and no sensor emits live OAST
+  payloads.
+- Schemathesis/Nuclei are not run automatically; they are capabilities the (future) planner selects using
+  the new planning metadata.
+
 ## Known limitations
 
 - The in-process backend runs reviewed capability code in the worker process: it is not a sandbox. It is meant for
