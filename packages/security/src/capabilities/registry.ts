@@ -87,9 +87,18 @@ function checkExecutionShape(metadata: SecurityCapabilityMetadata, implementatio
     return
   }
   if (implementation.execute !== undefined) fail('an isolated-container capability must not provide an in-process execute')
-  if (typeof implementation.programInput !== 'function' || typeof implementation.collect !== 'function') fail('an isolated-container capability must provide program, programInput and collect')
-  if (!executorProgramPath(implementation.program)) fail(`executor program ${String(implementation.program)} is not a reviewed executor shipped with Audivra`)
-  if (!findApprovedRuntime(execution.runtime)) fail(`runtime ${String(execution.runtime)} is not an approved runtime`)
+  const runtime = findApprovedRuntime(execution.runtime)
+  if (!runtime) fail(`runtime ${String(execution.runtime)} is not an approved runtime`)
+  if (runtime!.kind === 'tool') {
+    // A sensor capability runs an approved tool with Audivra-built arguments; no reviewed node program.
+    if (typeof implementation.toolArgs !== 'function' || typeof implementation.collect !== 'function') fail('a sensor (tool) capability must provide toolArgs and collect')
+    if (implementation.program !== undefined || implementation.programInput !== undefined) fail('a sensor (tool) capability has no executor program')
+    if (!metadata.sensor) fail('a sensor (tool) capability must declare its sensor metadata (tool, observationTypes)')
+  } else {
+    if (typeof implementation.programInput !== 'function' || typeof implementation.collect !== 'function') fail('an isolated-container capability must provide program, programInput and collect')
+    if (!executorProgramPath(implementation.program)) fail(`executor program ${String(implementation.program)} is not a reviewed executor shipped with Audivra`)
+    if (implementation.toolArgs !== undefined) fail('a node-sandbox capability does not provide toolArgs')
+  }
   // Network: `none` means no network at all; `scoped-egress` means the execution-private gateway. An
   // isolated capability that needs the network must use the gateway, and declaring scoped-egress is
   // itself the declaration that it needs the network.

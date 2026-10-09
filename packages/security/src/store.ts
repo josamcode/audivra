@@ -1,7 +1,9 @@
-import type { EngagementStatus, ScopeManifest, SecurityAuthorizationItem, SecurityEnvironment, SecurityEventItem, SecurityEvidenceItem } from '@audivra/contracts'
+import type { EngagementStatus, ScopeManifest, SecurityAuthorizationItem, SecurityEnvironment, SecurityEventItem, SecurityEvidenceItem, SecurityObservation } from '@audivra/contracts'
 import {
   createSecurityEvidence,
   getEngagementRow,
+  recordSecurityObservation,
+  type RecordObservationInput,
   listAuthorizationRows,
   recordSecurityEvent,
   type CreateSecurityEvidenceInput,
@@ -28,6 +30,7 @@ export interface SecurityStore {
   loadEngagement(id: string): Promise<{ engagement: EngagementSnapshot; authorizations: SecurityAuthorizationItem[] } | null>
   recordEvent(input: RecordSecurityEventInput): Promise<SecurityEventItem>
   recordEvidence(input: CreateSecurityEvidenceInput): Promise<SecurityEvidenceItem>
+  recordObservation(input: RecordObservationInput): Promise<SecurityObservation>
 }
 
 export function createDbSecurityStore(db: Db, now: () => Date = () => new Date()): SecurityStore {
@@ -53,5 +56,6 @@ export function createDbSecurityStore(db: Db, now: () => Date = () => new Date()
     },
     recordEvent: (input) => recordSecurityEvent(db, input),
     recordEvidence: (input) => createSecurityEvidence(db, input),
+    recordObservation: (input) => recordSecurityObservation(db, input),
   }
 }

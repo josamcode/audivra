@@ -3,6 +3,7 @@ import path from 'node:path'
 import { redact, type ContainerFacts, type ContainerLimits, type NetworkDecisions, type NetworkFacts } from '@audivra/contracts'
 import { runProcess } from '@audivra/tool-runtime'
 import { RUNTIME_HELPER_PREFIX, type BackendExit, type BackendRemains, type BackendSpec, type ExecutionBackend, type OwnedResource, type PreparedExecution, type RunningExecution } from './backend.ts'
+import type { ToolIo } from '../capabilities/types.ts'
 import { executorProgramPath } from './executors.ts'
 import { ExecutionError, failureMessage } from './failures.ts'
 import { gatewayBundlePath } from './gateway-bundle.ts'
@@ -96,6 +97,10 @@ export interface ContainerSpec {
   /** Exact image reference (repository pinned by digest). */
   image: string
   command: readonly string[]
+  /** Container entrypoint override (a `tool` runtime's binary); null uses the image's own entrypoint. */
+  entrypoint?: string | null
+  /** Environment given to the container (a sensor gets HOME and, for scoped egress, its proxy). */
+  env?: Record<string, string>
   limits: ContainerLimits
   user: string
   /** Docker network: `none` (no network) or an execution-private network name. */
@@ -139,6 +144,8 @@ export function containerCreateArgs(spec: ContainerSpec): string[] {
     '--log-driver', 'json-file',
     '--log-opt', 'max-size=1m',
     '--log-opt', 'max-file=1',
+    ...(spec.entrypoint ? ['--entrypoint', spec.entrypoint] : []),
+    ...Object.entries(spec.env ?? {}).flatMap(([k, v]) => ['--env', `${k}=${v}`]),
     '--workdir', CONTAINER_ROOT,
     '--mount', `type=bind,source=${mounts.inputs},target=${CONTAINER_ROOT}/inputs,readonly`,
     '--mount', `type=bind,source=${mounts.outputs},target=${CONTAINER_ROOT}/outputs`,
@@ -310,11 +317,13 @@ export class IsolatedContainerBackend implements ExecutionBackend {
       throw new ExecutionError('preflight-failed', 'execution.runtime-changed', `The approved runtime ${isolation.runtime.id} changed after the decision`)
     }
     const implementation = spec.capability.implementation
-    const programFile = executorProgramPath(implementation.program)
-    if (!programFile || typeof implementation.programInput !== 'function') {
+    const scopedEgress = isolation.network === 'scoped-egress'
+    const isTool = runtime.kind === 'tool'
+    if (isTool) {
+      if (typeof implementation.toolArgs !== 'function') throw new ExecutionError('runtime-failed', 'runtime.tool-args-missing', `${snapshot.capability.id} has no reviewed tool arguments`)
+    } else if (!executorProgramPath(implementation.program) || typeof implementation.programInput !== 'function') {
       throw new ExecutionError('runtime-failed', 'runtime.program-missing', `${snapshot.capability.id} has no reviewed executor program`)
     }
-    const scopedEgress = isolation.network === 'scoped-egress'
     const name = containerNameFor(executionId)
     const prepared = new ContainerPrepared(spec, name, scopedEgress)
     await spec.events('execution.container-preparing', `Preparing the isolated runtime ${runtime.name} v${runtime.version}`, {
@@ -328,11 +337,24 @@ export class IsolatedContainerBackend implements ExecutionBackend {
       throw new ExecutionError('runtime-unavailable', 'runtime.image-unavailable', `${runtime.name} is not available (Docker not reachable or image missing): ${runtimePullHint(runtime)}`)
     }
 
-    // Inputs are staged before start and mounted read-only: the minimum the program needs, never the
-    // trusted configuration, and the reviewed program itself.
+    // Inputs are staged before start and mounted read-only: the minimum the capability needs, never the
+    // trusted configuration.
     await workspace.init()
-    await workspace.write('inputs', 'input.json', JSON.stringify(implementation.programInput(spec.context, spec.input)))
-    await workspace.write('inputs', 'program/main.mjs', await readFile(programFile))
+    const io: ToolIo = {
+      inputs: `${CONTAINER_ROOT}/inputs`,
+      outputs: `${CONTAINER_ROOT}/outputs`,
+      artifacts: `${CONTAINER_ROOT}/artifacts`,
+      tmp: '/tmp',
+      egressProxy: scopedEgress ? `http://${GATEWAY_ALIAS}:${GATEWAY_PORT}` : null,
+    }
+    if (isTool) {
+      if (typeof implementation.stage === 'function') {
+        await implementation.stage(spec.context, spec.input, { write: (relative, content) => workspace.write('inputs', relative, content) })
+      }
+    } else {
+      await workspace.write('inputs', 'input.json', JSON.stringify(implementation.programInput!(spec.context, spec.input)))
+      await workspace.write('inputs', 'program/main.mjs', await readFile(executorProgramPath(implementation.program)!))
+    }
 
     const existing = await this.#inspect(name, executionId, snapshot.engagement.id)
     if (existing.kind === 'foreign') throw new ExecutionError('runtime-failed', 'container.name-conflict', `A container named ${name} exists that does not belong to this execution; it was left untouched`)
@@ -340,15 +362,30 @@ export class IsolatedContainerBackend implements ExecutionBackend {
     if (existing.kind === 'owned') await this.#docker(['rm', '--force', name], { executionId, timeoutMs: 60_000 })
 
     // The execution-private network and its gateway come up before the executor, so the executor's only
-    // route exists from the moment it starts.
-    const network = prepared.net ? await this.#setupNetwork(prepared, runtime.command, isolation.runtime.image) : 'none'
+    // route exists from the moment it starts. The gateway is Audivra's own bundled Node program: it runs
+    // in the Node runtime, never in the executor's image (a sensor tool's image cannot run it).
+    let network = 'none'
+    if (prepared.net) {
+      const gatewayRuntime = findApprovedRuntime('node-sandbox')
+      if (!gatewayRuntime) throw new ExecutionError('runtime-failed', 'gateway.runtime-missing', 'The gateway runtime is not approved')
+      const gatewayImage = runtimeImageRef(gatewayRuntime)
+      const gatewayImageOk = await this.#docker(['image', 'inspect', gatewayImage, '--format', '{{.Id}}'], { executionId, timeoutMs: 30_000 })
+      if (!gatewayImageOk.ok) throw new ExecutionError('runtime-unavailable', 'gateway.image-unavailable', `The gateway runtime is not available: ${runtimePullHint(gatewayRuntime)}`)
+      network = await this.#setupNetwork(prepared, gatewayRuntime.command, gatewayImage)
+    }
 
+    const command = isTool ? implementation.toolArgs!(spec.context, spec.input, io) : [...runtime.command, PROGRAM_PATH]
+    const env: Record<string, string> = isTool
+      ? { HOME: '/tmp', ...(scopedEgress ? { HTTP_PROXY: io.egressProxy!, HTTPS_PROXY: io.egressProxy!, http_proxy: io.egressProxy!, https_proxy: io.egressProxy!, NO_PROXY: '' } : {}) }
+      : {}
     const created = await this.#docker(
       containerCreateArgs({
         name,
         labels: ownershipLabels('executor', executionId, snapshot.engagement.id, { [CONTAINER_LABEL.capability]: snapshot.capability.id, [CONTAINER_LABEL.runtime]: `${runtime.id}@${runtime.version}` }),
         image: isolation.runtime.image,
-        command: [...runtime.command, PROGRAM_PATH],
+        command,
+        entrypoint: runtime.entrypoint,
+        env,
         limits: isolation.container,
         user: this.#user,
         network,
@@ -646,7 +683,11 @@ export class IsolatedContainerBackend implements ExecutionBackend {
     if (p.stopRequested) return exit('failed', new ExecutionError('cancelled', 'container.stopped', 'The container was stopped by Audivra'))
     const limits = spec.snapshot.isolation?.container
     if (found.oomKilled) return exit('failed', new ExecutionError('resource-limit', 'container.memory-limit', `The executor exceeded its ${limits?.memoryMb ?? '?'} MB memory limit`))
-    if (code !== 0) return exit('failed', new ExecutionError('executor-failed', 'container.exit-code', `The executor exited with code ${code ?? 'unknown'}: ${firstLine(bounded.split(/\r?\n/).filter(Boolean).at(-1) ?? '')}`))
+    // A reviewed executor *program* must exit 0, or the execution failed. A sensor *tool*'s own exit code
+    // is data its `collect` interprets (e.g. semgrep exits 1 when it reports findings): the tool ran, so
+    // its `collect` always runs and classifies the result (success / partial / failed) into a SensorResult.
+    const isTool = findApprovedRuntime(spec.snapshot.isolation?.runtime?.id)?.kind === 'tool'
+    if (code !== 0 && !isTool) return exit('failed', new ExecutionError('executor-failed', 'container.exit-code', `The executor exited with code ${code ?? 'unknown'}: ${firstLine(bounded.split(/\r?\n/).filter(Boolean).at(-1) ?? '')}`))
     let result: unknown
     try {
       const raw = await spec.workspace.readBounded('outputs', 'result.json', RESULT_LIMIT_BYTES)
@@ -657,7 +698,7 @@ export class IsolatedContainerBackend implements ExecutionBackend {
     const collect = spec.capability.implementation.collect
     if (typeof collect !== 'function') return exit('failed', new ExecutionError('runtime-failed', 'runtime.program-missing', 'No collect step'))
     try {
-      const collected = await collect.call(spec.capability.implementation, spec.context, spec.input, { exitCode: 0, result, log: { bytes: Buffer.byteLength(bounded), tail: redact(bounded.slice(-1000)), path: logPath }, durationMs }, spec.handles)
+      const collected = await collect.call(spec.capability.implementation, spec.context, spec.input, { exitCode: code ?? 1, result, log: { bytes: Buffer.byteLength(bounded), tail: redact(bounded.slice(-1000)), path: logPath }, durationMs }, spec.handles)
       return { status: 'succeeded', output: collected.output, summary: collected.summary, code, container: { ...p.facts } }
     } catch (error) {
       return exit('failed', error)

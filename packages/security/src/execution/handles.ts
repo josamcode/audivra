@@ -1,9 +1,10 @@
 import type { SecurityExecutionSnapshot } from '@audivra/contracts'
-import type { CapabilityHandles } from '../capabilities/types.ts'
+import type { CapabilityHandles, ObservationRecorder } from '../capabilities/types.ts'
 import type { Resolver } from '../dns.ts'
 import { ScopedHttpClient } from '../http-client.ts'
 import type { SecurityStore } from '../store.ts'
 import { ArtifactRegistrar } from './artifacts.ts'
+import { observationDedupeKey, normalizeAsset, normalizeSubject } from './observations.ts'
 import { ExecutionProcesses } from './processes.ts'
 import type { ExecutionWorkspace } from './workspace.ts'
 
@@ -21,7 +22,7 @@ export interface ExecutionHandles {
  */
 export function createExecutionHandles(
   snapshot: SecurityExecutionSnapshot,
-  options: { workspace: ExecutionWorkspace; signal: AbortSignal; resolver: Resolver; store: Pick<SecurityStore, 'recordEvidence'> },
+  options: { workspace: ExecutionWorkspace; signal: AbortSignal; resolver: Resolver; store: Pick<SecurityStore, 'recordEvidence' | 'recordObservation'>; sensor?: { tool: string; toolVersion: string } | null },
 ): ExecutionHandles {
   const { workspace, signal } = options
   const s = snapshot
@@ -52,6 +53,34 @@ export function createExecutionHandles(
         },
       }),
   })
+  const sensor = options.sensor ?? null
+  const observations: ObservationRecorder = {
+    record: async (input) => {
+      if (!sensor) throw new Error('Observations can only be recorded by a sensor capability')
+      const asset = normalizeAsset(input.asset)
+      const subject = normalizeSubject(input.subject)
+      return options.store.recordObservation({
+        engagementId: s.engagement.id,
+        dedupeKey: input.dedupeKey ?? observationDedupeKey(input.type, asset, subject),
+        type: input.type,
+        asset,
+        subject,
+        title: input.title,
+        scopeClass: input.scopeClass ?? null,
+        value: input.value ?? {},
+        sourceType: input.sourceType ?? 'tool-reported',
+        contribution: {
+          executionId: s.executionId,
+          capabilityId: s.capability.id,
+          tool: sensor.tool,
+          toolVersion: sensor.toolVersion,
+          evidenceRef: input.evidenceRef ?? null,
+          confidence: input.confidence ?? 1,
+          at: new Date().toISOString(),
+        },
+      })
+    },
+  }
   const processes = new ExecutionProcesses({ executionId: s.executionId, tool: s.capability.id, workspace, maxProcesses: s.runtime.maxProcesses, signal })
   const http = new ScopedHttpClient({ manifest: s.scope.manifest, limits: s.limits, mutation: s.capability.sideEffect, resolver: options.resolver, signal })
   const handles: CapabilityHandles = {
@@ -67,6 +96,7 @@ export function createExecutionHandles(
       relative: (absolute) => workspace.relative(absolute) ?? '',
     },
     evidence: { record: (item) => registrar.register(item) },
+    observations,
     processes,
     processOwner: { tool: s.capability.id, securityExecutionId: s.executionId },
   }

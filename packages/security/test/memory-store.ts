@@ -7,6 +7,7 @@ import type { SecurityCapability } from '../src/capabilities/types.ts'
 export class MemoryStore implements SecurityStore {
   events: SecurityEventItem[] = []
   evidence: SecurityEvidenceItem[] = []
+  observations: import('@audivra/contracts').SecurityObservation[] = []
 
   constructor(
     public engagement: EngagementSnapshot,
@@ -58,6 +59,41 @@ export class MemoryStore implements SecurityStore {
       createdAt: new Date().toISOString(),
     }
     this.evidence.push(item)
+    return item
+  }
+
+  async recordObservation(input: Parameters<SecurityStore['recordObservation']>[0]) {
+    const content = redactSensitive({ title: input.title, subject: input.subject, value: input.value })
+    const existing = this.observations.find((o) => o.engagementId === input.engagementId && o.dedupeKey === input.dedupeKey)
+    const now = new Date().toISOString()
+    if (existing) {
+      existing.contributions = [...existing.contributions, input.contribution]
+      existing.evidenceRefs = [...new Set([...existing.evidenceRefs, ...(input.contribution.evidenceRef ? [input.contribution.evidenceRef] : [])])]
+      existing.confidence = Math.max(existing.confidence, input.contribution.confidence)
+      existing.value = content.value.value
+      existing.title = content.value.title
+      existing.scopeClass = input.scopeClass ?? existing.scopeClass
+      existing.lastSeenAt = now
+      return existing
+    }
+    const item = {
+      id: `obs_${this.observations.length + 1}`,
+      engagementId: input.engagementId,
+      dedupeKey: input.dedupeKey,
+      type: input.type,
+      asset: input.asset,
+      subject: content.value.subject,
+      title: content.value.title,
+      scopeClass: input.scopeClass,
+      value: content.value.value,
+      sourceType: input.sourceType,
+      confidence: input.contribution.confidence,
+      evidenceRefs: input.contribution.evidenceRef ? [input.contribution.evidenceRef] : [],
+      contributions: [input.contribution],
+      firstSeenAt: now,
+      lastSeenAt: now,
+    }
+    this.observations.push(item)
     return item
   }
 

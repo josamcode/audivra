@@ -10,6 +10,10 @@ import type {
   SecurityCapabilityMetadata,
   SecurityEnvironment,
   SecurityEvidenceItem,
+  SecurityObservation,
+  ObservationScopeClass,
+  ObservationSourceType,
+  ObservationType,
 } from '@audivra/contracts'
 import type { RunProcessResult } from '@audivra/tool-runtime'
 import type { ScopedHttpClient } from '../http-client.ts'
@@ -52,6 +56,41 @@ export interface EvidenceRecorder {
   record(input: RecordEvidenceInput): Promise<SecurityEvidenceItem>
 }
 
+/** A normalized observation a sensor adapter records (provenance and tool version are filled by the platform). */
+export interface RecordObservationInput {
+  type: ObservationType
+  /** The asset it is about (URL / host / file), normalized by the adapter. */
+  asset: string
+  /** The normalized subject (technology name, header, route, rule id, …). */
+  subject: string
+  title: string
+  /** Scope classification for discovered destinations; null when not applicable. */
+  scopeClass?: ObservationScopeClass | null
+  value?: Record<string, unknown>
+  sourceType?: ObservationSourceType
+  confidence?: number
+  /** Evidence (`EV-n`) backing it; the raw artifact is reachable through it. */
+  evidenceRef?: string | null
+  /** Overrides the default `type:asset:subject` dedup key. */
+  dedupeKey?: string
+}
+
+/** Records normalized observations; deduplicated per engagement, provenance filled by the platform. */
+export interface ObservationRecorder {
+  record(input: RecordObservationInput): Promise<SecurityObservation>
+}
+
+/** Container paths and the gateway proxy a sensor's tool command is given (built by the platform). */
+export interface ToolIo {
+  /** Container-side paths of the execution's areas. */
+  inputs: string
+  outputs: string
+  artifacts: string
+  tmp: string
+  /** The execution gateway's proxy URL for a scoped-egress sensor; null for a no-network sensor. */
+  egressProxy: string | null
+}
+
 /** A process a capability starts through `handles.processes` (always owned by its execution). */
 export interface CapabilityProcessOptions {
   command: string
@@ -92,6 +131,8 @@ export interface CapabilityHandles {
   signal: AbortSignal
   workspace: CapabilityWorkspace
   evidence: EvidenceRecorder
+  /** Records normalized observations for a sensor capability (deduplicated, with provenance). */
+  observations: ObservationRecorder
   /**
    * Starts a process owned by this execution: registered by PID + creation time, confined to the
    * workspace, counted against the process limit and terminated exactly on cancellation or timeout.
@@ -125,10 +166,14 @@ export interface ContainerRun {
  * declared execution mode (checked at registration):
  *
  * - in-process — `execute` runs in the worker with the platform handles;
- * - isolated-container — `program` is a reviewed executor shipped with Audivra
+ * - isolated-container (executor program) — `program` is a reviewed executor shipped with Audivra
  *   (`packages/security/executors/`), run in the approved runtime with only `programInput` staged
- *   read-only; `collect` then runs on the host to validate what the program left in the workspace and to
- *   register evidence. An isolated capability has no `execute`, so it cannot run in-process at all.
+ *   read-only; `collect` then runs on the host to validate what the program left in the workspace.
+ * - isolated-container (sensor tool) — `toolArgs` builds the exact argument vector for an approved tool,
+ *   run in that tool's approved image (its entrypoint); no user- or model-supplied arguments ever reach
+ *   it. `collect` parses the tool's structured output into evidence and observations.
+ *
+ * An isolated capability has no `execute`, so it cannot run in-process at all.
  */
 export interface CapabilityImplementation<I = unknown, O = unknown> {
   /** Must equal `metadata.implementation`. */
@@ -142,6 +187,10 @@ export interface CapabilityImplementation<I = unknown, O = unknown> {
   program?: string
   /** The minimum the program needs to run — never authorization, scope, policy or credentials. */
   programInput?(context: Readonly<SecurityExecutionContext>, input: I): Record<string, unknown>
+  /** Sensor tool: stage any input files the tool reads (under the execution's read-only inputs area). */
+  stage?(context: Readonly<SecurityExecutionContext>, input: I, into: { write(relative: string, content: string | Uint8Array): Promise<string> }): Promise<void>
+  /** Sensor tool: the exact argument vector for the approved tool, from validated input only. */
+  toolArgs?(context: Readonly<SecurityExecutionContext>, input: I, io: ToolIo): string[]
   collect?(context: Readonly<SecurityExecutionContext>, input: I, run: ContainerRun, handles: CapabilityHandles): Promise<CapabilityResult<O>>
 }
 

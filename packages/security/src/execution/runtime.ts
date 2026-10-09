@@ -407,7 +407,8 @@ export class ExecutionRuntime {
 
   /** Everything a backend gets for one execution, built from the verified snapshot only. */
   #spec(state: RunState, snapshot: SecurityExecutionSnapshot, capability: SecurityCapability, input: unknown, workspace: ExecutionWorkspace, stop: AbortController): BackendSpec {
-    const { handles, registrar, processes } = createExecutionHandles(snapshot, { workspace, signal: stop.signal, resolver: this.#resolver, store: this.#store })
+    const sensor = capability.metadata.sensor ? { tool: capability.metadata.sensor.tool, toolVersion: snapshot.isolation?.runtime?.image ?? `${snapshot.capability.id}@${snapshot.capability.version}` } : null
+    const { handles, registrar, processes } = createExecutionHandles(snapshot, { workspace, signal: stop.signal, resolver: this.#resolver, store: this.#store, sensor })
     state.registrar = registrar
     state.processes = processes
     return {

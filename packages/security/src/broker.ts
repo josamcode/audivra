@@ -399,7 +399,12 @@ export class CapabilityBroker {
       check('scope', false, 'scope.targets-unavailable', `Could not determine the request's destinations: ${error instanceof Error ? error.message : String(error)}`)
       return finish()
     }
-    if (targets.length === 0) check('scope', false, 'scope.no-targets', 'The request has no destination to evaluate')
+    // A capability that needs the network must name a destination; one that works only on staged input
+    // (static analysis) contacts nothing, so for it an empty target set is in scope by construction.
+    if (targets.length === 0) {
+      if (meta.requiresNetwork) check('scope', false, 'scope.no-targets', 'A networked request has no destination to evaluate')
+      else check('scope', true, 'scope.no-network-target', 'This capability analyses staged input and contacts no destination')
+    }
     scopeEvaluations = targets.map((target) => evaluateUrl(engagement.scope, target, { kind: 'target' }))
     const nameDenied = scopeEvaluations.find((e) => e.decision === 'deny')
     if (nameDenied) check('scope', false, nameDenied.rule, nameDenied.reason)
@@ -488,7 +493,8 @@ export class CapabilityBroker {
     const execute = d.capability.implementation.execute
     if (typeof execute !== 'function') throw new Error(`${meta.id} has no in-process implementation`)
     const workspace = new ExecutionWorkspace(this.#workspaceRoot(engagement.id), executionId)
-    const { handles, registrar, http } = createExecutionHandles(snapshot, { workspace, signal: controller.signal, resolver: this.#resolver, store: this.#store })
+    const sensor = meta.sensor ? { tool: meta.sensor.tool, toolVersion: snapshot.isolation?.runtime?.image ?? `${meta.id}@${meta.version}` } : null
+    const { handles, registrar, http } = createExecutionHandles(snapshot, { workspace, signal: controller.signal, resolver: this.#resolver, store: this.#store, sensor })
     const event = (type: 'capability.started' | 'capability.completed' | 'capability.failed' | 'capability.cancelled', message: string, data: Record<string, unknown>, level: 'info' | 'warn' | 'error' = 'info') =>
       this.#store.recordEvent({ engagementId: engagement.id, type, level, message, actor: req.actor, executionId, capabilityId: meta.id, configVersion: engagement.configVersion, data })
 

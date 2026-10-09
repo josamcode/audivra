@@ -16,14 +16,27 @@ export interface ApprovedRuntime {
   version: number
   name: string
   purpose: string
+  /**
+   * `program`: runs Audivra's reviewed Node.js executor programs. `tool`: runs one approved external
+   * sensor tool with Audivra-built arguments (never user- or model-supplied).
+   */
+  kind: 'program' | 'tool'
   image: { repository: string; tag: string; digest: string }
-  /** Interpreter the reviewed executor program runs with. */
+  /** Interpreter the reviewed executor program runs with (`program` runtimes). */
   command: readonly string[]
+  /** Container entrypoint override for a `tool` runtime (the tool binary); null uses the image's own. */
+  entrypoint: string | null
   /** Applied to every container of this runtime (recorded in each execution's trusted snapshot). */
   limits: ContainerLimits
   /** For the explicit pull instructions (disk checks come first). */
   approximateSizeMb: number
 }
+
+/**
+ * Container limits for the sensor tools. They are heavier than the node sandbox (crawlers and analysers
+ * can be memory- and CPU-hungry), but still bounded and enforced at the container boundary.
+ */
+const SENSOR_LIMITS: ContainerLimits = { memoryMb: 1024, cpus: 2, pidsLimit: 512, tmpfsMb: 256 }
 
 export const APPROVED_RUNTIMES: readonly ApprovedRuntime[] = Object.freeze([
   Object.freeze({
@@ -31,10 +44,48 @@ export const APPROVED_RUNTIMES: readonly ApprovedRuntime[] = Object.freeze([
     version: 1,
     name: 'Node.js sandbox',
     purpose: "Runs Audivra's reviewed Node.js executor programs: no network, read-only root filesystem, only the execution's workspace mounted.",
+    kind: 'program',
     image: { repository: 'node', tag: '24-alpine', digest: 'sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1' },
     command: ['node'],
+    entrypoint: null,
     limits: { memoryMb: 256, cpus: 0.5, pidsLimit: 64, tmpfsMb: 16 },
     approximateSizeMb: 242,
+  }),
+  Object.freeze({
+    id: 'httpx',
+    version: 1,
+    name: 'httpx (ProjectDiscovery)',
+    purpose: 'Safe HTTP inspection of an in-scope target: status, title, server, technologies, CDN, response metadata. Networked — reaches the target only through the execution gateway.',
+    kind: 'tool',
+    image: { repository: 'projectdiscovery/httpx', tag: 'latest', digest: 'sha256:f8275a7c6aaec187249df9eaf4ad9196f4677adfc6a51a47b4aaa1d4db4f8ffc' },
+    command: [],
+    entrypoint: 'httpx',
+    limits: SENSOR_LIMITS,
+    approximateSizeMb: 976,
+  }),
+  Object.freeze({
+    id: 'katana',
+    version: 1,
+    name: 'Katana (ProjectDiscovery)',
+    purpose: 'Bounded same-site crawl/discovery of in-scope URLs and routes. Networked — reaches targets only through the execution gateway.',
+    kind: 'tool',
+    image: { repository: 'projectdiscovery/katana', tag: 'latest', digest: 'sha256:20c42a63b71f0c2e95cb02d973e8887e70ad65ea9cb818183f163143275e746c' },
+    command: [],
+    entrypoint: 'katana',
+    limits: SENSOR_LIMITS,
+    approximateSizeMb: 1275,
+  }),
+  Object.freeze({
+    id: 'semgrep',
+    version: 1,
+    name: 'Semgrep CE',
+    purpose: 'Static analysis of a staged source tree with reviewed rules. No network; only the staged source is mounted read-only.',
+    kind: 'tool',
+    image: { repository: 'semgrep/semgrep', tag: 'latest', digest: 'sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b' },
+    command: [],
+    entrypoint: 'semgrep',
+    limits: SENSOR_LIMITS,
+    approximateSizeMb: 1564,
   }),
 ])
 
