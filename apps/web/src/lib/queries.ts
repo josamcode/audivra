@@ -57,12 +57,16 @@ export const queryKeys = {
   engagement: (id: string) => ['security', 'engagement', id] as const,
   engagementEvents: (id: string) => ['security', 'engagement', id, 'events'] as const,
   engagementEvidence: (id: string) => ['security', 'engagement', id, 'evidence'] as const,
+  engagementObservations: (id: string, type?: string, scopeClass?: string) => ['security', 'engagement', id, 'observations', type ?? 'all', scopeClass ?? 'all'] as const,
+  engagementObservationSummary: (id: string) => ['security', 'engagement', id, 'observations', 'summary'] as const,
+  engagementSensorCoverage: (id: string) => ['security', 'engagement', id, 'sensor-coverage'] as const,
   securityCapabilities: ['security', 'capabilities'] as const,
   engagementExecutions: (id: string) => ['security', 'engagement', id, 'executions'] as const,
   /** Prefix of everything about one execution. */
   execution: (id: string) => ['security', 'execution', id] as const,
   executionEvents: (id: string) => ['security', 'execution', id, 'events'] as const,
   executionEvidence: (id: string) => ['security', 'execution', id, 'evidence'] as const,
+  executionObservations: (id: string) => ['security', 'execution', id, 'observations'] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -167,6 +171,19 @@ export const engagementEventsQuery = (id: string) =>
 export const engagementEvidenceQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementEvidence(id), queryFn: () => api.engagementEvidence(id) })
 
+export const engagementObservationsQuery = (id: string, filters: { type?: string; scopeClass?: string } = {}) =>
+  queryOptions({
+    queryKey: queryKeys.engagementObservations(id, filters.type, filters.scopeClass),
+    queryFn: () => api.engagementObservations(id, filters),
+    refetchInterval: EXECUTION_IDLE_POLL_MS,
+  })
+
+export const engagementObservationSummaryQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementObservationSummary(id), queryFn: () => api.engagementObservationSummary(id), refetchInterval: EXECUTION_IDLE_POLL_MS })
+
+export const engagementSensorCoverageQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementSensorCoverage(id), queryFn: () => api.engagementSensorCoverage(id), refetchInterval: EXECUTION_IDLE_POLL_MS })
+
 export const securityCapabilitiesQuery = () =>
   queryOptions({ queryKey: queryKeys.securityCapabilities, queryFn: api.securityCapabilities, staleTime: Infinity })
 
@@ -194,3 +211,6 @@ export const executionEventsQuery = (id: string, active: boolean) =>
 
 export const executionEvidenceQuery = (id: string, active: boolean) =>
   queryOptions({ queryKey: queryKeys.executionEvidence(id), queryFn: () => api.executionEvidence(id), refetchInterval: active ? EXECUTION_POLL_MS : false })
+
+export const executionObservationsQuery = (id: string, active: boolean) =>
+  queryOptions({ queryKey: queryKeys.executionObservations(id), queryFn: () => api.executionObservations(id), refetchInterval: active ? EXECUTION_POLL_MS : false })

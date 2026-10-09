@@ -33,11 +33,20 @@ import type {
   SecurityEvidenceItem,
   SecurityExecutionDetail,
   SecurityExecutionItem,
+  SecurityObservation,
+  SensorCoverageItem,
   SiteHistory,
   SystemHealth,
   SystemStatus,
   ToolRunItem,
 } from '@audivra/contracts'
+
+/** Counts the Observations overview shows (mirrors SecurityService.observationSummary). */
+export interface ObservationSummary {
+  total: number
+  byType: Record<string, number>
+  byScopeClass: Record<string, number>
+}
 
 export class ApiError extends Error {
   constructor(
@@ -139,11 +148,21 @@ export const api = {
   engagementLifecycle: (id: string, action: LifecycleAction) => request<SecurityEngagementDetail>(`${engagementPath(id)}/lifecycle`, post({ action })),
   engagementEvents: (id: string) => request<SecurityEventItem[]>(`${engagementPath(id)}/events`),
   engagementEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${engagementPath(id)}/evidence`),
+  engagementObservations: (id: string, filters: { type?: string; scopeClass?: string } = {}) => {
+    const q = new URLSearchParams()
+    if (filters.type) q.set('type', filters.type)
+    if (filters.scopeClass) q.set('scopeClass', filters.scopeClass)
+    const query = q.toString()
+    return request<SecurityObservation[]>(`${engagementPath(id)}/observations${query ? `?${query}` : ''}`)
+  },
+  engagementObservationSummary: (id: string) => request<ObservationSummary>(`${engagementPath(id)}/observations/summary`),
+  engagementSensorCoverage: (id: string) => request<SensorCoverageItem[]>(`${engagementPath(id)}/sensor-coverage`),
   securityCapabilities: () => request<SecurityCapabilityMetadata[]>('/api/security/capabilities'),
   engagementExecutions: (id: string) => request<SecurityExecutionItem[]>(`${engagementPath(id)}/executions`),
   execution: (id: string) => request<SecurityExecutionDetail>(executionPath(id)),
   executionEvents: (id: string) => request<SecurityEventItem[]>(`${executionPath(id)}/events`),
   executionEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${executionPath(id)}/evidence`),
+  executionObservations: (id: string) => request<SecurityObservation[]>(`${executionPath(id)}/observations`),
   cancelExecution: (id: string) => request<SecurityExecutionDetail>(`${executionPath(id)}/cancel`, { method: 'POST' }),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
   executionArtifactUrl: (id: string, artifactPath: string) =>

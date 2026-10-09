@@ -5,6 +5,7 @@ import {
   type SecurityEvidenceItem,
   type SecurityExecutionDetail,
   type SecurityExecutionItem,
+  type SecurityObservation,
 } from '@audivra/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createColumnHelper } from '@tanstack/react-table'
@@ -19,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { api } from '@/lib/api'
 import { formatBytes, formatDateTime, formatDuration, formatRelative } from '@/lib/format'
-import { engagementExecutionsQuery, executionEventsQuery, executionEvidenceQuery, executionQuery, queryKeys } from '@/lib/queries'
+import { engagementExecutionsQuery, executionEventsQuery, executionEvidenceQuery, executionObservationsQuery, executionQuery, queryKeys } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 /*
@@ -180,6 +181,23 @@ function EvidenceList({ executionId, items }: { executionId: string; items: Secu
   )
 }
 
+function ObservationList({ items }: { items: SecurityObservation[] }) {
+  return (
+    <ul className="flex flex-col gap-2">
+      {items.map((item) => (
+        <li key={item.id} className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 font-mono text-2xs text-subtle">{item.type}</span>
+            <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+            {item.scopeClass ? <span className="shrink-0 text-2xs text-muted">· {item.scopeClass}</span> : null}
+          </div>
+          <p className="truncate font-mono text-2xs text-subtle">{item.asset}</p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: string }) {
   const queryClient = useQueryClient()
   const execution = useQuery(executionQuery(id))
@@ -187,12 +205,14 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
   const active = status ? !isTerminalExecutionStatus(status) : false
   const events = useQuery(executionEventsQuery(id, active))
   const evidence = useQuery(executionEvidenceQuery(id, active))
+  const observations = useQuery(executionObservationsQuery(id, active))
 
-  // A change of state brings new events and evidence; refresh them once more after the final one.
+  // A change of state brings new events, evidence and observations; refresh once more after the final one.
   useEffect(() => {
     if (!status) return
     void queryClient.invalidateQueries({ queryKey: queryKeys.executionEvents(id) })
     void queryClient.invalidateQueries({ queryKey: queryKeys.executionEvidence(id) })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.executionObservations(id) })
   }, [status, id, queryClient])
 
   const cancel = useMutation({
@@ -331,6 +351,12 @@ function ExecutionDetailPanel({ id, engagementId }: { id: string; engagementId: 
             <p className="text-xs text-muted">{evidence.isLoading ? 'Loading…' : 'No evidence recorded by this execution.'}</p>
           )}
         </section>
+        {observations.data?.length ? (
+          <section className="border-t border-border pt-3">
+            <SectionLabel>Observations</SectionLabel>
+            <ObservationList items={observations.data} />
+          </section>
+        ) : null}
         <section className="border-t border-border pt-3">
           <SectionLabel>Events</SectionLabel>
           {events.data?.length ? <EventList events={events.data} /> : <p className="text-xs text-muted">{events.isLoading ? 'Loading…' : 'No events.'}</p>}

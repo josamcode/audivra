@@ -10,13 +10,14 @@ import { ActivityTab } from '@/features/security/activity-tab'
 import { AuthorizationTab } from '@/features/security/authorization-tab'
 import { EngagementHeader } from '@/features/security/engagement-header'
 import { ExecutionsTab } from '@/features/security/executions-tab'
+import { ObservationsTab } from '@/features/security/observations-tab'
 import { OverviewTab } from '@/features/security/overview-tab'
 import { PolicyTab } from '@/features/security/policy-tab'
 import { ScopeTab } from '@/features/security/scope-tab'
 import { ApiError } from '@/lib/api'
 import { engagementQuery } from '@/lib/queries'
 
-const TABS = ['overview', 'scope', 'authorization', 'policy', 'executions', 'activity'] as const
+const TABS = ['overview', 'scope', 'authorization', 'policy', 'executions', 'observations', 'activity'] as const
 type EngagementTab = (typeof TABS)[number]
 
 export const Route = createFileRoute('/security/$engagementId')({
@@ -79,6 +80,7 @@ function EngagementPage() {
           { value: 'authorization', label: 'Authorization' },
           { value: 'policy', label: 'Policy' },
           { value: 'executions', label: 'Executions' },
+          { value: 'observations', label: 'Observations' },
           { value: 'activity', label: 'Audit trail' },
         ]}
       >
@@ -97,6 +99,9 @@ function EngagementPage() {
           </TabPanel>
           <TabPanel value="executions">
             <ExecutionsTab engagement={engagement} />
+          </TabPanel>
+          <TabPanel value="observations">
+            <ObservationsTab engagement={engagement} />
           </TabPanel>
           <TabPanel value="activity">
             <ActivityTab engagement={engagement} />
