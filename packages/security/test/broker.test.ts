@@ -55,10 +55,17 @@ describe('capability registry', () => {
     expect(Object.isFrozen(registry.get('test.spy')!.metadata)).toBe(true)
   })
 
-  it('ships exactly one passive, read-only capability and describes it for agents', () => {
+  it('ships the passive HTTP observation and the Phase 3A sensors, and describes them for agents', () => {
     const registry = createDefaultRegistry()
-    expect(registry.list().map((c) => [c.id, c.riskClass, c.sideEffect])).toEqual([['discovery.http-observe', 'passive', 'read-only']])
-    const [described] = registry.describeForAgents()
+    expect(registry.list().map((c) => [c.id, c.riskClass, c.sideEffect])).toEqual([
+      ['discovery.crawl', 'low-impact', 'read-only'],
+      ['discovery.http-inspect', 'passive', 'read-only'],
+      ['discovery.http-observe', 'passive', 'read-only'],
+      ['source.static-analysis', 'passive', 'read-only'],
+    ])
+    // Every shipped capability is read-only in Phase 3A: a sensor observes, it never mutates.
+    expect(registry.list().every((c) => c.sideEffect === 'read-only')).toBe(true)
+    const described = registry.describeForAgents().find((d) => d.id === 'discovery.http-observe')
     expect(described).toMatchObject({ id: 'discovery.http-observe', riskClass: 'passive' })
     expect(JSON.stringify(described!.input)).toContain('"url"')
   })

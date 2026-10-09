@@ -3,13 +3,21 @@ import { httpObserveCapability } from './http-observe.ts'
 import { isolatedCheckCapability } from './isolated-check.ts'
 import { CapabilityRegistry } from './registry.ts'
 import { runtimeCheckCapability } from './runtime-check.ts'
+import { httpxSensorCapability } from '../sensors/httpx-sensor.ts'
+import { katanaSensorCapability } from '../sensors/katana-sensor.ts'
+import { semgrepSensorCapability } from '../sensors/semgrep-sensor.ts'
 
 /**
- * The capabilities Audivra ships. Phase 1 has exactly one, and it is passive and read-only: it exists to
- * prove the control plane end to end, not to test anything.
+ * The security capabilities Audivra ships. The Phase 1 passive HTTP observation, plus the Phase 3A
+ * sensors: each wraps one approved external tool as a reviewed adapter that normalizes the tool's output
+ * into evidence-backed observations. A sensor is never raw CLI access — Audivra builds every argument.
  */
 export function createDefaultRegistry(): CapabilityRegistry {
-  return new CapabilityRegistry().register(httpObserveCapability)
+  return new CapabilityRegistry()
+    .register(httpObserveCapability)
+    .register(httpxSensorCapability)
+    .register(katanaSensorCapability)
+    .register(semgrepSensorCapability)
 }
 
 /**
