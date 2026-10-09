@@ -8,6 +8,7 @@ import {
   parseIp,
   RequestAuthorizationInput,
   isTerminalExecutionStatus,
+  observationFamily,
   ScopeManifest,
   SECURITY_POLICY_PROFILES,
   sensorStateToCoverage,
@@ -27,6 +28,7 @@ import {
   type SecurityObservation,
   type SensorCoverageItem,
   type SensorResult,
+  type ObservationFamily,
   type ObservationScopeClass,
   type ObservationType,
 } from '@audivra/contracts'
@@ -151,10 +153,42 @@ export class SecurityService {
     return listSecurityEvidence(this.#db, id)
   }
 
-  /** Read-only: the normalized, deduplicated observations sensors have recorded for this engagement. */
-  async listObservations(id: string, filters: { type?: ObservationType; asset?: string; scopeClass?: ObservationScopeClass } = {}): Promise<SecurityObservation[]> {
+  /**
+   * Read-only: the normalized, deduplicated observations sensors have recorded for this engagement.
+   * Type/asset/scope are filtered in the query; family/tool/confidence are applied over the result.
+   */
+  async listObservations(
+    id: string,
+    filters: { type?: ObservationType; asset?: string; scopeClass?: ObservationScopeClass; family?: ObservationFamily; tool?: string; minConfidence?: number } = {},
+  ): Promise<SecurityObservation[]> {
     await this.#row(id)
-    return listSecurityObservations(this.#db, id, filters)
+    const rows = await listSecurityObservations(this.#db, id, { type: filters.type, asset: filters.asset, scopeClass: filters.scopeClass })
+    return rows.filter(
+      (o) =>
+        (!filters.family || observationFamily(o.type) === filters.family) &&
+        (!filters.tool || o.contributions.some((c) => c.tool === filters.tool)) &&
+        (filters.minConfidence === undefined || o.confidence >= filters.minConfidence),
+    )
+  }
+
+  /**
+   * Cross-sensor correlation: observations grouped by their normalized asset, most-corroborated first (an
+   * asset several distinct sensors reported on). Enough for a later reasoning layer to see supporting and
+   * differing sensors on the same asset without building the full security graph yet.
+   */
+  async correlateByAsset(id: string): Promise<{ asset: string; tools: string[]; types: string[]; observations: SecurityObservation[] }[]> {
+    await this.#row(id)
+    const rows = await listSecurityObservations(this.#db, id)
+    const byAsset = new Map<string, SecurityObservation[]>()
+    for (const o of rows) byAsset.set(o.asset, [...(byAsset.get(o.asset) ?? []), o])
+    return [...byAsset.entries()]
+      .map(([asset, observations]) => ({
+        asset,
+        tools: [...new Set(observations.flatMap((o) => o.contributions.map((c) => c.tool)))].sort(),
+        types: [...new Set(observations.map((o) => o.type))].sort(),
+        observations,
+      }))
+      .sort((a, b) => b.tools.length - a.tools.length || b.observations.length - a.observations.length || a.asset.localeCompare(b.asset))
   }
 
   /** A small summary for the overview: observation counts by type and by scope classification. */
@@ -171,30 +205,37 @@ export class SecurityService {
   }
 
   /**
-   * Sensor coverage for the engagement: every shipped sensor and the state of its most recent execution,
-   * in the shared coverage vocabulary. A sensor that has not run is `skipped` — explicit, never omitted —
-   * so coverage shows what was and was not exercised.
+   * Sensor coverage for the engagement: every shipped sensor, its observation family, and the state of its
+   * most recent execution. A sensor not eligible in this environment is `blocked`; one that never ran is
+   * `skipped`. "Not run" is never read as "secure"; every sensor is accounted for explicitly.
    */
   async sensorCoverage(id: string): Promise<SensorCoverageItem[]> {
-    await this.#row(id)
+    const engagement = await this.#row(id)
     const sensors = createDefaultRegistry()
       .list()
       .filter((m) => m.sensor)
     const rows = await createDbExecutionStore(this.#db).listForEngagement(id) // newest first
     return sensors.map((meta): SensorCoverageItem => {
       const tool = meta.sensor!.tool
+      const family = observationFamily(meta.sensor!.observationTypes[0]!)
+      const base = { capabilityId: meta.id, name: meta.name, tool, family }
       const latest = rows.find((r) => r.capabilityId === meta.id)
-      if (!latest) return { capabilityId: meta.id, name: meta.name, tool, status: 'skipped', lastExecutionId: null, lastRunAt: null, observations: 0, reason: 'Not run for this engagement yet' }
+      const eligibleHere = !engagement.environment || meta.supportedEnvironments.includes(engagement.environment)
+      if (!latest) {
+        // Never run: say why it would not run here (environment) rather than only "not run".
+        if (!eligibleHere) return { ...base, status: 'blocked', lastExecutionId: null, lastRunAt: null, observations: 0, reason: `Not permitted in the ${engagement.environment} environment` }
+        return { ...base, status: 'skipped', lastExecutionId: null, lastRunAt: null, observations: 0, reason: 'Not run for this engagement yet' }
+      }
       const output = (latest.result?.output ?? null) as SensorResult | null
       const lastRunAt = (latest.finishedAt ?? latest.createdAt).toISOString()
       if (!isTerminalExecutionStatus(latest.status)) {
-        return { capabilityId: meta.id, name: meta.name, tool, status: 'skipped', lastExecutionId: latest.id, lastRunAt, observations: output?.observations ?? 0, reason: 'In progress' }
+        return { ...base, status: 'skipped', lastExecutionId: latest.id, lastRunAt, observations: output?.observations ?? 0, reason: 'In progress' }
       }
       if (latest.status === 'succeeded' && output) {
-        return { capabilityId: meta.id, name: meta.name, tool, status: sensorStateToCoverage[output.state], lastExecutionId: latest.id, lastRunAt, observations: output.observations, reason: output.reason }
+        return { ...base, status: sensorStateToCoverage[output.state], lastExecutionId: latest.id, lastRunAt, observations: output.observations, reason: output.reason }
       }
       // A non-success terminal state (failed, timed-out, cancelled, interrupted): the sensor did not complete.
-      return { capabilityId: meta.id, name: meta.name, tool, status: 'failed', lastExecutionId: latest.id, lastRunAt, observations: 0, reason: `Execution ${latest.status}` }
+      return { ...base, status: 'failed', lastExecutionId: latest.id, lastRunAt, observations: 0, reason: `Execution ${latest.status}` }
     })
   }
 

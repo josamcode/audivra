@@ -146,9 +146,10 @@ describe('capability execution modes', () => {
   const register = (capability: SecurityCapability<{ target: string }>) => () => new CapabilityRegistry().register(capability)
 
   it('registers the shipped capabilities and diagnostics with exactly the shape their mode requires', () => {
-    expect(createDefaultRegistry().list().map((c) => c.id)).toEqual(['discovery.crawl', 'discovery.http-inspect', 'discovery.http-observe', 'source.static-analysis'])
+    expect(createDefaultRegistry().list().map((c) => c.id)).toEqual(['api.contract-test', 'discovery.crawl', 'discovery.http-inspect', 'discovery.http-observe', 'source.static-analysis', 'web.signal-scan'])
     const runtime = createRuntimeRegistry()
     expect(runtime.list().map((c) => [c.id, c.execution?.mode ?? 'in-process', c.execution?.network ?? 'none'])).toEqual([
+      ['api.contract-test', 'isolated-container', 'scoped-egress'],
       ['diagnostic.egress-check', 'isolated-container', 'scoped-egress'],
       ['diagnostic.isolated-check', 'isolated-container', 'none'],
       ['diagnostic.runtime-check', 'in-process', 'none'],
@@ -156,6 +157,7 @@ describe('capability execution modes', () => {
       ['discovery.http-inspect', 'isolated-container', 'scoped-egress'],
       ['discovery.http-observe', 'in-process', 'none'],
       ['source.static-analysis', 'isolated-container', 'none'],
+      ['web.signal-scan', 'isolated-container', 'scoped-egress'],
     ])
     expect(runtime.get('diagnostic.isolated-check')!.implementation.execute).toBeUndefined()
     expect(isolatedCheckCapability.metadata.execution).toEqual({ mode: 'isolated-container', runtime: 'node-sandbox' })

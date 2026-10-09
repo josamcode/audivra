@@ -55,13 +55,15 @@ describe('capability registry', () => {
     expect(Object.isFrozen(registry.get('test.spy')!.metadata)).toBe(true)
   })
 
-  it('ships the passive HTTP observation and the Phase 3A sensors, and describes them for agents', () => {
+  it('ships the passive HTTP observation and the sensor portfolio, and describes them for agents', () => {
     const registry = createDefaultRegistry()
     expect(registry.list().map((c) => [c.id, c.riskClass, c.sideEffect])).toEqual([
+      ['api.contract-test', 'low-impact', 'read-only'],
       ['discovery.crawl', 'low-impact', 'read-only'],
       ['discovery.http-inspect', 'passive', 'read-only'],
       ['discovery.http-observe', 'passive', 'read-only'],
       ['source.static-analysis', 'passive', 'read-only'],
+      ['web.signal-scan', 'low-impact', 'read-only'],
     ])
     // Every shipped capability is read-only in Phase 3A: a sensor observes, it never mutates.
     expect(registry.list().every((c) => c.sideEffect === 'read-only')).toBe(true)
