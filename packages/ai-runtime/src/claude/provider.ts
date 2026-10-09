@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { execa } from 'execa'
 import { getConfig } from '@audivra/config'
+import { AI_TASK_TYPES, type ProviderCapabilities, type ProviderHealth, type ProviderHealthState } from '@audivra/contracts'
 import { browserEnv, probeVersion, registerOwned, runProcess, toolBinDirs } from '@audivra/tool-runtime'
 import type { AgentProvider, AgentRunRequest, AgentRunResult, ProviderAvailability } from '../provider.ts'
 import { describeToolUse } from './activity.ts'
@@ -63,6 +64,7 @@ function resultText(content: unknown): string {
  */
 export class ClaudeCliProvider implements AgentProvider {
   readonly id = 'claude-code-cli'
+  readonly adapterVersion = '1'
 
   constructor(private readonly bin = getConfig().CLAUDE_BIN) {}
 
@@ -78,6 +80,30 @@ export class ClaudeCliProvider implements AgentProvider {
       // Older CLIs may not support `auth status`; assume usable and let the run report problems.
     }
     return { available: true, version, reason: null }
+  }
+
+  /** Normalized health: `disabled` when AI is turned off, else derived from availability. */
+  async health(): Promise<ProviderHealth> {
+    const checkedAt = new Date().toISOString()
+    if (getConfig().AUDIVRA_AI === 'off') return { providerId: this.id, state: 'disabled', version: null, detail: 'AI disabled (AUDIVRA_AI=off)', checkedAt }
+    const availability = await this.isAvailable()
+    let state: ProviderHealthState = 'ready'
+    if (!availability.available) state = /logged in|auth/i.test(availability.reason ?? '') ? 'auth-required' : 'unavailable'
+    return { providerId: this.id, state, version: availability.version, detail: availability.reason, checkedAt }
+  }
+
+  /** The local Claude Code CLI supports Audivra's full capability surface. */
+  capabilities(): ProviderCapabilities {
+    return {
+      providerId: this.id,
+      structuredOutput: true,
+      toolUse: true,
+      sessionResume: true,
+      browserTools: true,
+      maxContextTokens: 200_000,
+      effortLevels: ['low', 'standard', 'high'],
+      taskTypes: [...AI_TASK_TYPES],
+    }
   }
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {

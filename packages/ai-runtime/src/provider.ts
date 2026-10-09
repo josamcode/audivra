@@ -1,4 +1,4 @@
-import type { AgentRole } from '@audivra/contracts'
+import type { AgentRole, ProviderCapabilities, ProviderHealth } from '@audivra/contracts'
 
 /** A concise, user-facing description of something the agent did (never its reasoning). */
 export interface AgentActivity {
@@ -86,9 +86,20 @@ export interface ProviderAvailability {
   reason: string | null
 }
 
-/** Seam for AI providers. Only Claude (via the local Claude Code CLI) is implemented in the MVP. */
+/**
+ * The stable Audivra seam every AI provider implements. `run()` subsumes start / resume (via
+ * `resumeSessionId`) / cancel (via `signal`); `health()` and `capabilities()` let the router decide
+ * eligibility before dispatch. Provider-specific command-line/session/format details live only inside the
+ * adapter — never in the security or audit domains.
+ */
 export interface AgentProvider {
   readonly id: string
+  /** Semver-ish adapter version, recorded in provenance so a change is attributable. */
+  readonly adapterVersion: string
   isAvailable(): Promise<ProviderAvailability>
+  /** Normalized health for the router and the System view. */
+  health(): Promise<ProviderHealth>
+  /** What this provider/model can do, so the router can match a task's requirements before dispatch. */
+  capabilities(): ProviderCapabilities
   run(request: AgentRunRequest): Promise<AgentRunResult>
 }
