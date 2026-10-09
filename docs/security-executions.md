@@ -627,6 +627,123 @@ also includes its own ~3 s containment self-check (a deliberate direct-connect a
   through the gateway, not raw packets (the executor has no raw route anyway).
 - One approved runtime image is reused for the gateway; there is no separate, smaller gateway image.
 
+## Phase 3A: security sensors
+
+A **sensor** is an approved external security tool (httpx, katana, Semgrep) run as a first-class Audivra capability.
+A sensor is never raw CLI, shell or arbitrary-image access: each tool gets one reviewed *adapter*, and the tool runs
+only through the existing control plane —
+
+```
+Security capability → Capability Broker → durable execution → isolated runtime → approved tool adapter → structured output → evidence + observations
+```
+
+Audivra owns authorization, scope, execution, limits, parsing, evidence, provenance and the result state; the tool is
+only a sensor. A tool signal never becomes a verified finding on its own.
+
+### The sensor adapter
+
+`packages/security/src/sensors/adapter.ts` defines `SensorAdapter` and `defineSensor()`. An adapter declares the
+approved runtime, the observation types it produces, a **strict** input schema (unknown fields rejected), the targets
+the request contacts (scope-checked by the broker before execution), and three reviewed steps:
+
+- `stage(context, input, into)` — optional; writes the input files the tool reads into the execution's read-only
+  `inputs/` area (e.g. Semgrep's staged source and ruleset).
+- `buildArgs(context, input, io)` — the **exact** argument vector for the tool, built by Audivra from validated input
+  only. No user- or model-supplied argument ever reaches the tool. For a networked sensor it adds `-proxy <gateway>`.
+- `normalize({ raw, evidenceRef, handles, … })` — parses the tool's native structured output into observations.
+
+`defineSensor()` turns the adapter into a `SecurityCapability` whose `collect` (run on the host after the container
+exits) registers the tool's raw output as a bounded `tool-result` artifact (evidence), runs `normalize`, and returns a
+structured `SensorResult`. Because a sensor is a `tool` runtime, its container has **no in-process `execute`** and no
+reviewed Node program — only `[--entrypoint <tool>, …buildArgs]` in the approved image.
+
+A sensor tool's **own exit code is data**, not an execution failure: `collect` runs regardless of the exit code and
+classifies the outcome (Semgrep, for instance, exits 1 when it has findings — a successful run). Only a real runtime
+failure (OOM, cancellation, an unobservable container) fails the execution.
+
+### Observations (not findings)
+
+A `SecurityObservation` (`packages/contracts/src/security-observation.ts`) is a normalized, evidence-backed **signal**
+about an asset — a signal a later reasoning/verification layer may correlate and act on. It is **not** a finding.
+Types: `technology`, `endpoint`, `http-response`, `http-header`, `redirect`, `form`, `tls-config`, `dependency`,
+`source-finding`, `service`.
+
+- **Provenance.** Every observation carries one or more *contributions*, each recording the execution id, capability
+  id, tool, exact tool version (the pinned image reference, by digest), the backing evidence ref (`EV-n`), a
+  confidence and a timestamp. The raw tool output is always reachable through the evidence ref.
+- **Deduplication.** The stable key is `type:asset:subject` on normalized values (`observations.ts`:
+  `normalizeAsset`/`normalizeSubject`). A second sensor — or a later run — reporting the same fact merges onto the
+  existing row: the contribution and evidence accrue, the highest confidence wins, provenance is never lost, and the
+  same fact is not duplicated. Serialized per key by a row lock (`security_observations`, migration `0005`).
+- **Scope classification.** A discovered destination (a redirect target, a crawled link) is classified against the
+  engagement scope by the Phase 1 scope engine — `in-scope` / `out-of-scope` / `third-party` / `unknown`. Being
+  observed **never authorizes** a destination; only `in-scope` destinations are eligible for later capabilities.
+- Observations are recorded only through `handles.observations`, which refuses any capability that is not a declared
+  sensor. Content is redacted at the persistence boundary, like evidence.
+
+### Sensor result and coverage states
+
+One run returns a `SensorResult` with a state: `success`, `partial` (some, possibly bounded, output), `failed`,
+`unavailable` (image missing) or `skipped`. These feed coverage. `SecurityService.sensorCoverage(engagementId)` maps
+each shipped sensor's most recent execution onto the shared `CoverageStatus` vocabulary (`ran`/`partial`/`skipped`/
+`failed`/`unavailable`); a sensor that has not run is reported `skipped` — explicit, never silently omitted.
+
+### Networked sensors and scope safety
+
+`discovery.http-inspect` (httpx) and `discovery.crawl` (katana) are `scoped-egress`: they reach targets only through
+the execution's Phase 2C gateway, which enforces the trusted scope on every request. httpx runs **without following
+redirects**; katana's own crawl scope is pinned to the seed host and it is told to emit — not follow — out-of-scope
+destinations. A discovered out-of-scope destination is therefore recorded and classified but **never contacted**; the
+integration tests assert the out-of-scope fixture receives zero traffic. The gateway is Audivra's bundled Node program
+and always runs in the Node runtime, never in the sensor's tool image.
+
+### Tool availability and installation
+
+Approved runtimes (`runtimes.ts`) pin each tool image **by digest**; images are never pulled implicitly (not at
+install, startup or test time). `sensorRuntimeStatuses()` surfaces each sensor in the existing **System → Tools** view
+under "Security sensors": `ready` (image present), `needs-setup` (missing — shown with its exact pull hint),
+`unavailable` (Docker down) or `error`. A missing sensor reduces coverage; it never crashes an assessment — the
+execution finishes with an `unavailable`/`failed` `SensorResult`.
+
+### The tool portfolio (integrated vs. deferred)
+
+| Tool | Status | Notes |
+| --- | --- | --- |
+| **httpx** | Integrated | `discovery.http-inspect`. HTTP inspection via the gateway; JSON output → response/header/technology/redirect observations. |
+| **katana** | Integrated | `discovery.crawl`. Bounded same-site crawl via the gateway; JSONL → endpoint/form/technology observations, each scope-classified. |
+| **Semgrep CE** | Integrated | `source.static-analysis`. Offline static analysis of a staged source tree with Audivra's reviewed, in-repo ruleset; JSON → `source-finding` observations. |
+| **testssl.sh** | **Deferred** | Raw TLS inspection. The Phase 2C gateway mediates **HTTP only** (`CONNECT` is refused, no TLS interception), so a scoped-egress sensor cannot mediate testssl's raw TLS handshakes. testssl remains available in the Website Audit path; a sensor needs either HTTPS/`CONNECT` mediation (later gateway work) or a reviewed direct-TLS egress exception. |
+| **Trivy** | **Deferred** | Vulnerability/dependency scanning depends on a vulnerability database. The sensor runtimes have **no network** (and a networked sensor only reaches in-scope engagement targets through the gateway — not a public vuln-DB host). Integrating Trivy needs a pre-staged, version-pinned offline DB or an authorized egress exception to its DB host; both are deliberate, reviewable decisions deferred to a later phase. |
+| **OSV-Scanner** | **Deferred** | Same reason as Trivy: it queries the OSV database over the network, which the scoped-egress model does not permit to a non-scope host. Deferred pending offline DB staging or an authorized egress exception. |
+
+The deferrals are a direct consequence of the Phase 2C guarantee (HTTP-only, scope-limited egress) and the no-implicit-
+network stance — not missing adapters. Each becomes a straightforward adapter once its prerequisite (HTTPS mediation,
+or staged/authorized vuln-DB access) exists.
+
+### Read-only observation API and UI
+
+- `GET /api/security/engagements/:id/observations` (filters: `type`, `asset`, `scopeClass`),
+  `…/observations/summary`, `…/sensor-coverage`, and `GET /api/security/executions/:id/observations`.
+- The engagement's **Observations** tab shows the summary, sensor coverage, a scope-classified discovery table with
+  type/scope filters, and each execution's observations inline on the Executions tab. All read-only.
+
+### Measured overhead
+
+Windows + Docker Desktop. A sensor run is dominated by container start for the (large) tool images; the adapter's
+parsing and evidence/observation recording are milliseconds. Representative end-to-end `run()` times from the
+integration suite: httpx inspect ~6–9 s, katana crawl ~15–25 s (bounded by its crawl duration), Semgrep analysis
+~6–10 s. Networked sensors add the Phase 2C gateway setup (~3 s) and cleanup (~2 s) measured above.
+
+### Phase 3A limitations
+
+- **testssl, Trivy and OSV-Scanner are deferred** for the technical reasons in the portfolio table above.
+- Observations are signals, not findings: there is no correlation/verification layer yet (a later phase turns
+  correlated, verified observations into findings).
+- Sensor inputs are explicit (a URL, a staged file set); wiring one sensor's discovered `in-scope` endpoints as another
+  sensor's input (discovery → inspection chaining) is deliberate future orchestration, not automatic.
+- The sensor tool images are large (~1–1.6 GB each) and reuse the Node runtime for the gateway; there is no slimmer,
+  purpose-built sensor image yet.
+
 ## Known limitations
 
 - The in-process backend runs reviewed capability code in the worker process: it is not a sandbox. It is meant for
