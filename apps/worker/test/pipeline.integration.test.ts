@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentProvider, AgentRunRequest, AgentRunResult } from '@audivra/ai-runtime'
+import type { ProviderCapabilities, ProviderHealth } from '@audivra/contracts'
 import { auditWorkspaceDir, getLogger } from '@audivra/config'
 import {
   createAuditRecord,
@@ -50,6 +51,7 @@ beforeEach(async () => {
 /** Deterministic provider used only in tests (the product path uses the real Claude CLI). */
 class FakeProvider implements AgentProvider {
   readonly id = 'fake'
+  readonly adapterVersion = 'test'
   calls: AgentRunRequest[] = []
   constructor(
     private readonly respond: (request: AgentRunRequest) => Partial<AgentRunResult>,
@@ -61,6 +63,12 @@ class FakeProvider implements AgentProvider {
       version: 'test',
       reason: this.available ? null : 'provider offline (test)',
     }
+  }
+  async health(): Promise<ProviderHealth> {
+    return { providerId: this.id, state: this.available ? 'ready' : 'unavailable', version: 'test', detail: null, checkedAt: new Date().toISOString() }
+  }
+  capabilities(): ProviderCapabilities {
+    return { providerId: this.id, structuredOutput: true, toolUse: true, sessionResume: true, browserTools: true, maxContextTokens: 100_000, effortLevels: ['low', 'standard', 'high'], taskTypes: ['website-audit'] }
   }
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     this.calls.push(request)

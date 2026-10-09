@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { AgentProvider, AgentRunRequest, AgentRunResult } from '../../ai-runtime/src/provider.ts'
+import type { ProviderCapabilities, ProviderHealth } from '@audivra/contracts'
 import { getLogger } from '@audivra/config'
 import { AUDIT_EXPORT_SCHEMA_VERSION, EXPORT_KINDS, type ExportKind } from '@audivra/contracts'
 import { createAuditRecord, createBoss, ensureQueues, listAgentRuns, listEvidence, listToolRuns, type PgBoss } from '@audivra/database'
@@ -64,9 +65,16 @@ const journey = (evidenceIds: string[]) => ({
 /** Stand-in for the Claude runtime: deterministic outputs for every role. */
 class ScriptedProvider implements AgentProvider {
   readonly id = 'scripted'
+  readonly adapterVersion = 'test'
   private shot = 'EV-1'
   async isAvailable() {
     return { available: true, version: 'test', reason: null }
+  }
+  async health(): Promise<ProviderHealth> {
+    return { providerId: this.id, state: 'ready', version: 'test', detail: null, checkedAt: new Date().toISOString() }
+  }
+  capabilities(): ProviderCapabilities {
+    return { providerId: this.id, structuredOutput: true, toolUse: true, sessionResume: true, browserTools: true, maxContextTokens: 100_000, effortLevels: ['low', 'standard', 'high'], taskTypes: ['website-audit'] }
   }
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     if (request.role === 'auditor') {

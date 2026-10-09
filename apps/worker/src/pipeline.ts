@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { AuditContext, runBaseline, Workspace } from '@audivra/audit-core'
 import {
-  ClaudeCliProvider,
+  defaultAgentProvider,
   fallbackFinal,
   runAuditor,
   runFinalizer,
@@ -111,7 +111,7 @@ export class Pipeline {
     provider?: AgentProvider,
     options: PipelineOptions = {},
   ) {
-    this.provider = provider ?? new ClaudeCliProvider()
+    this.provider = provider ?? defaultAgentProvider()
     this.inline = options.inline === true || boss === null
   }
 
