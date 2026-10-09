@@ -92,11 +92,21 @@ export const SecurityCapabilityMetadata = z.strictObject({
   evidenceTypes: z.array(EvidenceType),
   /** Identifier of the implementation, e.g. `builtin/http-observe@1`. */
   implementation: z.string().min(3).max(120),
-  /** Present when the capability is a sensor (an approved external tool): the tool and what it observes. */
+  /**
+   * Present when the capability is a sensor (an approved external tool): the tool, what it observes, and
+   * planning metadata a future execution planner can read (what it needs, what it costs) without running
+   * it. The deterministic policy — not this metadata — remains authoritative for what may run where.
+   */
   sensor: z
     .strictObject({
       tool: z.string().min(1).max(40),
       observationTypes: z.array(ObservationType).min(1),
+      /** Inputs the sensor requires beyond a target (e.g. `schema`, `source`); empty for a plain URL sensor. */
+      requiredInputs: z.array(z.enum(['url', 'schema', 'source', 'templates'])).default([]),
+      /** Rough runtime cost class, for planning/scheduling. */
+      costClass: z.enum(['low', 'medium', 'high']).default('medium'),
+      /** Typical wall-clock seconds for a bounded run, for planning (not a limit). */
+      typicalDurationSeconds: z.number().int().positive().max(3600).default(60),
     })
     .optional(),
   /** How it must be carried out (omitted: in-process). */
