@@ -33,6 +33,7 @@ import type {
   SecurityEvidenceItem,
   SecurityExecutionDetail,
   SecurityExecutionItem,
+  AiSystemStatus,
   SecurityObservation,
   SensorCoverageItem,
   SiteHistory,
@@ -96,6 +97,7 @@ const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.strin
 
 export const api = {
   systemTools: (refresh = false) => request<SystemStatus>(`/api/system/tools${refresh ? '?refresh=1' : ''}`),
+  systemAi: () => request<AiSystemStatus>('/api/system/ai'),
   systemHealth: () => request<SystemHealth>('/api/system/health'),
   dashboard: (includeBenchmarks: boolean) =>
     request<Dashboard>(`/api/dashboard${includeBenchmarks ? '?benchmark=1' : ''}`),

@@ -33,6 +33,7 @@ export const queryKeys = {
   audits: ['audits'] as const,
   dashboard: (includeBenchmarks: boolean) => ['audits', 'dashboard', includeBenchmarks ? 'with-benchmarks' : 'normal'] as const,
   system: ['system', 'tools'] as const,
+  systemAi: ['system', 'ai'] as const,
   health: ['system', 'health'] as const,
   audit: (id: string) => ['audit', id] as const,
   findings: (id: string) => ['audit', id, 'findings'] as const,
@@ -85,6 +86,9 @@ export const dashboardQuery = (includeBenchmarks: boolean) =>
 
 export const systemQuery = () =>
   queryOptions({ queryKey: queryKeys.system, queryFn: () => api.systemTools(), staleTime: 60_000 })
+
+export const systemAiQuery = () =>
+  queryOptions({ queryKey: queryKeys.systemAi, queryFn: () => api.systemAi(), staleTime: 60_000 })
 
 /** Database and audit-engine liveness (cheap: one query and the worker registry). */
 export const systemHealthQuery = () =>

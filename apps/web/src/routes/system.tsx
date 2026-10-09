@@ -7,14 +7,15 @@ import { Panel } from '@/components/panel'
 import { ErrorState } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { TabPanel, Tabs } from '@/components/ui/tabs'
+import { AiPanel } from '@/features/system/ai-panel'
 import { ProcessesPanel } from '@/features/system/processes-panel'
 import { QualityPanel } from '@/features/system/quality-panel'
 import { ToolsPanel } from '@/features/system/tools-panel'
 import { api } from '@/lib/api'
 import { formatRelative } from '@/lib/format'
-import { benchmarksQuery, processesQuery, queryKeys, systemQuery } from '@/lib/queries'
+import { benchmarksQuery, processesQuery, queryKeys, systemAiQuery, systemQuery } from '@/lib/queries'
 
-const SYSTEM_TABS = ['tools', 'quality', 'processes'] as const
+const SYSTEM_TABS = ['tools', 'ai', 'quality', 'processes'] as const
 type SystemTab = (typeof SYSTEM_TABS)[number]
 
 export const Route = createFileRoute('/system')({
@@ -29,6 +30,7 @@ function SystemPage() {
   const navigate = Route.useNavigate()
   const tab: SystemTab = Route.useSearch().tab ?? 'tools'
   const system = useQuery(systemQuery())
+  const ai = useQuery({ ...systemAiQuery(), enabled: tab === 'ai' })
   const benchmarks = useQuery({ ...benchmarksQuery(), enabled: tab === 'quality' })
   const processes = useQuery({ ...processesQuery(), enabled: tab === 'processes' })
   const [refreshing, setRefreshing] = useState(false)
@@ -71,6 +73,7 @@ function SystemPage() {
         listClassName={pageFrame}
         items={[
           { value: 'tools', label: 'Tools', count: system.data?.tools.length ?? null },
+          { value: 'ai', label: 'AI' },
           { value: 'quality', label: 'Quality' },
           { value: 'processes', label: 'Processes' },
         ]}
@@ -88,6 +91,9 @@ function SystemPage() {
             ) : (
               <ToolsPanel data={system.data} isLoading={system.isLoading} />
             )}
+          </TabPanel>
+          <TabPanel value="ai">
+            <AiPanel data={ai.data} isLoading={ai.isLoading} />
           </TabPanel>
           <TabPanel value="quality">
             <QualityPanel
