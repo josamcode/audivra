@@ -176,7 +176,7 @@ describe('engagement setup through the API', () => {
 
   it('exposes catalog and policy views but no endpoint that executes a capability', async () => {
     const engagement = await readyEngagement()
-    expect((await api<{ id: string }[]>('GET', '/api/security/capabilities')).body.map((c) => c.id)).toEqual(['discovery.http-observe'])
+    expect((await api<{ id: string }[]>('GET', '/api/security/capabilities')).body.map((c) => c.id)).toEqual(['discovery.crawl', 'discovery.http-inspect', 'discovery.http-observe', 'source.static-analysis'])
     expect((await api<{ evaluatedEnvironment: string }>('GET', `/api/security/engagements/${engagement.id}/policy`)).body.evaluatedEnvironment).toBe('staging')
     for (const path of ['execute', 'run', 'capabilities/discovery.http-observe', 'executions']) {
       expect((await app.inject({ method: 'POST', url: `/api/security/engagements/${engagement.id}/${path}`, payload: {} })).statusCode, path).toBe(404)

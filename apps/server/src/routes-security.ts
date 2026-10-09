@@ -2,7 +2,7 @@ import { createReadStream, readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Logger } from '@audivra/config'
-import { redact } from '@audivra/contracts'
+import { redact, type ObservationScopeClass, type ObservationType } from '@audivra/contracts'
 import type { Db } from '@audivra/database'
 import { authorizationMethods, createDefaultRegistry, ExecutionService, LOCAL_USER, SecurityRequestError, SecurityService } from '@audivra/security'
 
@@ -91,6 +91,17 @@ export function registerSecurityRoutes(app: App, deps: Deps): void {
 
   app.get<{ Params: { id: string } }>('/api/security/engagements/:id/evidence', (request, reply) => respond(reply, () => service.listEvidence(request.params.id)))
 
+  // ── Observations: read-only, normalized, evidence-backed sensor signals ────────────────────────────
+
+  app.get<{ Params: { id: string }; Querystring: { type?: ObservationType; asset?: string; scopeClass?: ObservationScopeClass } }>(
+    '/api/security/engagements/:id/observations',
+    (request, reply) => respond(reply, () => service.listObservations(request.params.id, { type: request.query.type, asset: request.query.asset, scopeClass: request.query.scopeClass })),
+  )
+
+  app.get<{ Params: { id: string } }>('/api/security/engagements/:id/observations/summary', (request, reply) => respond(reply, () => service.observationSummary(request.params.id)))
+
+  app.get<{ Params: { id: string } }>('/api/security/engagements/:id/sensor-coverage', (request, reply) => respond(reply, () => service.sensorCoverage(request.params.id)))
+
   // ── Executions: inspect and control (never create) ───────────────────────────────────────────────
 
   app.get<{ Params: { id: string } }>('/api/security/engagements/:id/executions', (request, reply) => respond(reply, () => executions.list(request.params.id)))
@@ -103,6 +114,10 @@ export function registerSecurityRoutes(app: App, deps: Deps): void {
 
   app.get<{ Params: { executionId: string } }>('/api/security/executions/:executionId/evidence', (request, reply) =>
     respond(reply, () => executions.evidence(request.params.executionId)),
+  )
+
+  app.get<{ Params: { executionId: string } }>('/api/security/executions/:executionId/observations', (request, reply) =>
+    respond(reply, () => executions.observations(request.params.executionId)),
   )
 
   /** Idempotent: a queued execution is cancelled at once; a running one is stopped by its worker. */

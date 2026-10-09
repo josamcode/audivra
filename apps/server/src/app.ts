@@ -30,7 +30,7 @@ import {
 } from '@audivra/database'
 import { getSystemStatus } from '@audivra/tool-runtime'
 import { loadAuditData, loadDashboard } from '@audivra/insights'
-import type { SecurityService } from '@audivra/security'
+import { sensorRuntimeStatuses, type SecurityService } from '@audivra/security'
 import type { EventHub } from './events-hub.ts'
 import { registerIntelligenceRoutes } from './routes-intelligence.ts'
 import { registerSecurityRoutes } from './routes-security.ts'
@@ -80,9 +80,13 @@ export async function buildApp(deps: AppDeps) {
 
   app.get('/api/health', async () => ({ ok: true }))
 
-  app.get<{ Querystring: { refresh?: string } }>('/api/system/tools', async (request) =>
-    getSystemStatus({ refresh: request.query.refresh === '1' }),
-  )
+  app.get<{ Querystring: { refresh?: string } }>('/api/system/tools', async (request) => {
+    const status = await getSystemStatus({ refresh: request.query.refresh === '1' })
+    // The security sensors are approved isolated runtimes (digests live in @audivra/security); surface
+    // their availability alongside the audit tools in the same System → Tools view.
+    const sensors = await sensorRuntimeStatuses()
+    return { ...status, tools: [...status.tools, ...sensors] }
+  })
 
   /** Liveness of the database and of the worker that consumes the audit queues (pg-boss instance registry). */
   app.get('/api/system/health', async (): Promise<SystemHealth> => {
