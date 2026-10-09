@@ -36,6 +36,13 @@
       "when": 1791484488051,
       "tag": "0004_security_executions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791503569653,
+      "tag": "0005_security_observations",
+      "breakpoints": true
     }
   ]
 }

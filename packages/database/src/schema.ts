@@ -52,6 +52,10 @@ import type {
   ReportPlan,
   ScopeManifest,
   SecurityActor,
+  ObservationContribution,
+  ObservationScopeClass,
+  ObservationSourceType,
+  ObservationType,
   SecurityEnvironment,
   SecurityEventType,
   SecurityEvidenceProvenance,
@@ -535,4 +539,39 @@ export const securityExecutions = pgTable(
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [index('security_executions_engagement_idx').on(t.engagementId, t.createdAt), index('security_executions_status_idx').on(t.status)],
+)
+
+/**
+ * Normalized, deduplicated security observations: evidence-backed signals a sensor reported about an
+ * engagement's assets. One row per (engagement, dedupe key); every contributing sensor run's provenance
+ * is kept in `contributions`, and the raw tool output stays in `evidence`. An observation is not a finding.
+ */
+export const securityObservations = pgTable(
+  'security_observations',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    /** Stable `type:asset:subject` key, unique per engagement. */
+    dedupeKey: text('dedupe_key').notNull(),
+    type: text('type').$type<ObservationType>().notNull(),
+    asset: text('asset').notNull(),
+    subject: text('subject').notNull(),
+    title: text('title').notNull(),
+    scopeClass: text('scope_class').$type<ObservationScopeClass>(),
+    value: jsonb('value').$type<Record<string, unknown>>().notNull().default({}),
+    sourceType: text('source_type').$type<ObservationSourceType>().notNull(),
+    confidence: real('confidence').notNull(),
+    evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+    contributions: jsonb('contributions').$type<ObservationContribution[]>().notNull().default([]),
+    firstSeenAt: ts('first_seen_at').notNull().defaultNow(),
+    lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_observations_dedupe_idx').on(t.engagementId, t.dedupeKey),
+    index('security_observations_type_idx').on(t.engagementId, t.type),
+  ],
 )
