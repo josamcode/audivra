@@ -2,7 +2,7 @@ import { createReadStream, readFileSync, statSync } from 'node:fs'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Logger } from '@audivra/config'
-import { redact, type ObservationScopeClass, type ObservationType } from '@audivra/contracts'
+import { redact, type ObservationFamily, type ObservationScopeClass, type ObservationType } from '@audivra/contracts'
 import type { Db } from '@audivra/database'
 import { authorizationMethods, createDefaultRegistry, ExecutionService, LOCAL_USER, SecurityRequestError, SecurityService } from '@audivra/security'
 
@@ -93,12 +93,25 @@ export function registerSecurityRoutes(app: App, deps: Deps): void {
 
   // ── Observations: read-only, normalized, evidence-backed sensor signals ────────────────────────────
 
-  app.get<{ Params: { id: string }; Querystring: { type?: ObservationType; asset?: string; scopeClass?: ObservationScopeClass } }>(
+  app.get<{ Params: { id: string }; Querystring: { type?: ObservationType; asset?: string; scopeClass?: ObservationScopeClass; family?: ObservationFamily; tool?: string; minConfidence?: string } }>(
     '/api/security/engagements/:id/observations',
-    (request, reply) => respond(reply, () => service.listObservations(request.params.id, { type: request.query.type, asset: request.query.asset, scopeClass: request.query.scopeClass })),
+    (request, reply) =>
+      respond(reply, () =>
+        service.listObservations(request.params.id, {
+          type: request.query.type,
+          asset: request.query.asset,
+          scopeClass: request.query.scopeClass,
+          family: request.query.family,
+          tool: request.query.tool,
+          minConfidence: request.query.minConfidence !== undefined ? Number(request.query.minConfidence) : undefined,
+        }),
+      ),
   )
 
   app.get<{ Params: { id: string } }>('/api/security/engagements/:id/observations/summary', (request, reply) => respond(reply, () => service.observationSummary(request.params.id)))
+
+  /** Cross-sensor correlation: observations grouped by normalized asset, most-corroborated first. */
+  app.get<{ Params: { id: string } }>('/api/security/engagements/:id/observations/correlate', (request, reply) => respond(reply, () => service.correlateByAsset(request.params.id)))
 
   app.get<{ Params: { id: string } }>('/api/security/engagements/:id/sensor-coverage', (request, reply) => respond(reply, () => service.sensorCoverage(request.params.id)))
 
