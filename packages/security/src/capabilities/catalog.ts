@@ -5,6 +5,8 @@ import { CapabilityRegistry } from './registry.ts'
 import { runtimeCheckCapability } from './runtime-check.ts'
 import { httpxSensorCapability } from '../sensors/httpx-sensor.ts'
 import { katanaSensorCapability } from '../sensors/katana-sensor.ts'
+import { nucleiSensorCapability } from '../sensors/nuclei-sensor.ts'
+import { schemathesisSensorCapability } from '../sensors/schemathesis-sensor.ts'
 import { semgrepSensorCapability } from '../sensors/semgrep-sensor.ts'
 
 /**
@@ -18,6 +20,8 @@ export function createDefaultRegistry(): CapabilityRegistry {
     .register(httpxSensorCapability)
     .register(katanaSensorCapability)
     .register(semgrepSensorCapability)
+    .register(schemathesisSensorCapability)
+    .register(nucleiSensorCapability)
 }
 
 /**

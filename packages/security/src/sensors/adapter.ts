@@ -69,6 +69,12 @@ export interface SensorAdapter<I> {
   evidenceTypes: readonly EvidenceType[]
   observationTypes: readonly ObservationType[]
   input: z.ZodType<I>
+  /** Inputs the sensor needs beyond a target (planning metadata), e.g. `schema`, `source`, `templates`. */
+  requiredInputs?: ('url' | 'schema' | 'source' | 'templates')[]
+  /** Rough runtime cost class (planning metadata). */
+  costClass?: 'low' | 'medium' | 'high'
+  /** Typical wall-clock seconds for a bounded run (planning metadata, not a limit). */
+  typicalDurationSeconds?: number
   /** Absolute URLs the request targets (scope-checked by the broker before execution). */
   targets(input: I): string[]
   /** The tool's primary structured output file, written under the execution's `outputs/` area. */
@@ -116,7 +122,13 @@ export function defineSensor<I>(adapter: SensorAdapter<I>): SecurityCapability<I
       timeoutProfile: adapter.timeoutProfile,
       evidenceTypes: [...adapter.evidenceTypes],
       implementation: sensorImplementation(adapter as SensorAdapter<unknown>),
-      sensor: { tool: adapter.tool, observationTypes: [...adapter.observationTypes] },
+      sensor: {
+        tool: adapter.tool,
+        observationTypes: [...adapter.observationTypes],
+        requiredInputs: adapter.requiredInputs ?? (adapter.network === 'scoped-egress' ? ['url'] : []),
+        costClass: adapter.costClass ?? 'medium',
+        typicalDurationSeconds: adapter.typicalDurationSeconds ?? 60,
+      },
       execution: { mode: 'isolated-container', runtime: adapter.runtime, network: adapter.network },
     },
     implementation: {

@@ -87,6 +87,30 @@ export const APPROVED_RUNTIMES: readonly ApprovedRuntime[] = Object.freeze([
     limits: SENSOR_LIMITS,
     approximateSizeMb: 1564,
   }),
+  Object.freeze({
+    id: 'schemathesis',
+    version: 1,
+    name: 'Schemathesis',
+    purpose: 'Property-based testing of a staged OpenAPI/GraphQL schema against an in-scope API. Networked — reaches the API only through the execution gateway.',
+    kind: 'tool',
+    image: { repository: 'schemathesis/schemathesis', tag: 'latest', digest: 'sha256:23ec514b4e8c92b0c74327c118e72fde38edbc56b393fcec5bfad2b58691a00f' },
+    command: [],
+    entrypoint: 'schemathesis',
+    limits: SENSOR_LIMITS,
+    approximateSizeMb: 157,
+  }),
+  Object.freeze({
+    id: 'nuclei',
+    version: 1,
+    name: 'Nuclei (ProjectDiscovery)',
+    purpose: 'Template-driven web signals using only Audivra-reviewed, staged templates. Networked — reaches the target only through the execution gateway; OAST disabled.',
+    kind: 'tool',
+    image: { repository: 'projectdiscovery/nuclei', tag: 'latest', digest: 'sha256:582d5546902e67052097cb2d07296c642d50a1afc5e44623cb038845df9a32eb' },
+    command: [],
+    entrypoint: 'nuclei',
+    limits: SENSOR_LIMITS,
+    approximateSizeMb: 1304,
+  }),
 ])
 
 export function findApprovedRuntime(id: string | null | undefined): ApprovedRuntime | undefined {
