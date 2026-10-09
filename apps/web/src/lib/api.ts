@@ -48,6 +48,14 @@ export interface ObservationSummary {
   byScopeClass: Record<string, number>
 }
 
+/** One asset with the sensors and observations that converged on it (mirrors SecurityService.correlateByAsset). */
+export interface ObservationCorrelation {
+  asset: string
+  tools: string[]
+  types: string[]
+  observations: SecurityObservation[]
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -148,14 +156,18 @@ export const api = {
   engagementLifecycle: (id: string, action: LifecycleAction) => request<SecurityEngagementDetail>(`${engagementPath(id)}/lifecycle`, post({ action })),
   engagementEvents: (id: string) => request<SecurityEventItem[]>(`${engagementPath(id)}/events`),
   engagementEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${engagementPath(id)}/evidence`),
-  engagementObservations: (id: string, filters: { type?: string; scopeClass?: string } = {}) => {
+  engagementObservations: (id: string, filters: { type?: string; scopeClass?: string; family?: string; tool?: string; minConfidence?: number } = {}) => {
     const q = new URLSearchParams()
     if (filters.type) q.set('type', filters.type)
     if (filters.scopeClass) q.set('scopeClass', filters.scopeClass)
+    if (filters.family) q.set('family', filters.family)
+    if (filters.tool) q.set('tool', filters.tool)
+    if (filters.minConfidence !== undefined) q.set('minConfidence', String(filters.minConfidence))
     const query = q.toString()
     return request<SecurityObservation[]>(`${engagementPath(id)}/observations${query ? `?${query}` : ''}`)
   },
   engagementObservationSummary: (id: string) => request<ObservationSummary>(`${engagementPath(id)}/observations/summary`),
+  engagementObservationCorrelation: (id: string) => request<ObservationCorrelation[]>(`${engagementPath(id)}/observations/correlate`),
   engagementSensorCoverage: (id: string) => request<SensorCoverageItem[]>(`${engagementPath(id)}/sensor-coverage`),
   securityCapabilities: () => request<SecurityCapabilityMetadata[]>('/api/security/capabilities'),
   engagementExecutions: (id: string) => request<SecurityExecutionItem[]>(`${engagementPath(id)}/executions`),

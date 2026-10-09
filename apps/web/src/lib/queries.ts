@@ -57,8 +57,9 @@ export const queryKeys = {
   engagement: (id: string) => ['security', 'engagement', id] as const,
   engagementEvents: (id: string) => ['security', 'engagement', id, 'events'] as const,
   engagementEvidence: (id: string) => ['security', 'engagement', id, 'evidence'] as const,
-  engagementObservations: (id: string, type?: string, scopeClass?: string) => ['security', 'engagement', id, 'observations', type ?? 'all', scopeClass ?? 'all'] as const,
+  engagementObservations: (id: string, type?: string, scopeClass?: string, family?: string) => ['security', 'engagement', id, 'observations', type ?? 'all', scopeClass ?? 'all', family ?? 'all'] as const,
   engagementObservationSummary: (id: string) => ['security', 'engagement', id, 'observations', 'summary'] as const,
+  engagementObservationCorrelation: (id: string) => ['security', 'engagement', id, 'observations', 'correlate'] as const,
   engagementSensorCoverage: (id: string) => ['security', 'engagement', id, 'sensor-coverage'] as const,
   securityCapabilities: ['security', 'capabilities'] as const,
   engagementExecutions: (id: string) => ['security', 'engagement', id, 'executions'] as const,
@@ -171,15 +172,18 @@ export const engagementEventsQuery = (id: string) =>
 export const engagementEvidenceQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementEvidence(id), queryFn: () => api.engagementEvidence(id) })
 
-export const engagementObservationsQuery = (id: string, filters: { type?: string; scopeClass?: string } = {}) =>
+export const engagementObservationsQuery = (id: string, filters: { type?: string; scopeClass?: string; family?: string } = {}) =>
   queryOptions({
-    queryKey: queryKeys.engagementObservations(id, filters.type, filters.scopeClass),
+    queryKey: queryKeys.engagementObservations(id, filters.type, filters.scopeClass, filters.family),
     queryFn: () => api.engagementObservations(id, filters),
     refetchInterval: EXECUTION_IDLE_POLL_MS,
   })
 
 export const engagementObservationSummaryQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementObservationSummary(id), queryFn: () => api.engagementObservationSummary(id), refetchInterval: EXECUTION_IDLE_POLL_MS })
+
+export const engagementObservationCorrelationQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementObservationCorrelation(id), queryFn: () => api.engagementObservationCorrelation(id), refetchInterval: EXECUTION_IDLE_POLL_MS })
 
 export const engagementSensorCoverageQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementSensorCoverage(id), queryFn: () => api.engagementSensorCoverage(id), refetchInterval: EXECUTION_IDLE_POLL_MS })

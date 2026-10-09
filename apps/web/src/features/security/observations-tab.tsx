@@ -1,6 +1,8 @@
 import {
+  OBSERVATION_FAMILIES,
   OBSERVATION_SCOPE_CLASSES,
   OBSERVATION_TYPES,
+  type ObservationFamily,
   type ObservationScopeClass,
   type ObservationType,
   type SecurityEngagementDetail,
@@ -9,13 +11,13 @@ import {
 } from '@audivra/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { createColumnHelper } from '@tanstack/react-table'
-import { Radar } from 'lucide-react'
+import { Link2, Radar } from 'lucide-react'
 import { useState } from 'react'
 import { DataTable, useDataTable } from '@/components/data-table'
 import { Metric } from '@/components/metric'
 import { Panel, PanelBody, PanelHeader } from '@/components/panel'
 import { EmptyState, ErrorState } from '@/components/states'
-import { engagementObservationSummaryQuery, engagementObservationsQuery, engagementSensorCoverageQuery } from '@/lib/queries'
+import { engagementObservationCorrelationQuery, engagementObservationSummaryQuery, engagementObservationsQuery, engagementSensorCoverageQuery } from '@/lib/queries'
 import { formatRelative } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +39,13 @@ const TYPE_LABEL: Record<ObservationType, string> = {
   dependency: 'Dependency',
   'source-finding': 'Source finding',
   service: 'Service',
+  'api-operation': 'API operation',
+  'api-validation': 'API validation',
+  'api-workflow': 'API workflow',
+  'web-signal': 'Web signal',
+  'oast-interaction': 'OAST interaction',
+  'traffic-flow': 'Traffic flow',
+  'dependency-vulnerability': 'Dependency vuln',
 }
 
 const SCOPE_TONE: Record<ObservationScopeClass, string> = {
@@ -117,6 +126,9 @@ const COVERAGE_TONE: Record<SensorCoverageItem['status'], string> = {
   skipped: 'border-border bg-surface text-subtle',
   failed: 'border-critical/40 bg-critical/10 text-critical',
   unavailable: 'border-border bg-surface text-muted',
+  blocked: 'border-medium/40 bg-medium/10 text-medium',
+  'missing-input': 'border-border bg-surface text-muted',
+  'not-applicable': 'border-border bg-surface text-subtle',
 }
 
 function SensorCoverage({ engagementId }: { engagementId: string }) {
@@ -140,12 +152,41 @@ function SensorCoverage({ engagementId }: { engagementId: string }) {
   )
 }
 
+function CorrelatedAssets({ engagementId }: { engagementId: string }) {
+  const correlation = useQuery(engagementObservationCorrelationQuery(engagementId))
+  const multi = (correlation.data ?? []).filter((c) => c.tools.length > 1)
+  if (!multi.length) return null
+  return (
+    <Panel>
+      <PanelHeader
+        title="Correlated assets"
+        description="Assets several independent sensors converged on. Supporting sensors are kept together for later verification; no sensor result is treated as a verified finding."
+      />
+      <PanelBody className="flex flex-col gap-2">
+        {multi.slice(0, 20).map((c) => (
+          <div key={c.asset} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Link2 className="size-3.5 shrink-0 text-subtle" aria-hidden />
+            <span className="truncate font-mono text-2xs text-foreground">{c.asset}</span>
+            <span className="text-2xs text-muted">{c.tools.join(', ')}</span>
+            <span className="text-2xs text-subtle">· {c.observations.length} observation{c.observations.length === 1 ? '' : 's'}</span>
+          </div>
+        ))}
+      </PanelBody>
+    </Panel>
+  )
+}
+
 export function ObservationsTab({ engagement }: { engagement: SecurityEngagementDetail }) {
   const [type, setType] = useState<ObservationType | 'all'>('all')
   const [scopeClass, setScopeClass] = useState<ObservationScopeClass | 'all'>('all')
+  const [family, setFamily] = useState<ObservationFamily | 'all'>('all')
   const summary = useQuery(engagementObservationSummaryQuery(engagement.id))
   const observations = useQuery(
-    engagementObservationsQuery(engagement.id, { type: type === 'all' ? undefined : type, scopeClass: scopeClass === 'all' ? undefined : scopeClass }),
+    engagementObservationsQuery(engagement.id, {
+      type: type === 'all' ? undefined : type,
+      scopeClass: scopeClass === 'all' ? undefined : scopeClass,
+      family: family === 'all' ? undefined : family,
+    }),
   )
   const rows = observations.data ?? []
   const table = useDataTable({ data: rows, columns, getRowId: (row) => row.id, initialSorting: [{ id: 'type', desc: false }] })
@@ -165,12 +206,14 @@ export function ObservationsTab({ engagement }: { engagement: SecurityEngagement
         </PanelBody>
       </Panel>
       <SensorCoverage engagementId={engagement.id} />
+      <CorrelatedAssets engagementId={engagement.id} />
       <Panel>
         <PanelHeader
           title="Discovery"
           description="Every destination is classified against the engagement scope. A discovered destination is a signal only; it is never authorized by being observed."
           actions={
             <div className="flex flex-wrap items-center gap-3">
+              <Select label="Family" value={family} options={OBSERVATION_FAMILIES} onChange={setFamily} render={(f) => f} />
               <Select label="Type" value={type} options={OBSERVATION_TYPES} onChange={setType} render={(t) => TYPE_LABEL[t]} />
               <Select label="Scope" value={scopeClass} options={OBSERVATION_SCOPE_CLASSES} onChange={setScopeClass} render={(s) => s} />
             </div>
