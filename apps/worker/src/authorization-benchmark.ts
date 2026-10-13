@@ -1,20 +1,37 @@
 import type { Server } from 'node:http'
 import type { Logger } from '@audivra/config'
-import type { ComparisonPlanInput, ComparisonResult, SecurityActor } from '@audivra/contracts'
+import type { ComparisonPlanInput, ComparisonResult, ProposedComparison, SecurityActor } from '@audivra/contracts'
 import type { Db } from '@audivra/database'
 import {
   CapabilityBroker,
   ComparisonEngine,
+  ComparisonReasoner,
   ComparisonService,
   createDbSecurityStore,
   createRuntimeRegistry,
   createSecretVault,
   DomainService,
+  GraphService,
   SecurityService,
   SessionEstablishmentService,
+  validateProposedComparison,
   VaultAuthResolver,
+  type ReasoningAi,
   type Resolver,
 } from '@audivra/security'
+
+/** A ReasoningAi that is always unavailable — proves the deterministic planner works when the provider is down. */
+const UNAVAILABLE_AI: ReasoningAi = {
+  run: async () => ({
+    outcome: 'provider-unavailable',
+    output: null,
+    selection: { taskType: 'security-plan', providerId: null, model: null, reason: 'no provider', considered: [], at: new Date().toISOString() },
+    provenance: [],
+    attempts: 0,
+    refused: false,
+    promptVersion: null,
+  }),
+}
 
 /*
  * Phase 5 Step 4 — the authorization/business-logic benchmark. It builds a multi-tenant fixture with a KNOWN
@@ -81,6 +98,8 @@ export async function runAuthorizationBenchmark(options: { db: Db; log?: Logger 
   const broker = new CapabilityBroker({ registry: createRuntimeRegistry(), store: createDbSecurityStore(db), resolver: loopback, authResolver: new VaultAuthResolver({ db, vault }), checkResources: async () => ({ ok: true, rule: 'resources.ok', reason: 'ok', details: {} }) })
   const engine = new ComparisonEngine({ db, broker })
   const comparisons = new ComparisonService({ db, engine })
+  const graph = new GraphService({ db })
+  const reasoner = new ComparisonReasoner({ db, engine, service: comparisons })
 
   try {
     const engagement = await service.createEngagement({ name: 'Authorization benchmark', targetUrl: fixture.url, environment: 'isolated-lab' }, USER)
@@ -88,11 +107,11 @@ export async function runAuthorizationBenchmark(options: { db: Db; log?: Logger 
     await service.requestAuthorization(e, { method: 'local-development' }, USER)
 
     // ── Ground truth: identities, tenants, resources (enforced vs broken) and invariants. ──
-    const mkIdentity = async (ref: string, tenant: string, role: 'user' | 'admin' = 'user') => {
+    const mkIdentity = async (ref: string, tenant: string, role: 'user' | 'admin' = 'user', roleRefs: string[] = []) => {
       const token = `bench-${ref}-${Math.random().toString(36).slice(2, 10)}`
       fixture.tokens.set(token, ref)
       fixture.principals.set(ref, { tenant, role })
-      await domain.declare(e, { kind: 'identity', ref, spec: { identityType: role === 'admin' ? 'admin' : 'user', authMethod: 'api-token', credentialRef: `${ref}-cred`, tenantRef: tenant } }, USER)
+      await domain.declare(e, { kind: 'identity', ref, spec: { identityType: role === 'admin' ? 'admin' : 'user', authMethod: 'api-token', credentialRef: `${ref}-cred`, tenantRef: tenant, roleRefs } }, USER)
       await vault.setCredential(e, { ref: `${ref}-cred`, identityRef: ref, secret: { type: 'bearer-token', token } }, USER)
       await establishment.establish(e, { identityRef: ref, flow: { type: 'api-token', placement: 'bearer', validateUrl: `${fixture.url}/me`, validStatuses: [200] } }, USER)
     }
@@ -104,7 +123,9 @@ export async function runAuthorizationBenchmark(options: { db: Db; log?: Logger 
       return url
     }
 
-    await mkIdentity('alice', 't1')
+    // A role declared before the identities that hold it (no dangling references).
+    await domain.declare(e, { kind: 'role', ref: 'editor', spec: { permits: ['approve'] } }, USER)
+    await mkIdentity('alice', 't1', 'admin', ['editor'])
     await mkIdentity('bob', 't1')
     await mkIdentity('carol', 't2')
     // Ground truth: enforced object boundary, broken object boundary, enforced tenant boundary, broken tenant boundary.
@@ -112,6 +133,8 @@ export async function runAuthorizationBenchmark(options: { db: Db; log?: Logger 
     const docBroken = await mkResource('obj-broken', 't1', 'alice', 'leaky', 'object-boundary')
     const tenEnforced = await mkResource('ten-enforced', 't1', 'alice', 'tenant', 'tenant-boundary')
     const tenBroken = await mkResource('ten-broken', 't1', 'alice', 'leaky', 'tenant-boundary')
+    // A business action with an endpoint, so the planner can also plan role/function/business-rule comparisons.
+    await domain.declare(e, { kind: 'business-action', ref: 'approve', spec: { verb: 'approve', actsOnRefs: ['obj-enforced'], requiredRoleRefs: ['editor'], requiredStateRef: 'draft', resultingStateRef: 'approved', effectClass: 'reversible-state-change', endpointUrl: `${docEnforced}/approve`, method: 'POST', stateProbeUrl: `${docEnforced}/state` } }, USER)
 
     const armPlan = (role: 'subject' | 'positive-control' | 'negative-control', identityRef: string | null, resourceRef: string, url: string, outcome: 'allow' | 'deny') => ({
       role,
@@ -226,20 +249,81 @@ export async function runAuthorizationBenchmark(options: { db: Db; log?: Logger 
       })
     }
 
-    // Scenario 5: planner selection — bounded, controlled, no duplicates/unnecessary.
+    // Scenario 5: planner selection — bounded, controlled, duplicate-free, across multiple categories, pruned.
     {
       const s0 = Date.now()
-      const proposed = await comparisons.propose(e)
-      const withControls = proposed.filter((p) => p.plan.arms.some((a) => a.role === 'positive-control' || a.role === 'negative-control')).length
-      const keys = proposed.map((p) => `${p.plan.dimension}|${p.plan.resourceRef}`)
+      const { plans, stats } = await comparisons.propose(e)
+      const withControls = plans.filter((p) => p.plan.arms.some((a) => a.role === 'positive-control' || a.role === 'negative-control')).length
+      const keys = plans.map((p) => `${p.plan.dimension}|${p.plan.resourceRef}|${p.plan.action}`)
       const duplicates = keys.length - new Set(keys).size
+      const dimensions = new Set(plans.map((p) => p.plan.dimension))
       scenarios.push({
         name: 'planner-selection',
-        description: 'The planner proposes a bounded, controlled, duplicate-free set of useful comparisons.',
+        description: 'The planner proposes a bounded, controlled, duplicate-free set spanning multiple boundary categories, and prunes the candidate space.',
         metrics: {
-          bounded: atMost(proposed.length, 4, `${proposed.length} proposals`),
-          controlled: eq(proposed.length === 0 ? 0 : withControls === proposed.length ? 1 : 0, proposed.length === 0 ? 0 : 1, 'every proposal carries a control arm'),
-          duplicates: eq(duplicates, 0, 'no duplicate (dimension,resource) proposals'),
+          bounded: atMost(plans.length, 6, `${plans.length} proposals`),
+          controlled: eq(plans.length === 0 ? 0 : withControls === plans.length ? 1 : 0, plans.length === 0 ? 0 : 1, 'every proposal carries a control arm'),
+          duplicates: eq(duplicates, 0, 'no duplicate (dimension,resource,action) proposals'),
+          categories: atLeast(dimensions.size, 3, `covers ${[...dimensions].join(', ')}`),
+          pruned: eq(stats.proposed <= stats.candidates && stats.candidates <= stats.cartesian ? 1 : 0, 1, `cartesian ${stats.cartesian} → candidates ${stats.candidates} → proposed ${stats.proposed}`),
+        },
+        pass: false,
+        durationMs: Date.now() - s0,
+      })
+    }
+
+    // Scenario 6: comparison → graph derivation. The broken object boundary (scenario 1) derives CAN_ACCESS.
+    {
+      const s0 = Date.now()
+      await graph.project(e)
+      const edges = await graph.edges(e, { type: 'CAN_ACCESS' })
+      const derived = edges.find((edge) => edge.fromKey.startsWith('identity:') && edge.toKey.startsWith('resource:'))
+      scenarios.push({
+        name: 'graph-derivation',
+        description: 'A strong inconsistent comparison derives a CAN_ACCESS graph fact with comparison-derived provenance, distinct from declared/observed.',
+        metrics: {
+          derivedEdge: atLeast(edges.length, 1, `${edges.length} CAN_ACCESS edge(s)`),
+          distinctBasis: eq(derived && derived.basis === 'derived' ? 1 : 0, 1, 'the derived fact is basis=derived, not declared/observed'),
+        },
+        pass: false,
+        durationMs: Date.now() - s0,
+      })
+    }
+
+    // Scenario 7: AI proposal validation + deterministic fallback.
+    {
+      const s0 = Date.now()
+      const input = await comparisons.plannerInput(e, 'isolated-lab')
+      const good: ProposedComparison = {
+        hypothesisId: 'hy_00000000000000',
+        dimension: 'object-boundary',
+        resourceRef: 'obj-enforced',
+        action: 'read',
+        invariantRef: null,
+        expectedTransition: null,
+        reason: 'valid proposal',
+        arms: [
+          { role: 'subject', identityRef: 'bob', resourceRef: 'obj-enforced', url: docEnforced, method: 'GET', body: null, expected: { outcome: 'deny', basis: 'ai-inferred', invariantRef: null, sourceRef: null, rationale: 'bob is not the owner' } },
+          { role: 'positive-control', identityRef: 'alice', resourceRef: 'obj-enforced', url: docEnforced, method: 'GET', body: null, expected: { outcome: 'allow', basis: 'observed', invariantRef: null, sourceRef: null, rationale: 'alice owns it' } },
+        ],
+      }
+      const invented = { ...good, resourceRef: 'ghost-resource' } as ProposedComparison
+      const ownershipLie = { ...good, arms: [{ ...good.arms[0]!, identityRef: 'alice' }, good.arms[1]!] } as ProposedComparison // alice IS the owner → deny mismatch
+      const acceptGood = validateProposedComparison(good, input).ok
+      const rejectInvented = !validateProposedComparison(invented, input).ok
+      const rejectLie = !validateProposedComparison(ownershipLie, input).ok
+      // Deterministic fallback: the reasoner proposes without AI (and when AI is unavailable).
+      const fallback = await reasoner.drive(e, { mode: 'propose' })
+      const unavailable = await new ComparisonReasoner({ db, engine, service: comparisons, ai: UNAVAILABLE_AI }).drive(e, { mode: 'propose' })
+      scenarios.push({
+        name: 'ai-proposal-and-fallback',
+        description: 'A valid AI proposal is accepted and adversarial ones (invented resource, false ownership) are rejected; the deterministic planner works without AI and when the provider is unavailable.',
+        metrics: {
+          acceptsValid: eq(acceptGood ? 1 : 0, 1, 'a well-formed proposal referencing real entities is accepted'),
+          rejectsInvented: eq(rejectInvented ? 1 : 0, 1, 'a proposal referencing an invented resource is rejected'),
+          rejectsOwnershipLie: eq(rejectLie ? 1 : 0, 1, 'a proposal whose ownership claim is false is rejected'),
+          deterministicWorks: atLeast(fallback.deterministicProposed, 1, `${fallback.deterministicProposed} deterministic proposals (AI not required)`),
+          fallbackOnUnavailable: eq(unavailable.aiOutcome === 'provider-unavailable' && unavailable.deterministicProposed >= 1 ? 1 : 0, 1, 'provider-unavailable falls back to deterministic planning'),
         },
         pass: false,
         durationMs: Date.now() - s0,

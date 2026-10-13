@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Logger } from '@audivra/config'
 import { enqueueSecurityReasoning, getSecurityExecutionRow, QUEUES, type Db, type PgBoss, type SecurityReasoningJob } from '@audivra/database'
 import { createProviderRegistry, createProviderRouter, createReasoningAi, type ProviderRegistry } from '@audivra/ai-runtime'
-import { createDurableBroker, createRuntimeRegistry, GraphProjector, ReasoningEngine, type CapabilityRegistry, type ReasoningAi, type Resolver } from '@audivra/security'
+import { ComparisonEngine, ComparisonReasoner, ComparisonService, createDurableBroker, createRuntimeRegistry, GraphProjector, ReasoningEngine, type CapabilityRegistry, type ReasoningAi, type Resolver } from '@audivra/security'
 
 /*
  * Phase 4 on the worker: the Security Graph is projected after every security execution settles, and
@@ -47,6 +47,11 @@ export function createSecurityReasoningWorker(options: {
     await enqueueSecurityReasoning(boss, runId)
   }
   const engine = new ReasoningEngine({ db, broker, ai, registry, projector, log, ownerId: `worker-${process.pid}-${randomUUID().slice(0, 8)}`, enqueue })
+  // The comparison reasoning pass closes the Phase 5 loop: it reuses the same broker and AI, and runs after a
+  // reasoning run settles so authorization/business boundaries are planned, compared and derived into the graph.
+  const comparisonEngine = new ComparisonEngine({ db, broker, log })
+  const comparisonService = new ComparisonService({ db, engine: comparisonEngine })
+  const comparisonReasoner = new ComparisonReasoner({ db, engine: comparisonEngine, service: comparisonService, ai: ai ?? undefined, log })
   const controller = new AbortController()
 
   async function drive(runId: string) {
@@ -54,7 +59,18 @@ export function createSecurityReasoningWorker(options: {
     for (let i = 0; i < 20 && !controller.signal.aborted; i++) {
       const run = await engine.drive(runId, { signal: controller.signal })
       if (!run || run.status !== 'waiting' || !(await engine.readyToResume(runId))) {
-        if (run) log.info({ runId, status: run.status, stage: run.stage, stopReason: run.stopReason }, 'reasoning run driven')
+        if (run) {
+          log.info({ runId, status: run.status, stage: run.stage, stopReason: run.stopReason }, 'reasoning run driven')
+          // Closed loop: once the sensor run has settled, drive a comparison pass over the same engagement.
+          if (run.status === 'completed' || run.status === 'blocked') {
+            try {
+              const pass = await comparisonReasoner.drive(run.engagementId, { mode: run.mode, signal: controller.signal })
+              log.info({ runId, engagementId: run.engagementId, ...pass.pruning, executed: pass.executed, aiOutcome: pass.aiOutcome }, 'comparison reasoning pass driven')
+            } catch (error) {
+              log.error({ err: error, runId }, 'comparison reasoning pass failed')
+            }
+          }
+        }
         return
       }
     }
