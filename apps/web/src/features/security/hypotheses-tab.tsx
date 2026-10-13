@@ -20,6 +20,7 @@ import {
   STOP_REASON_LABEL,
 } from '@/components/badges'
 import { DataTable, useDataTable } from '@/components/data-table'
+import { Toolbar } from '@/components/page-header'
 import { Metric } from '@/components/metric'
 import { DefinitionList, Panel, PanelBody, PanelHeader, SectionLabel } from '@/components/panel'
 import { EmptyState, ErrorState, LoadingState, Notice } from '@/components/states'
@@ -43,6 +44,9 @@ import { cn } from '@/lib/utils'
  * is never a verified vulnerability. Starting a run asks Audivra to reason within a strict budget; any
  * action it proposes is validated and decided by the Capability Broker — this page never runs a capability.
  */
+
+const isOpen = (status: SecurityHypothesis['status']) =>
+  !['disproved', 'confirmed-signal', 'exhausted'].includes(status)
 
 const CATEGORY_LABEL: Record<SecurityHypothesis['category'], string> = {
   'attack-surface': 'Attack surface',
@@ -80,7 +84,7 @@ const columns = [
     cell: ({ getValue }) => (
       <span className="font-mono text-xs tabular-nums text-muted">{getValue().toFixed(2)}</span>
     ),
-    meta: { className: 'w-1', align: 'right' },
+    meta: { className: 'hidden w-1 sm:table-cell', align: 'right' },
   }),
   column.accessor((row) => row.supportingObservationIds.length, {
     id: 'evidence',
@@ -97,7 +101,7 @@ const columns = [
         </span>
       </span>
     ),
-    meta: { className: 'hidden w-1 md:table-cell', align: 'right' },
+    meta: { className: 'hidden w-1 2xl:table-cell', align: 'right' },
   }),
   column.accessor((row) => row.expectedInformationGain ?? -1, {
     id: 'gain',
@@ -109,7 +113,7 @@ const columns = [
           : row.original.expectedInformationGain.toFixed(2)}
       </span>
     ),
-    meta: { className: 'hidden w-1 lg:table-cell', align: 'right' },
+    meta: { className: 'hidden w-1 xl:table-cell', align: 'right' },
   }),
   column.accessor((row) => row.ranking?.bestCapabilityId ?? row.candidateCapabilities[0] ?? '', {
     id: 'capability',
@@ -117,7 +121,7 @@ const columns = [
     cell: ({ getValue }) => (
       <span className="font-mono text-2xs whitespace-nowrap text-muted">{getValue() || '—'}</span>
     ),
-    meta: { className: 'hidden w-1 xl:table-cell' },
+    meta: { className: 'hidden w-1 2xl:table-cell' },
   }),
   column.accessor('updatedAt', {
     header: 'Updated',
@@ -126,7 +130,7 @@ const columns = [
         {formatRelative(getValue())}
       </span>
     ),
-    meta: { className: 'w-1' },
+    meta: { className: 'hidden w-1 2xl:table-cell' },
   }),
 ]
 
@@ -266,6 +270,7 @@ function HypothesisDetailPanel({
           {ranking ? (
             <>
               <p className="mt-2 text-xs text-muted text-break" data-testid="hypothesis-ranking">
+                <span className="text-subtle">{isOpen(h.status) ? 'Ranking: ' : 'Last ranking: '}</span>
                 {ranking.explanation}
               </p>
               <DefinitionList
@@ -425,7 +430,7 @@ function RunSummary({ run }: { run: ReasoningRun }) {
       {run.stopReason ? (
         <p className="text-sm text-foreground">
           {STOP_REASON_LABEL[run.stopReason]}
-          {run.stopDetail ? (
+          {run.stopDetail && run.stopDetail !== STOP_REASON_LABEL[run.stopReason] ? (
             <span className="block text-xs text-muted text-break">{run.stopDetail}</span>
           ) : null}
         </p>
@@ -540,51 +545,51 @@ export function HypothesesTab({
       <Panel>
         <PanelHeader
           title="Reasoning"
-          description="Bounded, persisted reasoning over the graph: hypotheses, ranking by expected information gain, and the next useful capability — decided by policy, never by the model."
-          actions={
-            active && latest ? (
+          description="Bounded, persisted reasoning over the graph: hypotheses ranked by expected information gain, and the next useful capability — decided by policy, never by the model."
+        />
+        <Toolbar className="border-b border-border px-4 py-2">
+          {active && latest ? (
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={cancel.isPending}
+              onClick={() => cancel.mutate(latest.id)}
+            >
+              {cancel.isPending ? <Loader2 className="animate-spin" /> : <Ban />}
+              Stop reasoning
+            </Button>
+          ) : (
+            <>
               <Button
                 size="sm"
-                variant="danger"
-                disabled={cancel.isPending}
-                onClick={() => cancel.mutate(latest.id)}
+                variant="secondary"
+                disabled={busy}
+                onClick={() => start.mutate('propose')}
+                title="Generate and rank hypotheses and propose next capabilities; nothing is executed"
               >
-                {cancel.isPending ? <Loader2 className="animate-spin" /> : <Ban />}
-                Stop reasoning
+                <Lightbulb />
+                Propose next steps
               </Button>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => start.mutate('propose')}
-                  title="Generate and rank hypotheses and propose next capabilities; nothing is executed"
-                >
-                  <Lightbulb />
-                  Propose next steps
-                </Button>
-                <ConfirmDialog
-                  trigger={
-                    <Button size="sm" variant="primary" disabled={busy}>
-                      <Sparkles />
-                      Investigate
-                    </Button>
-                  }
-                  title="Investigate within a strict budget?"
-                  confirmLabel="Investigate"
-                  dismissLabel="Not now"
-                  onConfirm={() => start.mutate('investigate')}
-                >
-                  Audivra will reason for up to 3 iterations, make at most 9 AI calls and request at most 3
-                  read-only, low-risk capabilities. Every request goes through the Capability Broker with this
-                  engagement’s authorization, scope and policy; anything the policy denies is recorded as
-                  blocked.
-                </ConfirmDialog>
-              </>
-            )
-          }
-        />
+              <ConfirmDialog
+                trigger={
+                  <Button size="sm" variant="primary" disabled={busy}>
+                    <Sparkles />
+                    Investigate
+                  </Button>
+                }
+                title="Investigate within a strict budget?"
+                confirmLabel="Investigate"
+                dismissLabel="Not now"
+                onConfirm={() => start.mutate('investigate')}
+              >
+                Audivra will reason for up to 3 iterations, make at most 9 AI calls and request at most 3
+                read-only, low-risk capabilities. Every request goes through the Capability Broker with this
+                engagement’s authorization, scope and policy; anything the policy denies is recorded as
+                blocked.
+              </ConfirmDialog>
+            </>
+          )}
+        </Toolbar>
         <PanelBody>
           {runs.isError ? (
             <ErrorState

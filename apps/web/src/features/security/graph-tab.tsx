@@ -18,6 +18,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { BasisBadge, ENTITY_KIND_LABEL, FactStatusBadge, GAP_KIND_LABEL } from '@/components/badges'
 import { DataTable, useDataTable } from '@/components/data-table'
+import { Toolbar } from '@/components/page-header'
 import { Metric } from '@/components/metric'
 import { DefinitionList, Panel, PanelBody, PanelHeader, SectionLabel } from '@/components/panel'
 import { EmptyState, ErrorState, LoadingState, Notice } from '@/components/states'
@@ -79,14 +80,14 @@ const columns = [
   column.accessor('status', {
     header: 'Status',
     cell: ({ getValue }) => <FactStatusBadge status={getValue()} />,
-    meta: { className: 'hidden w-1 md:table-cell' },
+    meta: { className: 'hidden w-1 xl:table-cell' },
   }),
   column.accessor('confidence', {
     header: 'Confidence',
     cell: ({ getValue }) => (
       <span className="font-mono text-xs tabular-nums text-muted">{getValue().toFixed(2)}</span>
     ),
-    meta: { className: 'hidden w-1 lg:table-cell', align: 'right' },
+    meta: { className: 'hidden w-1 2xl:table-cell', align: 'right' },
   }),
   column.accessor((row) => row.tools.join(', '), {
     id: 'tools',
@@ -94,7 +95,7 @@ const columns = [
     cell: ({ getValue }) => (
       <span className="font-mono text-2xs whitespace-nowrap text-muted">{getValue() || '—'}</span>
     ),
-    meta: { className: 'hidden w-1 lg:table-cell' },
+    meta: { className: 'hidden w-1 2xl:table-cell' },
   }),
   column.accessor('lastObservedAt', {
     header: 'Last seen',
@@ -103,7 +104,7 @@ const columns = [
         {formatRelative(getValue())}
       </span>
     ),
-    meta: { className: 'w-1' },
+    meta: { className: 'hidden w-1 sm:table-cell' },
   }),
 ]
 
@@ -294,7 +295,8 @@ function NodeDetailPanel({
       </Panel>
     )
   }
-  const { node, neighbors, provenance, gaps, hypothesisIds, truncated } = detail.data
+  const { node, neighbors, provenance, observations, gaps, hypothesisIds, truncated } = detail.data
+  const observationById = new Map(observations.map((o) => [o.id, o]))
   const attributes = Object.entries(node.attributes).filter(([k]) => !['versionByTool'].includes(k))
   return (
     <Panel className="self-start" id="graph-entity">
@@ -374,6 +376,14 @@ function NodeDetailPanel({
                       {p.confidence.toFixed(2)}
                     </span>
                   </div>
+                  {p.observationId && observationById.get(p.observationId) ? (
+                    <p className="text-muted text-break">
+                      <span className="font-mono text-2xs text-subtle">
+                        {observationById.get(p.observationId)!.type}
+                      </span>{' '}
+                      {observationById.get(p.observationId)!.title}
+                    </p>
+                  ) : null}
                   {p.rationale ? <p className="text-muted text-break">{p.rationale}</p> : null}
                   <div className="mt-0.5 flex flex-wrap gap-1">
                     {p.evidenceRefs.map((ref) => (
@@ -481,7 +491,7 @@ export function GraphTab({
       <Panel>
         <PanelHeader
           title="Security graph"
-          description="What Audivra knows about the application, projected deterministically from sensor observations. Every fact carries its provenance; AI inferences are labelled and never replace observed facts."
+          description="Projected deterministically from sensor observations. Every fact carries its provenance; AI inferences are labelled and never replace observed facts."
           actions={
             <Button
               size="sm"
@@ -502,19 +512,19 @@ export function GraphTab({
             value={s?.relationships ?? '—'}
             tone={s?.relationships ? 'default' : 'muted'}
           />
-          <Metric label="Observed" value={s?.byBasis.observed ?? 0} tone="success" />
-          <Metric label="Derived" value={s?.byBasis.derived ?? 0} tone="default" />
+          <Metric label="Observed facts" value={s?.byBasis.observed ?? 0} tone="success" />
+          <Metric label="Derived facts" value={s?.byBasis.derived ?? 0} tone="default" />
           <Metric
-            label="Inferred (AI)"
+            label="Inferred facts (AI)"
             value={s?.byBasis.inferred ?? 0}
             tone={s?.byBasis.inferred ? 'medium' : 'muted'}
           />
           <Metric
-            label="Contradicted"
+            label="Contradicted facts"
             value={s?.byStatus.contradicted ?? 0}
             tone={s?.byStatus.contradicted ? 'high' : 'muted'}
           />
-          <Metric label="Stale" value={s?.byStatus.stale ?? 0} tone="muted" />
+          <Metric label="Stale facts" value={s?.byStatus.stale ?? 0} tone="muted" />
           <Metric
             label="Open unknowns"
             value={s?.gaps.open ?? 0}
@@ -529,39 +539,37 @@ export function GraphTab({
           <PanelHeader
             title="Entities"
             description="Hosts, endpoints, API operations, parameters, technologies, signals and source files — with how each is known."
-            actions={
-              <div className="flex flex-wrap items-center gap-3">
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search"
-                  aria-label="Search entities"
-                  className="h-7 w-32 rounded-sm border border-border bg-surface px-2 text-xs text-foreground placeholder:text-subtle"
-                />
-                <Select
-                  label="Kind"
-                  value={kind}
-                  options={GRAPH_ENTITY_KINDS}
-                  onChange={setKind}
-                  render={(k) => ENTITY_KIND_LABEL[k]}
-                />
-                <Select
-                  label="Basis"
-                  value={basis}
-                  options={KNOWLEDGE_BASES}
-                  onChange={setBasis}
-                  render={(b) => b}
-                />
-                <Select
-                  label="Status"
-                  value={status}
-                  options={FACT_STATUSES}
-                  onChange={setStatus}
-                  render={(st) => st}
-                />
-              </div>
-            }
           />
+          <Toolbar className="gap-x-3 border-b border-border px-4 py-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search"
+              aria-label="Search entities"
+              className="h-7 w-32 rounded-sm border border-border bg-surface px-2 text-xs text-foreground placeholder:text-subtle"
+            />
+            <Select
+              label="Kind"
+              value={kind}
+              options={GRAPH_ENTITY_KINDS}
+              onChange={setKind}
+              render={(k) => ENTITY_KIND_LABEL[k]}
+            />
+            <Select
+              label="Basis"
+              value={basis}
+              options={KNOWLEDGE_BASES}
+              onChange={setBasis}
+              render={(b) => b}
+            />
+            <Select
+              label="Status"
+              value={status}
+              options={FACT_STATUSES}
+              onChange={setStatus}
+              render={(st) => st}
+            />
+          </Toolbar>
           {nodes.isError ? (
             <ErrorState
               title="Could not load the graph"
