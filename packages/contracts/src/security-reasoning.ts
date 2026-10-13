@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { AiCoverageState, AiRunProvenance } from './ai.ts'
 import { SecurityActor } from './security.ts'
 import { RiskClass } from './security-classes.ts'
+import { ComparisonDimension, ComparisonResult } from './security-comparison.ts'
 import { AiRelationType } from './security-graph.ts'
 import { ObservationType } from './security-observation.ts'
 
@@ -34,10 +35,34 @@ export type HypothesisStatus = z.infer<typeof HypothesisStatus>
 export const RESOLVED_HYPOTHESIS_STATUSES: readonly HypothesisStatus[] = ['disproved', 'confirmed-signal', 'exhausted']
 export const isResolvedHypothesis = (status: HypothesisStatus): boolean => RESOLVED_HYPOTHESIS_STATUSES.includes(status)
 
-/** Phase 4 reasons only in relatively safe domains; authorization/business-logic sequences are Phase 5. */
-export const HYPOTHESIS_CATEGORIES = ['attack-surface', 'technology', 'endpoint-behavior', 'api-surface', 'configuration', 'evidence-gap', 'signal-confirmation'] as const
+/**
+ * Phase 4 categories come from sensor observations; the Phase 5 Step 4 authorization/business-logic
+ * categories are investigated by the differential-comparison engine (not the sensor-driven researcher), and
+ * their evidence is a `comparison-result` check. They are kept generic.
+ */
+export const HYPOTHESIS_CATEGORIES = [
+  'attack-surface',
+  'technology',
+  'endpoint-behavior',
+  'api-surface',
+  'configuration',
+  'evidence-gap',
+  'signal-confirmation',
+  // Phase 5 Step 4 — authorization / business-logic boundaries (comparison-driven):
+  'object-boundary',
+  'role-boundary',
+  'tenant-boundary',
+  'function-level',
+  'field-boundary',
+  'session-boundary',
+  'business-rule',
+] as const
 export const HypothesisCategory = z.enum(HYPOTHESIS_CATEGORIES)
 export type HypothesisCategory = z.infer<typeof HypothesisCategory>
+
+/** The authorization/business categories the differential-comparison engine owns (the sensor loop skips them). */
+export const COMPARISON_HYPOTHESIS_CATEGORIES: readonly HypothesisCategory[] = ['object-boundary', 'role-boundary', 'tenant-boundary', 'function-level', 'field-boundary', 'session-boundary', 'business-rule']
+export const isComparisonHypothesisCategory = (category: HypothesisCategory): boolean => COMPARISON_HYPOTHESIS_CATEGORIES.includes(category)
 
 export const IMPACT_LEVELS_P4 = ['low', 'medium', 'high'] as const
 export const HypothesisImpact = z.enum(IMPACT_LEVELS_P4)
@@ -60,9 +85,11 @@ const HypothesisRef = z.string().regex(/^hy_[0-9a-z]{14}$/, 'a hypothesis id (hy
  *   observation-present        an observation of `observationType` projects onto the entity
  *   entity-contradicted        the entity is in an unresolved conflict
  *   gap-resolved               the knowledge gap has been answered
+ *   comparison-result          a differential comparison (Phase 5 Step 4) linked to this hypothesis settled
+ *                              with a result in `results` (deterministic, evidence-backed — never AI-declared)
  *
  * At creation every check must be unmet (a claim that is already established or already contradicted is not
- * a useful hypothesis); a later satisfying observation changes the hypothesis state.
+ * a useful hypothesis); a later satisfying observation or comparison changes the hypothesis state.
  */
 export const EvidenceCheck = z.discriminatedUnion('check', [
   z.strictObject({ check: z.literal('response-status'), entityId: EntityRef, statuses: z.array(z.number().int().min(100).max(599)).min(1).max(20), effect: CheckEffect }),
@@ -70,6 +97,7 @@ export const EvidenceCheck = z.discriminatedUnion('check', [
   z.strictObject({ check: z.literal('observation-present'), entityId: EntityRef, observationType: ObservationType, effect: CheckEffect }),
   z.strictObject({ check: z.literal('entity-contradicted'), entityId: EntityRef, effect: CheckEffect }),
   z.strictObject({ check: z.literal('gap-resolved'), gapId: GapRef, effect: z.literal('supports') }),
+  z.strictObject({ check: z.literal('comparison-result'), dimension: ComparisonDimension.nullable().default(null), results: z.array(ComparisonResult).min(1).max(5), effect: CheckEffect }),
 ])
 export type EvidenceCheck = z.infer<typeof EvidenceCheck>
 

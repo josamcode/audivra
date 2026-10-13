@@ -391,6 +391,15 @@ export const SECURITY_EVENT_TYPES = [
   'session.established',
   'session.validation-failed',
   'session.refreshed',
+  // Differential authorization / business-logic comparison (Phase 5 Step 4).
+  'comparison.planned',
+  'comparison.started',
+  'comparison.completed',
+  'comparison.inconclusive',
+  'comparison.blocked',
+  'comparison.cleanup',
+  'invariant.supported',
+  'invariant.contradicted',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>
