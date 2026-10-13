@@ -87,6 +87,7 @@ export function validateAction(action: ProposedAction, view: KnowledgeView, regi
   const fits = capabilityFits(hypothesis, results, view)
   const fit = fits.find((f) => f.capability.id === capability.id)
   if (!fit) return reject('irrelevant-capability', `${capability.id} cannot produce the evidence the unmet checks need`, actionKey)
+  if (fit.fullCoverage === 0) return reject('irrelevant-capability', `${capability.id} already reported these entities; running it again would only re-observe the same facts`, actionKey)
   // Effective fit: a capability already tried for this hypothesis is worth much less a second time.
   const effective = (f: (typeof fits)[number]) => f.resolvability * (f.previouslyTried ? 0.3 : 1)
   const cheaper = fits.find((f) => f.capability.costUnits < capability.costUnits && effective(f) >= effective(fit))

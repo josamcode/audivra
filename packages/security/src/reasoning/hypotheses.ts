@@ -12,7 +12,8 @@ import {
 } from '@audivra/contracts'
 import { SIGNAL_CONFIRMATIONS } from '../graph/project.ts'
 import { urlParts } from '../graph/identity.ts'
-import { neighbourhood, observationsAbout, type KnowledgeView, type PlanningCapability } from './knowledge.ts'
+import { neighbourhood, observationsAbout, type KnowledgeView } from './knowledge.ts'
+import { capabilityFits } from './ranking.ts'
 
 /*
  * Hypotheses: deterministic quality rules, structural deduplication and evidence checks.
@@ -213,12 +214,6 @@ export function claimOutsideGraph(claim: string, view: KnowledgeView): string | 
   return null
 }
 
-/** Capabilities that can produce some of the evidence the checks need, and may run in this environment. */
-export function capabilitiesFor(checks: readonly EvidenceCheck[], view: KnowledgeView): PlanningCapability[] {
-  const needs = new Set(checks.flatMap((c) => checkNeeds(c, view)))
-  return view.capabilities.filter((c) => c.eligibleHere && c.plannable && c.observationTypes.some((t) => needs.has(t)))
-}
-
 /** A support-based ceiling on a proposal's confidence: more cited evidence, more room — never certainty. */
 export function confidenceCeiling(supporting: number): number {
   return Math.min(0.75, 0.25 + 0.15 * Math.min(3, supporting))
@@ -260,7 +255,12 @@ export function validateProposal(proposal: ProposedHypothesis, view: KnowledgeVi
   if (outOfScope) return reject('out-of-scope', `${outOfScope.label} is ${outOfScope.scopeClass}; Audivra investigates in-scope assets only`)
 
   // Capabilities: those named must exist and be usable here; otherwise derive them from the evidence needs.
-  const usable = capabilitiesFor(proposal.evidenceChecks, view)
+  // A capability counts only if it can bring *new* evidence (not merely re-observe what it already reported).
+  const outcome = assessChecks(proposal.evidenceChecks, view)
+  const usable = capabilityFits({ id: 'proposal', evidenceChecks: proposal.evidenceChecks, candidateCapabilities: [] }, outcome.results, view)
+    .filter((f) => f.fullCoverage > 0)
+    .map((f) => f.capability)
+    .sort((a, b) => a.id.localeCompare(b.id))
   const named = proposal.candidateCapabilities.filter((id) => usable.some((c) => c.id === id))
   if (proposal.candidateCapabilities.length && named.length < proposal.candidateCapabilities.length) {
     notes.push(`Dropped candidate capabilities that cannot produce the needed evidence here: ${proposal.candidateCapabilities.filter((id) => !named.includes(id)).join(', ')}`)
@@ -272,7 +272,6 @@ export function validateProposal(proposal: ProposedHypothesis, view: KnowledgeVi
   }
 
   // A hypothesis whose outcome is already decided is not worth investigating.
-  const outcome = assessChecks(proposal.evidenceChecks, view)
   if (outcome.status === 'disproved') return reject('already-contradicted', outcome.reason)
   if (outcome.status === 'confirmed-signal' || (outcome.status === 'supported' && outcome.results.filter((r) => r.effect === 'supports').every((r) => r.met))) {
     return reject('already-established', outcome.reason)

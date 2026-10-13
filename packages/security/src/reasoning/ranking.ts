@@ -48,6 +48,8 @@ export interface CapabilityFit {
   capability: PlanningCapability
   /** Fraction of the unmet checks it can produce evidence for (0..1). */
   resolvability: number
+  /** Unmet checks it can produce *new* evidence for (not merely re-observe what it already reported). */
+  fullCoverage: number
   targets: string[]
   previouslyTried: boolean
 }
@@ -60,6 +62,7 @@ export function capabilityFits(h: Pick<SecurityHypothesis, 'id' | 'evidenceCheck
   for (const capability of view.capabilities) {
     if (!capability.eligibleHere || !capability.plannable) continue
     let covered = 0
+    let full = 0
     const targets = new Set<string>()
     for (const check of unmet) {
       const needs = checkNeeds(check, view)
@@ -73,11 +76,12 @@ export function capabilityFits(h: Pick<SecurityHypothesis, 'id' | 'evidenceCheck
       const entityTargets = planningTargets(view, entityId)
       if (entityTargets.length === 0) continue
       covered += alreadyReported ? 0.3 : 1
+      if (!alreadyReported) full++
       for (const t of entityTargets) targets.add(t)
     }
     if (covered === 0) continue
     const previouslyTried = view.actions.some((a) => a.hypothesisId === h.id && a.capabilityId === capability.id && (a.status === 'completed' || a.status === 'failed'))
-    fits.push({ capability, resolvability: covered / unmet.length, targets: [...targets].sort(), previouslyTried })
+    fits.push({ capability, resolvability: covered / unmet.length, fullCoverage: full, targets: [...targets].sort(), previouslyTried })
   }
   // Named candidates first among equals, then cheaper, then by id (deterministic).
   return fits.sort(

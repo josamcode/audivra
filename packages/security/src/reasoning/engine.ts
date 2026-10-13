@@ -348,7 +348,7 @@ export class ReasoningEngine {
         // Not resolved by the evidence its actions gathered: exhausted after the attempt limit or when every
         // eligible capability has been tried.
         const fits = capabilityFits(h, outcome.results, view)
-        if (attempts >= MAX_ATTEMPTS || fits.every((f) => f.previouslyTried || f.resolvability < 0.5)) {
+        if (attempts >= MAX_ATTEMPTS || fits.every((f) => f.previouslyTried || f.fullCoverage === 0)) {
           to = 'exhausted'
           reason = `Investigated ${attempts} time${attempts === 1 ? '' : 's'}; the evidence it needs did not appear (${outcome.results.filter((r) => !r.met).map((r) => r.detail).join('; ')})`
         }
