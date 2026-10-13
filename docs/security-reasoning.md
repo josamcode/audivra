@@ -270,6 +270,23 @@ rejected, duplicate rate 0, no invalid action executed), unnecessary cost, redun
 acceptance rate, AI calls and actions as information — never the number of hypotheses as a goal. The same
 benchmark is a regression gate in `apps/worker/test/reasoning-benchmark.integration.test.ts`.
 
+## Measured performance
+
+Windows + Docker Desktop, PostgreSQL in Docker, synthetic crawl observations (`.local-data/qa/perf-graph.ts`):
+
+| Observations | Entities / relationships | Provenance rows | First projection | Re-projection (no changes) | Knowledge load | Researcher context |
+| --- | --- | --- | --- | --- | --- | --- |
+| 110 | 211 / 210 | 570 | 0.38 s | 0.11 s | 0.06 s | 87k chars (80 entities) |
+| 550 | 1,014 / 1,013 | 2,850 | 1.5 s | 0.41 s | 0.12 s | 71k chars (80 entities) |
+| 2,200 | 4,014 / 4,013 | 11,400 | 5.9 s | 1.35 s | 0.42 s | 71k chars (80 entities) |
+
+Projection is roughly linear and a repeated projection writes nothing; the AI context is bounded by the
+relevance budget, not by the graph size. The deterministic reasoning benchmark (9 scenarios) runs in
+~6 s; the E2E reasoning flow with real sensors (httpx, katana, Nuclei through the gateway) in ~1 min.
+Not optimized for very large graphs: each settled execution re-projects the engagement (≈1.4 s of no-op
+work at 4,000 entities); an incremental projector is the next step if engagements grow by orders of
+magnitude.
+
 ## Limitations
 
 - Reasoning is limited to Phase 4's safe domains; authorization, business-logic and multi-step sequences,
