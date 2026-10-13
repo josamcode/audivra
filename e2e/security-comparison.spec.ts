@@ -103,3 +103,46 @@ test('two identities → sessions → a differential comparison → inconsistent
   const coverage = (await (await request.get(`/api/security/engagements/${engagement.id}/comparisons/coverage`)).json()) as { invariants: { contradicted: number } }
   expect(coverage.invariants.contradicted).toBe(1)
 })
+
+test('Phase 5 closed loop: declare domain via API → session → propose → run → graph derives → coverage updates', async ({ page, request }) => {
+  test.setTimeout(3 * 60_000)
+  const created = await request.post('/api/security/engagements', { data: { name: 'E2E closed loop', targetUrl: fixture.url, environment: 'isolated-lab' } })
+  const engagement = (await created.json()) as SecurityEngagementDetail
+  await request.post(`/api/security/engagements/${engagement.id}/authorizations`, { data: { method: 'local-development' } })
+  const eid = engagement.id
+
+  // Declare the domain entirely through the management API (no database seeding).
+  const declare = async (body: unknown) => expect((await request.post(`/api/security/engagements/${eid}/domain/declarations`, { data: body })).status(), JSON.stringify(body)).toBe(201)
+  await identity(request, eid, 'alice', 't1')
+  await identity(request, eid, 'bob', 't1')
+  fixture.resources.set('doc1', { tenant: 't1', owner: 'alice', state: 'draft', enforce: 'leaky' })
+  const url = `${fixture.url}/api/resources/doc1`
+  await declare({ kind: 'resource', ref: 'doc1', spec: { resourceType: 'document', ownerRef: 'alice', tenantRef: 't1', canonicalUrl: url, testData: 'test-owned' } })
+  await declare({ kind: 'invariant', ref: 'inv-obj', spec: { category: 'object-boundary', rule: 'Only the owner may read a document', affects: [{ kind: 'resource', ref: 'doc1' }] } })
+
+  // Project the graph → the ownership relationship and a Phase-5 knowledge gap are present.
+  await request.post(`/api/security/engagements/${eid}/graph/project`, { data: {} })
+  const gaps = (await (await request.get(`/api/security/engagements/${eid}/graph/gaps?status=open`)).json()) as { kind: string }[]
+  expect(gaps.some((g) => g.kind === 'session-behavior-unknown' || g.kind === 'identity-role-unknown')).toBe(true)
+
+  // The planner proposes a bounded, controlled comparison; run the object-boundary one.
+  const { plans: proposed } = (await (await request.get(`/api/security/engagements/${eid}/comparisons/propose`)).json()) as { plans: { plan: { dimension: string } }[] }
+  const objectPlan = proposed.find((p) => p.plan.dimension === 'object-boundary')!.plan
+  const planned = await request.post(`/api/security/engagements/${eid}/comparisons`, { data: objectPlan })
+  const comparisonId = ((await planned.json()) as SecurityComparison).id
+  await expect.poll(async () => ((await (await request.get(`/api/security/comparisons/${comparisonId}`)).json()) as { comparison: SecurityComparison }).comparison.result, { timeout: 90_000 }).toBe('inconsistent')
+
+  // The graph derived a comparison-backed CAN_ACCESS fact, and the knowledge gap is answered.
+  const edges = (await (await request.get(`/api/security/engagements/${eid}/graph/edges?type=CAN_ACCESS`)).json()) as { basis: string; fromKey: string }[]
+  expect(edges.some((e) => e.basis === 'derived')).toBe(true)
+  const gapsAfter = (await (await request.get(`/api/security/engagements/${eid}/graph/gaps`)).json()) as { kind: string; status: string }[]
+  expect(gapsAfter.find((g) => g.kind === 'session-behavior-unknown')?.status).toBe('resolved')
+
+  // Coverage updated; the Domain and Access views render the declared entities and the result.
+  const coverage = (await (await request.get(`/api/security/engagements/${eid}/comparisons/coverage`)).json()) as { invariants: { contradicted: number } }
+  expect(coverage.invariants.contradicted).toBe(1)
+  await page.goto(`/security/${eid}?tab=domain`)
+  await expect(page.getByText('doc1').first()).toBeVisible({ timeout: 20_000 })
+  await page.goto(`/security/${eid}?tab=access`)
+  await expect(page.getByTestId('access-comparison').first()).toContainText('Inconsistent', { timeout: 20_000 })
+})

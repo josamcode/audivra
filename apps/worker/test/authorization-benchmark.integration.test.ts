@@ -34,7 +34,7 @@ describe('authorization benchmark', () => {
     const result = await runAuthorizationBenchmark({ db: handle.db })
     const failures = result.scenarios.flatMap((s) => Object.entries(s.metrics).filter(([, m]) => !m.pass).map(([k, m]) => `${s.name}.${k}: ${m.value} (want ${m.target}) — ${m.detail}`))
     expect(failures).toEqual([])
-    expect(result.scenarios.map((s) => s.name)).toEqual(['object-boundary', 'tenant-boundary', 'inconclusive-correctness', 'state-transition-cleanup', 'planner-selection'])
+    expect(result.scenarios.map((s) => s.name)).toEqual(['object-boundary', 'tenant-boundary', 'inconclusive-correctness', 'state-transition-cleanup', 'planner-selection', 'graph-derivation', 'ai-proposal-and-fallback'])
     expect(result.pass).toBe(true)
   }, 120_000)
 })

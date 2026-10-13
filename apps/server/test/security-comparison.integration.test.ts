@@ -270,24 +270,28 @@ describe('differential authorization comparisons', () => {
     await resource(e, 'doc1', { tenant: 't1', owner: 'alice', enforce: 'strict' })
     await resource(e, 'doc2', { tenant: 't1', owner: 'bob', enforce: 'strict' })
 
-    const proposed = await comparisons.propose(e)
+    const { plans: proposed, stats } = await comparisons.propose(e)
     expect(proposed.length).toBeGreaterThan(0)
-    expect(proposed.length).toBeLessThanOrEqual(4)
-    // One representative comparison per resource (pruned), each with a positive control.
-    for (const p of proposed) expect(p.plan.arms.some((a) => a.role === 'positive-control')).toBe(true)
+    expect(proposed.length).toBeLessThanOrEqual(6)
+    // Each proposal carries a control arm; the candidate space is pruned below the Cartesian product.
+    for (const p of proposed) expect(p.plan.arms.some((a) => a.role === 'positive-control' || a.role === 'negative-control')).toBe(true)
+    expect(stats.candidates).toBeLessThanOrEqual(stats.cartesian)
 
     // Running one then re-proposing excludes the now-existing comparison (dedupe).
-    const first = proposed[0]!.plan
+    const first = proposed.find((p) => p.plan.dimension === 'object-boundary')!.plan
     await engine.planAndRun(e, first, user)
     const after = await comparisons.propose(e)
-    expect(after.length).toBeLessThan(proposed.length)
+    expect(after.plans.some((p) => p.plan.dimension === first.dimension && p.plan.resourceRef === first.resourceRef && p.plan.action === first.action)).toBe(false)
 
     // Adversarial proposals are rejected deterministically.
     const plannerInput: PlannerInput = {
       environment: 'staging',
-      identities: [{ ref: 'alice', tenantRef: 't1', roleRefs: [], hasSession: true }],
-      resources: [{ ref: 'doc1', ownerRef: 'alice', tenantRef: 't1', testData: 'test-owned', url: `${fixture.url}/api/resources/doc1` }],
+      identities: [{ ref: 'alice', key: 'identity:alice', tenantRef: 't1', roleRefs: [], hasSession: true }],
+      resources: [{ ref: 'doc1', key: 'resource:document:doc1', ownerRef: 'alice', tenantRef: 't1', testData: 'test-owned', url: `${fixture.url}/api/resources/doc1` }],
       invariants: [],
+      actions: [],
+      roles: [],
+      openGaps: [],
       existingDedupeKeys: new Set(),
     }
     expect(validateProposedComparison({ hypothesisId: 'hy_00000000000000', dimension: 'object-boundary', resourceRef: 'ghost', action: 'read', invariantRef: null, arms: [], expectedTransition: null, reason: 'invented resource' } as never, plannerInput)).toMatchObject({ ok: false, reason: 'unknown-resource' })

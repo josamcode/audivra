@@ -122,36 +122,43 @@ describe('planner', () => {
   const base: PlannerInput = {
     environment: 'staging',
     identities: [
-      { ref: 'alice', tenantRef: 't1', roleRefs: [], hasSession: true },
-      { ref: 'bob', tenantRef: 't1', roleRefs: [], hasSession: true },
-      { ref: 'carol', tenantRef: 't2', roleRefs: [], hasSession: true },
+      { ref: 'alice', key: 'identity:alice', tenantRef: 't1', roleRefs: ['editor'], hasSession: true },
+      { ref: 'bob', key: 'identity:bob', tenantRef: 't1', roleRefs: [], hasSession: true },
+      { ref: 'carol', key: 'identity:carol', tenantRef: 't2', roleRefs: [], hasSession: true },
     ],
     resources: [
-      { ref: 'doc1', ownerRef: 'alice', tenantRef: 't1', testData: 'test-owned', url: 'http://x/api/resources/doc1' },
-      { ref: 'doc2', ownerRef: 'bob', tenantRef: 't1', testData: 'test-owned', url: 'http://x/api/resources/doc2' },
+      { ref: 'doc1', key: 'resource:document:doc1', ownerRef: 'alice', tenantRef: 't1', testData: 'test-owned', url: 'http://x/api/resources/doc1' },
+      { ref: 'doc2', key: 'resource:document:doc2', ownerRef: 'bob', tenantRef: 't1', testData: 'test-owned', url: 'http://x/api/resources/doc2' },
     ],
     invariants: [{ ref: 'inv', category: 'object-boundary', rule: 'only owner', resourceRefs: ['doc1'] }],
+    actions: [{ ref: 'approve', verb: 'approve', endpointUrl: 'http://x/api/resources/doc1/approve', method: 'POST', stateProbeUrl: 'http://x/api/resources/doc1/state', requiredRoleRefs: ['editor'], requiredStateRef: 'draft', resultingStateRef: 'approved', actsOnRefs: ['doc1'] }],
+    roles: [{ ref: 'editor', permits: ['approve'] }],
+    openGaps: [{ kind: 'authorization-expectation-unknown', subjectKey: 'resource:document:doc1' }],
     existingDedupeKeys: new Set(),
   }
 
-  it('proposes bounded, controlled comparisons and ranks by information gain', () => {
-    const plans = proposeComparisons(base, 4)
+  it('proposes bounded, controlled comparisons across categories and reports pruning stats', () => {
+    const { plans, stats } = proposeComparisons(base, 6)
     expect(plans.length).toBeGreaterThan(0)
-    expect(plans.length).toBeLessThanOrEqual(4)
+    expect(plans.length).toBeLessThanOrEqual(6)
     for (const p of plans) {
       expect(p.plan.arms.some((a) => a.role === 'subject')).toBe(true)
       expect(p.plan.arms.some((a) => a.role === 'positive-control' || a.role === 'negative-control')).toBe(true)
       expect(p.plan.coverageSampled).toBe(true)
     }
-    // Resources with a known owner and another identity with a session get an object-boundary comparison.
+    // Multiple boundary categories are covered (object + a role/function/field/session one).
+    expect(new Set(plans.map((p) => p.plan.dimension)).size).toBeGreaterThanOrEqual(2)
     expect(plans.some((p) => p.plan.dimension === 'object-boundary')).toBe(true)
+    // Pruning: candidates considered stay well under the raw Cartesian product.
+    expect(stats.candidates).toBeLessThanOrEqual(stats.cartesian)
+    expect(stats.proposed).toBe(plans.length)
   })
 
   it('does not re-propose an already-existing comparison', () => {
-    const [first] = proposeComparisons(base, 4)
+    const [first] = proposeComparisons(base, 6).plans
     const key = comparisonDedupeKey(first!.plan.dimension, first!.plan.action, first!.plan.arms)
-    const after = proposeComparisons({ ...base, existingDedupeKeys: new Set([key]) }, 4)
-    expect(after.some((p) => comparisonDedupeKey(p.plan.dimension, p.plan.action, p.plan.arms) === key)).toBe(false)
+    const after = proposeComparisons({ ...base, existingDedupeKeys: new Set([key]) }, 6)
+    expect(after.plans.some((p) => comparisonDedupeKey(p.plan.dimension, p.plan.action, p.plan.arms) === key)).toBe(false)
   })
 
   it('rejects adversarial proposals (invented refs, no session, ownership mismatch, no controls)', () => {
@@ -161,7 +168,7 @@ describe('planner', () => {
     // alice IS the owner of doc1, so a "deny" expectation for her is an ownership mismatch.
     expect(validateProposedComparison(p({ arms: [subjectArm, { ...subjectArm, role: 'positive-control', identityRef: 'bob', expected: { ...subjectArm.expected, outcome: 'allow' } }] }), base)).toMatchObject({ ok: false, reason: 'ownership-mismatch' })
     // A declared identity with no established session.
-    const noSession: PlannerInput = { ...base, identities: [{ ref: 'dan', tenantRef: 't1', roleRefs: [], hasSession: false }] }
+    const noSession: PlannerInput = { ...base, identities: [{ ref: 'dan', key: 'identity:dan', tenantRef: 't1', roleRefs: [], hasSession: false }] }
     expect(validateProposedComparison(p({ arms: [{ ...subjectArm, identityRef: 'dan' }] }), noSession)).toMatchObject({ ok: false, reason: 'no-session' })
     // An identity that is not declared at all.
     expect(validateProposedComparison(p({ arms: [{ ...subjectArm, identityRef: 'nobody' }] }), base)).toMatchObject({ ok: false, reason: 'unknown-identity' })
