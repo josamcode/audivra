@@ -67,6 +67,9 @@ import type {
   ActionStatus,
   AiCoverageState,
   AiRunProvenance,
+  CredentialStatus,
+  CredentialType,
+  SessionStatus,
   DomainDeclarationKind,
   DomainDeclarationStatus,
   DomainSource,
@@ -915,5 +918,78 @@ export const securityDomainDeclarations = pgTable(
     uniqueIndex('security_domain_declarations_ref_idx').on(t.engagementId, t.kind, t.ref),
     index('security_domain_declarations_key_idx').on(t.engagementId, t.key),
     index('security_domain_declarations_kind_idx').on(t.engagementId, t.kind),
+  ],
+)
+
+// ── Phase 5 (Step 2): credential / session secret boundary ──────────────────────────────────────────
+
+/**
+ * Authorized test credentials. The only secret-bearing value Audivra persists is `sealed` — an
+ * AES-256-GCM envelope (`av1.<keyId>.<iv>.<tag>.<ciphertext>`) that is useless without the key, which lives
+ * outside the database. Everything else is safe metadata. An identity's `credentialRef` points at `ref`;
+ * revoking or deleting a credential never touches the identity. No plaintext secret is ever stored here.
+ */
+export const securityCredentials = pgTable(
+  'security_credentials',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    /** The identity declaration handle this credential is for (null: unbound). */
+    identityRef: text('identity_ref'),
+    /** The opaque reference an identity's `credentialRef` points to; unique per engagement. */
+    ref: text('ref').notNull(),
+    type: text('type').$type<CredentialType>().notNull(),
+    label: text('label').notNull(),
+    status: text('status').$type<CredentialStatus>().notNull().default('active'),
+    /** The AES-256-GCM envelope. The only secret-bearing column; opaque without the key. */
+    sealed: text('sealed').notNull(),
+    /** Non-secret fingerprint of the key that sealed it (for rotation visibility). */
+    keyId: text('key_id').notNull(),
+    encVersion: integer('enc_version').notNull().default(1),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    revokedAt: ts('revoked_at'),
+    expiresAt: ts('expires_at'),
+  },
+  (t) => [
+    uniqueIndex('security_credentials_ref_idx').on(t.engagementId, t.ref),
+    index('security_credentials_identity_idx').on(t.engagementId, t.identityRef),
+    index('security_credentials_status_idx').on(t.engagementId, t.status),
+    index('security_credentials_expiry_idx').on(t.expiresAt),
+  ],
+)
+
+/**
+ * Session metadata, separated from sealed session material (`sealed`: cookies/tokens, encrypted like a
+ * credential; null until established in Step 3). Establishing sessions is Step 3; this table only prepares
+ * the boundary and the lifecycle state.
+ */
+export const securitySessions = pgTable(
+  'security_sessions',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    identityRef: text('identity_ref').notNull(),
+    environment: text('environment').$type<SecurityEnvironment>().notNull(),
+    authMethod: text('auth_method').notNull(),
+    status: text('status').$type<SessionStatus>().notNull().default('pending'),
+    /** Encrypted session material (cookies/tokens), or null when none is held. */
+    sealed: text('sealed'),
+    keyId: text('key_id'),
+    encVersion: integer('enc_version').notNull().default(1),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    refreshedAt: ts('refreshed_at'),
+    expiresAt: ts('expires_at'),
+    revokedAt: ts('revoked_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('security_sessions_engagement_idx').on(t.engagementId, t.createdAt),
+    index('security_sessions_identity_idx').on(t.engagementId, t.identityRef, t.status),
+    index('security_sessions_expiry_idx').on(t.expiresAt),
   ],
 )

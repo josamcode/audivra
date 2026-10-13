@@ -57,6 +57,13 @@
       "when": 1791894831381,
       "tag": "0007_security_domain",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791917675531,
+      "tag": "0008_security_secrets",
+      "breakpoints": true
     }
   ]
 }
