@@ -5,8 +5,10 @@ import {
   createDbExecutionStore,
   createDbSecurityStore,
   createRuntimeRegistry,
+  createSecretVault,
   ExecutionRuntime,
   IsolatedContainerBackend,
+  VaultAuthResolver,
   type ExecutionRuntimeOptions,
   type RecoveryReport,
 } from '@audivra/security'
@@ -49,6 +51,8 @@ export function createSecurityExecutionWorker(options: {
     queue: createBossExecutionQueue(boss),
     // Capabilities declare their execution mode; the runtime picks the backend from the trusted snapshot.
     backends: { 'isolated-container': new IsolatedContainerBackend() },
+    // Identity-aware executions resolve their session's material from the vault at the trusted boundary.
+    authResolver: new VaultAuthResolver({ db, vault: createSecretVault(db, { log }) }),
     maxActive: concurrency,
     log,
     ...options.runtime,

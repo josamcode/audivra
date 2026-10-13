@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Logger } from '@audivra/config'
 import { redact } from '@audivra/contracts'
 import type { Db } from '@audivra/database'
-import { createSecretVault, LOCAL_USER, SecretVault, SecurityRequestError } from '@audivra/security'
+import { createSecretVault, GraphProjector, identityCoverage, LOCAL_USER, SecretVault, SecurityRequestError, SessionEstablishmentService } from '@audivra/security'
 
 type App = FastifyInstance<Server, IncomingMessage, ServerResponse, Logger>
 
@@ -16,6 +16,8 @@ type App = FastifyInstance<Server, IncomingMessage, ServerResponse, Logger>
  */
 export function registerCredentialRoutes(app: App, deps: { db: Db; vault?: SecretVault; log?: Logger }): void {
   const vault = deps.vault ?? createSecretVault(deps.db, { log: deps.log })
+  // Establishing/revoking sessions re-projects the graph so `AUTHENTICATES_AS` reflects the live session set.
+  const establishment = new SessionEstablishmentService({ db: deps.db, vault, projector: new GraphProjector({ db: deps.db, log: deps.log }), log: deps.log })
 
   async function respond(reply: FastifyReply, work: () => Promise<unknown>, status = 200) {
     try {
@@ -52,4 +54,13 @@ export function registerCredentialRoutes(app: App, deps: { db: Db; vault?: Secre
   )
 
   app.get<{ Params: { sessionId: string } }>('/api/security/sessions/:sessionId', (request, reply) => respond(reply, () => vault.session(request.params.sessionId)))
+
+  // Establish (or reuse) an authenticated session for a declared identity. The AI never reaches this path.
+  app.post<{ Params: { id: string } }>('/api/security/engagements/:id/sessions/establish', (request, reply) => respond(reply, () => establishment.establish(request.params.id, request.body, LOCAL_USER), 201))
+
+  // Revoke a session: its sealed material is dropped and its graph edge goes inactive.
+  app.post<{ Params: { sessionId: string } }>('/api/security/sessions/:sessionId/revoke', (request, reply) => respond(reply, () => establishment.revoke(request.params.sessionId, LOCAL_USER)))
+
+  // Identity coverage: what the engagement can authenticate as (no secrets).
+  app.get<{ Params: { id: string } }>('/api/security/engagements/:id/identities/coverage', (request, reply) => respond(reply, () => identityCoverage(deps.db, request.params.id)))
 }
