@@ -35,6 +35,8 @@ export function createSecurityExecutionWorker(options: {
   log: Logger
   /** Test seams (polling interval, grace period, backend…). */
   runtime?: Partial<ExecutionRuntimeOptions>
+  /** Called after an execution job settles (Phase 4: project the graph, wake waiting reasoning runs). */
+  onSettled?: (executionId: string) => Promise<void>
 }): SecurityExecutionWorker {
   const { db, boss } = options
   const config = getConfig()
@@ -68,6 +70,7 @@ export function createSecurityExecutionWorker(options: {
           }
           const status = await runtime.run(executionId)
           log.info({ jobId: job.id, executionId, status }, 'security execution job finished')
+          if (options.onSettled) await options.onSettled(executionId).catch((error: unknown) => log.error({ err: error, executionId }, 'post-execution hook failed'))
         }
       })
     },
