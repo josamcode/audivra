@@ -27,7 +27,8 @@
     "test:e2e:ai": "playwright test -c playwright.ai.config.ts",
     "present": "tsx scripts/present.ts",
     "security:runtime-check": "tsx scripts/security-runtime-check.ts",
-    "benchmark": "tsx scripts/benchmark.ts"
+    "benchmark": "tsx scripts/benchmark.ts",
+    "benchmark:reasoning": "tsx scripts/benchmark-reasoning.ts"
   },
   "devDependencies": {
     "@audivra/config": "workspace:*",
