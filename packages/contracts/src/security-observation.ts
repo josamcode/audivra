@@ -131,6 +131,9 @@ export const ObservationContribution = z.object({
   /** Evidence (`EV-n`) that backs this contribution; the raw artifact is reachable through it. */
   evidenceRef: z.string().nullable(),
   confidence: z.number().min(0).max(1),
+  /** Identity/session this contribution was made under (Phase 5 Step 3); null for an anonymous observation. */
+  identityRef: z.string().nullable().default(null),
+  sessionRef: z.string().nullable().default(null),
   at: z.string(),
 })
 export type ObservationContribution = z.infer<typeof ObservationContribution>

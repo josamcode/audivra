@@ -111,8 +111,33 @@ export const SecurityCapabilityMetadata = z.strictObject({
     .optional(),
   /** How it must be carried out (omitted: in-process). */
   execution: CapabilityExecution.optional(),
+  /**
+   * Identity awareness (Phase 5 Step 3). Omitted means anonymous-only — the default that keeps every
+   * existing capability working unchanged. A capability that reads an identity/session reference declares
+   * it here; the runtime, never the capability or a model, resolves the secret material behind it.
+   */
+  identity: z
+    .strictObject({
+      supportsIdentity: z.boolean().default(false),
+      requiresIdentity: z.boolean().default(false),
+      supportsAnonymous: z.boolean().default(true),
+      requiresSession: z.boolean().default(false),
+    })
+    .optional(),
 })
 export type SecurityCapabilityMetadata = z.infer<typeof SecurityCapabilityMetadata>
+
+/** The effective identity profile of a capability (omitted metadata means anonymous-only). */
+export function capabilityIdentity(meta: { identity?: { supportsIdentity: boolean; requiresIdentity: boolean; supportsAnonymous: boolean; requiresSession: boolean } }): {
+  supportsIdentity: boolean
+  requiresIdentity: boolean
+  supportsAnonymous: boolean
+  requiresSession: boolean
+} {
+  const i = meta.identity
+  if (!i) return { supportsIdentity: false, requiresIdentity: false, supportsAnonymous: true, requiresSession: false }
+  return { supportsIdentity: i.supportsIdentity || i.requiresIdentity || i.requiresSession, requiresIdentity: i.requiresIdentity || i.requiresSession, supportsAnonymous: i.supportsAnonymous && !i.requiresIdentity && !i.requiresSession, requiresSession: i.requiresSession }
+}
 
 // ── Authorization ───────────────────────────────────────────────────────────────────────────────────
 
@@ -247,7 +272,7 @@ export const SecurityActor = z.strictObject({
 })
 export type SecurityActor = z.infer<typeof SecurityActor>
 
-export const DECISION_STAGES = ['capability', 'input', 'engagement', 'readiness', 'authorization', 'scope', 'policy', 'resources'] as const
+export const DECISION_STAGES = ['capability', 'input', 'engagement', 'readiness', 'authorization', 'identity', 'scope', 'policy', 'resources'] as const
 export const DecisionStage = z.enum(DECISION_STAGES)
 export type DecisionStage = z.infer<typeof DecisionStage>
 
@@ -362,6 +387,10 @@ export const SECURITY_EVENT_TYPES = [
   'session.created',
   'session.revoked',
   'session.expired',
+  'session.establishment-started',
+  'session.established',
+  'session.validation-failed',
+  'session.refreshed',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>
@@ -404,6 +433,9 @@ export const SecurityEvidenceProvenance = z.object({
   policyProfile: z.object({ key: z.string(), version: z.number() }),
   authorizationIds: z.array(z.string()),
   sensitivity: z.enum(['normal', 'sensitive']),
+  /** Identity/session the evidence was captured under (Phase 5 Step 3); null for anonymous evidence. */
+  identityRef: z.string().nullable().default(null),
+  sessionRef: z.string().nullable().default(null),
   /** Values replaced by redaction before the evidence was stored. */
   redactions: z.number(),
   recordedAt: z.string(),

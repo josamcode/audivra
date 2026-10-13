@@ -222,6 +222,11 @@ export const SecurityExecutionSnapshot = z.strictObject({
   runtime: ExecutionRuntimeLimits,
   /** Execution mode and isolation (absent in snapshots written before Phase 2B: in-process). */
   isolation: ExecutionIsolation.optional(),
+  /**
+   * Identity-aware execution (Phase 5 Step 3): references only — the runtime resolves the secret material
+   * behind them at the trusted boundary. NEVER decrypted credential/session material. Absent = anonymous.
+   */
+  identity: z.strictObject({ identityRef: z.string().nullable(), sessionRef: z.string().nullable(), authMethod: z.string().nullable() }).optional(),
   /** Capability input exactly as validated by the capability's strict schema at decision time. */
   input: z.unknown(),
   /** Destinations the decision allowed (canonical URLs). */

@@ -139,6 +139,93 @@ export const SessionMetadata = z.object({
 })
 export type SessionMetadata = z.infer<typeof SessionMetadata>
 
+// ── Authentication flows (Phase 5 Step 3) ────────────────────────────────────────────────────────────
+
+export const AUTH_FLOW_TYPES = ['anonymous', 'api-token', 'form-login', 'preestablished'] as const
+export const AuthFlowType = z.enum(AUTH_FLOW_TYPES)
+export type AuthFlowType = z.infer<typeof AuthFlowType>
+
+/**
+ * A typed, reviewed authentication-flow definition — configuration managed by people/Audivra, never
+ * target-controlled text and never AI-authored. Secret material (username/password/token) is NOT here: it
+ * comes from the vault via the identity's `credentialRef`. Only non-secret flow configuration lives here.
+ */
+export const AuthFlow = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('anonymous') }),
+  z.strictObject({
+    type: z.literal('api-token'),
+    /** Where the header is placed: a bearer Authorization header, or a named header from the credential. */
+    placement: z.enum(['bearer', 'header']).default('bearer'),
+    /** URL (in scope) hit with the token to confirm the session is valid (e.g. a `/me` endpoint). */
+    validateUrl: z.string().trim().max(2048).optional(),
+    /** Response statuses that count as a valid authenticated session. */
+    validStatuses: z.array(z.number().int().min(100).max(599)).max(10).default([200]),
+  }),
+  z.strictObject({
+    type: z.literal('form-login'),
+    loginUrl: z.string().trim().min(1).max(2048),
+    usernameSelector: z.string().trim().min(1).max(256),
+    passwordSelector: z.string().trim().min(1).max(256),
+    submitSelector: z.string().trim().min(1).max(256),
+    /** Success is a navigation to a URL containing this substring, and/or a selector that then exists. */
+    successUrlIncludes: z.string().trim().max(2048).optional(),
+    successSelector: z.string().trim().max(256).optional(),
+    /** A URL (in scope) re-requested with the stored cookies to confirm the session is still valid. */
+    validateUrl: z.string().trim().max(2048).optional(),
+  }),
+  z.strictObject({ type: z.literal('preestablished'), validateUrl: z.string().trim().max(2048).optional(), validStatuses: z.array(z.number().int().min(100).max(599)).max(10).default([200]) }),
+])
+export type AuthFlow = z.infer<typeof AuthFlow>
+
+export const EstablishSessionInput = z.strictObject({
+  identityRef: refField,
+  flow: AuthFlow,
+  /** Reuse an existing valid session for this identity/environment instead of re-authenticating. */
+  reuse: z.boolean().default(true),
+})
+export type EstablishSessionInput = z.infer<typeof EstablishSessionInput>
+
+/**
+ * Why identity-aware work could not proceed — a distinct taxonomy, never collapsed into a generic failure.
+ */
+export const AUTH_FAILURE_KINDS = ['credential-missing', 'credential-revoked', 'authentication-failed', 'session-invalid', 'session-expired', 'auth-flow-unsupported', 'vault-unavailable', 'identity-unknown'] as const
+export const AuthFailureKind = z.enum(AUTH_FAILURE_KINDS)
+export type AuthFailureKind = z.infer<typeof AuthFailureKind>
+
+export const SessionEstablishmentResult = z.object({
+  session: SessionMetadata.nullable(),
+  established: z.boolean(),
+  reused: z.boolean(),
+  /** Set when establishment did not succeed. */
+  failure: z.object({ kind: AuthFailureKind, message: z.string() }).nullable(),
+})
+export type SessionEstablishmentResult = z.infer<typeof SessionEstablishmentResult>
+
+// ── Identity coverage (Phase 5 Step 3: what the engagement can actually authenticate as) ─────────────
+
+/**
+ * Per-identity coverage: whether a credential is configured and resolvable, whether a session is
+ * established/active, and whether any authenticated surface has been observed under the identity. It is
+ * descriptive (never a policy gate) and, like everything here, carries no secret — `UNKNOWN != FALSE`:
+ * an unconfigured identity is `configured:false`, never an invented credential.
+ */
+export const IdentityCoverageItem = z.object({
+  ref: z.string(),
+  label: z.string(),
+  authMethod: z.string(),
+  credentialConfigured: z.boolean(),
+  credentialAvailable: z.boolean(),
+  sessionEstablished: z.boolean(),
+  sessionActive: z.boolean(),
+  /** A session reached `active` only after authentication/validation succeeded. */
+  sessionValidated: z.boolean(),
+  /** Count of observations captured under this identity (an authenticated surface was actually seen). */
+  observationsUnderIdentity: z.number().int(),
+  sessionStatus: SessionStatus.nullable(),
+  sessionExpiresAt: z.string().nullable(),
+})
+export type IdentityCoverageItem = z.infer<typeof IdentityCoverageItem>
+
 // ── Vault health (for the System view / degraded operation) ──────────────────────────────────────────
 
 export const VAULT_STATES = ['ready', 'unavailable', 'misconfigured'] as const
