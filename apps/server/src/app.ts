@@ -34,6 +34,7 @@ import { loadAuditData, loadDashboard } from '@audivra/insights'
 import { sensorRuntimeStatuses, type SecurityService } from '@audivra/security'
 import type { EventHub } from './events-hub.ts'
 import { registerIntelligenceRoutes } from './routes-intelligence.ts'
+import { registerCredentialRoutes } from './routes-credentials.ts'
 import { registerDomainRoutes } from './routes-domain.ts'
 import { registerReasoningRoutes } from './routes-reasoning.ts'
 import { registerSecurityRoutes } from './routes-security.ts'
@@ -319,6 +320,7 @@ export async function buildApp(deps: AppDeps) {
   registerSecurityRoutes(app, { db, security: deps.security })
   registerReasoningRoutes(app, { db, boss })
   registerDomainRoutes(app, { db })
+  registerCredentialRoutes(app, { db, log: deps.log })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {
