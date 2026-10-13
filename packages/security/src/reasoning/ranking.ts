@@ -66,11 +66,13 @@ export function capabilityFits(h: Pick<SecurityHypothesis, 'id' | 'evidenceCheck
       if (!capability.observationTypes.some((t) => needs.includes(t))) continue
       const entityId = checkEntity(check, view)
       if (!entityId) continue
-      // Independent corroboration needs a *different* sensor than the ones that already reported it.
-      if (check.check === 'independent-corroboration' && view.nodes.get(entityId)?.tools.includes(capability.tool)) continue
+      const alreadyReported = view.nodes.get(entityId)?.tools.includes(capability.tool) ?? false
+      // Independent corroboration needs a *different* sensor than the ones that already reported it; for any
+      // other check, the sensor that already reported the entity would mostly see the same thing again.
+      if (check.check === 'independent-corroboration' && alreadyReported) continue
       const entityTargets = planningTargets(view, entityId)
       if (entityTargets.length === 0) continue
-      covered++
+      covered += alreadyReported ? 0.3 : 1
       for (const t of entityTargets) targets.add(t)
     }
     if (covered === 0) continue
@@ -105,7 +107,7 @@ export function rankHypothesis(h: SecurityHypothesis, view: KnowledgeView, now: 
   const value = 0.55 * expectedInformationGain + 0.2 * evidenceGap + 0.15 * centrality + 0.1 * novelty
   const priority = best ? Math.max(0, Math.min(100, Math.round((100 * impact * value) / (1 + 0.25 * (costUnits - 1)) - 10 * riskPenalty))) : 0
   const explanation = best
-    ? `${h.impact} impact, confidence ${h.confidence.toFixed(2)} (uncertainty ${uncertainty.toFixed(2)}); ${best.capability.id} (${best.capability.costClass} cost, ${best.capability.riskClass}) can produce evidence for ${Math.round(best.resolvability * h.evidenceChecks.filter((_, i) => !results[i]?.met).length)} of ${unmet} unmet check${unmet === 1 ? '' : 's'}${best.previouslyTried ? ' (already tried once)' : ''} → expected gain ${expectedInformationGain.toFixed(2)}${failedAttempts ? `, ${failedAttempts} earlier attempt${failedAttempts === 1 ? '' : 's'} did not resolve it` : ''}.`
+    ? `${h.impact} impact, confidence ${h.confidence.toFixed(2)} (uncertainty ${uncertainty.toFixed(2)}); ${best.capability.id} (${best.capability.costClass} cost, ${best.capability.riskClass}) fits ${Math.round(best.resolvability * 100)}% of the ${unmet} unmet check${unmet === 1 ? '' : 's'}${best.previouslyTried ? ' (already tried once)' : ''} → expected gain ${expectedInformationGain.toFixed(2)}${failedAttempts ? `, ${failedAttempts} earlier attempt${failedAttempts === 1 ? '' : 's'} did not resolve it` : ''}.`
     : unmet === 0
       ? 'Every check has been decided; nothing left to learn.'
       : 'No capability that may run here can produce the evidence the unmet checks need.'

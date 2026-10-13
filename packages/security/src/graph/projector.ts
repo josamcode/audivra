@@ -130,7 +130,10 @@ export class GraphProjector {
     if (!engagement) throw new Error(`No security engagement ${engagementId}`)
     const now = this.#now()
     const { result, newConflictGroups } = await withGraphLock(this.#db, engagementId, async (tx) => {
-      const [observations, executions, stored] = await Promise.all([listObservationsForGraph(tx, engagementId), listExecutionFactsForGraph(tx, engagementId), loadGraphRows(tx, engagementId)])
+      // One client per transaction: queries run one after another.
+      const observations = await listObservationsForGraph(tx, engagementId)
+      const executions = await listExecutionFactsForGraph(tx, engagementId)
+      const stored = await loadGraphRows(tx, engagementId)
       const desired = projectObservations(observations, engagement.scope)
       const derived = this.#derive(desired, stored, executions, observations, now.toISOString())
       return this.#apply(tx, engagementId, desired.provenance, derived, stored, observations.length, now)

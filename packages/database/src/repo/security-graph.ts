@@ -58,12 +58,11 @@ export interface GraphRows {
 
 /** Everything stored for an engagement's graph (the projector diffs against it). */
 export async function loadGraphRows(db: DbOrTx, engagementId: string): Promise<GraphRows> {
-  const [nodes, edges, provenance, gaps] = await Promise.all([
-    db.select().from(securityGraphNodes).where(eq(securityGraphNodes.engagementId, engagementId)),
-    db.select().from(securityGraphEdges).where(eq(securityGraphEdges.engagementId, engagementId)),
-    db.select().from(securityGraphProvenance).where(eq(securityGraphProvenance.engagementId, engagementId)),
-    db.select().from(securityGraphGaps).where(eq(securityGraphGaps.engagementId, engagementId)),
-  ])
+  // Sequential on purpose: inside a transaction every query shares one client.
+  const nodes = await db.select().from(securityGraphNodes).where(eq(securityGraphNodes.engagementId, engagementId))
+  const edges = await db.select().from(securityGraphEdges).where(eq(securityGraphEdges.engagementId, engagementId))
+  const provenance = await db.select().from(securityGraphProvenance).where(eq(securityGraphProvenance.engagementId, engagementId))
+  const gaps = await db.select().from(securityGraphGaps).where(eq(securityGraphGaps.engagementId, engagementId))
   return { nodes, edges, provenance, gaps }
 }
 

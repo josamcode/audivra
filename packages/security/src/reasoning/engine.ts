@@ -87,7 +87,8 @@ import { capabilityFits, LOW_GAIN_THRESHOLD, rankHypothesis } from './ranking.ts
  * the broker decides, and AI failure only pauses AI work — it never corrupts the graph or hypotheses.
  */
 
-const MAX_ATTEMPTS = 2
+/** A hypothesis is exhausted when no untried useful capability remains, and at the latest after this many attempts. */
+const MAX_ATTEMPTS = 3
 const LEASE_MS = 120_000
 const HEARTBEAT_MS = 20_000
 const MAX_DECISIONS = 120
@@ -347,7 +348,7 @@ export class ReasoningEngine {
         // Not resolved by the evidence its actions gathered: exhausted after the attempt limit or when every
         // eligible capability has been tried.
         const fits = capabilityFits(h, outcome.results, view)
-        if (attempts >= MAX_ATTEMPTS || fits.every((f) => f.previouslyTried)) {
+        if (attempts >= MAX_ATTEMPTS || fits.every((f) => f.previouslyTried || f.resolvability < 0.5)) {
           to = 'exhausted'
           reason = `Investigated ${attempts} time${attempts === 1 ? '' : 's'}; the evidence it needs did not appear (${outcome.results.filter((r) => !r.met).map((r) => r.detail).join('; ')})`
         }
