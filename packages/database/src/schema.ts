@@ -64,6 +64,35 @@ import type {
   StepStatus,
   ToolRunStatus,
   VerificationStatus,
+  ActionStatus,
+  AiCoverageState,
+  AiRunProvenance,
+  CheckResult,
+  EvidenceCheck,
+  FactStatus,
+  GapKind,
+  GapStatus,
+  GraphConflict,
+  GraphEntityKind,
+  GraphRelationType,
+  HypothesisCategory,
+  HypothesisImpact,
+  HypothesisOrigin,
+  HypothesisRanking,
+  HypothesisReviewVerdict,
+  HypothesisStatus,
+  HypothesisTransition,
+  KnowledgeBasis,
+  ProvenanceSource,
+  ReasoningBudget,
+  ReasoningDecision,
+  ReasoningMode,
+  ReasoningRunStatus,
+  ReasoningStage,
+  ReasoningStopReason,
+  ReasoningUsage,
+  RiskClass,
+  SourceTrust,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -573,5 +602,277 @@ export const securityObservations = pgTable(
   (t) => [
     uniqueIndex('security_observations_dedupe_idx').on(t.engagementId, t.dedupeKey),
     index('security_observations_type_idx').on(t.engagementId, t.type),
+  ],
+)
+
+// ── Phase 4: Security Graph + hypothesis reasoning ──────────────────────────────────────────────────
+
+/**
+ * Security Graph entities (typed nodes). One row per (engagement, deterministic identity key); facts are
+ * never deleted — a later run that differs makes them stale/superseded/contradicted. Why a fact is believed
+ * lives in `security_graph_provenance`.
+ */
+export const securityGraphNodes = pgTable(
+  'security_graph_nodes',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<GraphEntityKind>().notNull(),
+    key: text('key').notNull(),
+    label: text('label').notNull(),
+    attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
+    scopeClass: text('scope_class').$type<ObservationScopeClass>(),
+    basis: text('basis').$type<KnowledgeBasis>().notNull(),
+    confidence: real('confidence').notNull(),
+    corroboration: integer('corroboration').notNull().default(0),
+    tools: jsonb('tools').$type<string[]>().notNull().default([]),
+    status: text('status').$type<FactStatus>().notNull().default('active'),
+    statusReason: text('status_reason'),
+    conflicts: jsonb('conflicts').$type<GraphConflict[]>().notNull().default([]),
+    firstObservedAt: ts('first_observed_at').notNull(),
+    lastObservedAt: ts('last_observed_at').notNull(),
+    firstExecutionId: text('first_execution_id'),
+    lastExecutionId: text('last_execution_id'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_graph_nodes_key_idx').on(t.engagementId, t.key),
+    index('security_graph_nodes_kind_idx').on(t.engagementId, t.kind),
+    index('security_graph_nodes_status_idx').on(t.engagementId, t.status),
+  ],
+)
+
+/** Typed relationships between graph entities, with the same basis/confidence/temporal model as nodes. */
+export const securityGraphEdges = pgTable(
+  'security_graph_edges',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    type: text('type').$type<GraphRelationType>().notNull(),
+    /** `TYPE|fromKey|toKey`, unique per engagement. */
+    key: text('key').notNull(),
+    fromNodeId: text('from_node_id')
+      .notNull()
+      .references(() => securityGraphNodes.id, { onDelete: 'cascade' }),
+    toNodeId: text('to_node_id')
+      .notNull()
+      .references(() => securityGraphNodes.id, { onDelete: 'cascade' }),
+    attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
+    basis: text('basis').$type<KnowledgeBasis>().notNull(),
+    confidence: real('confidence').notNull(),
+    corroboration: integer('corroboration').notNull().default(0),
+    tools: jsonb('tools').$type<string[]>().notNull().default([]),
+    status: text('status').$type<FactStatus>().notNull().default('active'),
+    statusReason: text('status_reason'),
+    conflicts: jsonb('conflicts').$type<GraphConflict[]>().notNull().default([]),
+    firstObservedAt: ts('first_observed_at').notNull(),
+    lastObservedAt: ts('last_observed_at').notNull(),
+    firstExecutionId: text('first_execution_id'),
+    lastExecutionId: text('last_execution_id'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_graph_edges_key_idx').on(t.engagementId, t.key),
+    index('security_graph_edges_from_idx').on(t.fromNodeId),
+    index('security_graph_edges_to_idx').on(t.toNodeId),
+    index('security_graph_edges_type_idx').on(t.engagementId, t.type),
+  ],
+)
+
+/**
+ * Why Audivra believes a graph fact: one row per (fact, source). An observation-backed row is maintained by
+ * the deterministic projector; AI-inference and user-declaration rows are never touched by it.
+ */
+export const securityGraphProvenance = pgTable(
+  'security_graph_provenance',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    subjectType: text('subject_type').$type<'node' | 'edge'>().notNull(),
+    subjectId: text('subject_id').notNull(),
+    source: text('source').$type<ProvenanceSource>().notNull(),
+    trust: text('trust').$type<SourceTrust>().notNull(),
+    sourceRef: text('source_ref').notNull(),
+    observationId: text('observation_id'),
+    evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+    executionIds: jsonb('execution_ids').$type<string[]>().notNull().default([]),
+    capabilityIds: jsonb('capability_ids').$type<string[]>().notNull().default([]),
+    tools: jsonb('tools').$type<string[]>().notNull().default([]),
+    confidence: real('confidence').notNull(),
+    rationale: text('rationale'),
+    reasoningRunId: text('reasoning_run_id'),
+    firstAt: ts('first_at').notNull(),
+    lastAt: ts('last_at').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_graph_provenance_source_idx').on(t.subjectType, t.subjectId, t.source, t.sourceRef),
+    index('security_graph_provenance_subject_idx').on(t.subjectId),
+    index('security_graph_provenance_observation_idx').on(t.engagementId, t.observationId),
+  ],
+)
+
+/** Knowledge gaps: explicit unknowns (unknown is not false), opened and resolved deterministically. */
+export const securityGraphGaps = pgTable(
+  'security_graph_gaps',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<GapKind>().notNull(),
+    subjectType: text('subject_type').$type<'node' | 'edge'>().notNull(),
+    subjectId: text('subject_id').notNull(),
+    subjectKey: text('subject_key').notNull(),
+    question: text('question').notNull(),
+    status: text('status').$type<GapStatus>().notNull().default('open'),
+    resolution: text('resolution'),
+    resolvedBy: jsonb('resolved_by').$type<{ observationId: string | null; executionId: string | null }>(),
+    answeredBy: jsonb('answered_by').$type<ObservationType[]>().notNull().default([]),
+    firstDetectedAt: ts('first_detected_at').notNull().defaultNow(),
+    resolvedAt: ts('resolved_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_graph_gaps_subject_idx').on(t.engagementId, t.kind, t.subjectKey),
+    index('security_graph_gaps_status_idx').on(t.engagementId, t.status),
+  ],
+)
+
+/** Persistent security hypotheses: claims to investigate (never verified vulnerabilities). */
+export const securityHypotheses = pgTable(
+  'security_hypotheses',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    dedupeKey: text('dedupe_key').notNull(),
+    claim: text('claim').notNull(),
+    category: text('category').$type<HypothesisCategory>().notNull(),
+    status: text('status').$type<HypothesisStatus>().notNull().default('proposed'),
+    statusReason: text('status_reason').notNull().default(''),
+    confidence: real('confidence').notNull(),
+    impact: text('impact').$type<HypothesisImpact>().notNull(),
+    rationale: text('rationale').notNull(),
+    evidenceChecks: jsonb('evidence_checks').$type<EvidenceCheck[]>().notNull().default([]),
+    checkResults: jsonb('check_results').$type<CheckResult[]>().notNull().default([]),
+    candidateCapabilities: jsonb('candidate_capabilities').$type<string[]>().notNull().default([]),
+    ranking: jsonb('ranking').$type<HypothesisRanking>(),
+    priority: real('priority').notNull().default(0),
+    expectedInformationGain: real('expected_information_gain'),
+    estimatedCost: text('estimated_cost').$type<'low' | 'medium' | 'high'>(),
+    executionRisk: text('execution_risk').$type<RiskClass>(),
+    attempts: integer('attempts').notNull().default(0),
+    origin: jsonb('origin').$type<HypothesisOrigin>().notNull(),
+    review: jsonb('review').$type<{ verdict: HypothesisReviewVerdict; note: string | null; providerId: string | null }>().notNull(),
+    history: jsonb('history').$type<HypothesisTransition[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_hypotheses_dedupe_idx').on(t.engagementId, t.dedupeKey),
+    index('security_hypotheses_status_idx').on(t.engagementId, t.status),
+    index('security_hypotheses_priority_idx').on(t.engagementId, t.priority),
+  ],
+)
+
+/** A hypothesis's affected entities, supporting/contradicting observations and gaps (one table, indexed both ways). */
+export const securityHypothesisLinks = pgTable(
+  'security_hypothesis_links',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    hypothesisId: text('hypothesis_id')
+      .notNull()
+      .references(() => securityHypotheses.id, { onDelete: 'cascade' }),
+    role: text('role').$type<'affects' | 'supports' | 'contradicts' | 'gap'>().notNull(),
+    targetType: text('target_type').$type<'node' | 'observation' | 'gap'>().notNull(),
+    targetId: text('target_id').notNull(),
+    addedBy: text('added_by').$type<'ai' | 'audivra' | 'user'>().notNull(),
+    note: text('note'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_hypothesis_links_unique_idx').on(t.hypothesisId, t.role, t.targetType, t.targetId),
+    index('security_hypothesis_links_target_idx').on(t.engagementId, t.targetType, t.targetId),
+  ],
+)
+
+/** Persistent, bounded reasoning loop state (survives worker restart, session loss and provider change). */
+export const securityReasoningRuns = pgTable(
+  'security_reasoning_runs',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    mode: text('mode').$type<ReasoningMode>().notNull(),
+    status: text('status').$type<ReasoningRunStatus>().notNull().default('queued'),
+    stage: text('stage').$type<ReasoningStage>().notNull().default('ingest'),
+    iteration: integer('iteration').notNull().default(0),
+    budget: jsonb('budget').$type<ReasoningBudget>().notNull(),
+    usage: jsonb('usage').$type<ReasoningUsage>().notNull(),
+    stopReason: text('stop_reason').$type<ReasoningStopReason>(),
+    stopDetail: text('stop_detail'),
+    aiCoverage: text('ai_coverage').$type<AiCoverageState>(),
+    decisions: jsonb('decisions').$type<ReasoningDecision[]>().notNull().default([]),
+    aiRuns: jsonb('ai_runs').$type<AiRunProvenance[]>().notNull().default([]),
+    waitingOn: jsonb('waiting_on').$type<string[]>().notNull().default([]),
+    requestedBy: jsonb('requested_by').$type<SecurityActor>().notNull(),
+    cancelRequestedAt: ts('cancel_requested_at'),
+    leaseOwner: text('lease_owner'),
+    heartbeatAt: ts('heartbeat_at'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    startedAt: ts('started_at'),
+    finishedAt: ts('finished_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_reasoning_runs_engagement_idx').on(t.engagementId, t.createdAt), index('security_reasoning_runs_status_idx').on(t.status)],
+)
+
+/** Typed next-capability proposals and what became of them (validated, preflighted, executed via the broker). */
+export const securityReasoningActions = pgTable(
+  'security_reasoning_actions',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    runId: text('run_id')
+      .notNull()
+      .references(() => securityReasoningRuns.id, { onDelete: 'cascade' }),
+    hypothesisId: text('hypothesis_id').references(() => securityHypotheses.id, { onDelete: 'set null' }),
+    capabilityId: text('capability_id').notNull(),
+    input: jsonb('input').$type<Record<string, unknown>>().notNull().default({}),
+    actionKey: text('action_key').notNull(),
+    expectedEvidence: text('expected_evidence').notNull(),
+    reason: text('reason').notNull(),
+    status: text('status').$type<ActionStatus>().notNull().default('proposed'),
+    statusReason: text('status_reason'),
+    decision: jsonb('decision').$type<{ decision: 'allow' | 'deny'; stage: string; rule: string; reason: string }>(),
+    executionId: text('execution_id'),
+    result: jsonb('result').$type<{ executionStatus: string; observations: number; summary: string | null }>(),
+    costClass: text('cost_class').$type<'low' | 'medium' | 'high'>(),
+    origin: text('origin').$type<'ai' | 'user'>().notNull().default('ai'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('security_reasoning_actions_engagement_idx').on(t.engagementId, t.createdAt),
+    index('security_reasoning_actions_hypothesis_idx').on(t.hypothesisId),
+    index('security_reasoning_actions_execution_idx').on(t.executionId),
+    index('security_reasoning_actions_key_idx').on(t.engagementId, t.actionKey),
   ],
 )

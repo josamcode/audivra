@@ -43,6 +43,13 @@
       "when": 1791503569653,
       "tag": "0005_security_observations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791887425602,
+      "tag": "0006_security_graph_reasoning",
+      "breakpoints": true
     }
   ]
 }

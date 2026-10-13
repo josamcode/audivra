@@ -33,7 +33,7 @@ export interface RecordObservationInput {
 
 type ObservationRow = typeof securityObservations.$inferSelect
 
-function toObservation(row: ObservationRow): SecurityObservation {
+export function toObservation(row: ObservationRow): SecurityObservation {
   return {
     id: row.id,
     engagementId: row.engagementId,

@@ -65,6 +65,16 @@ export async function listSecurityExecutionRows(db: Db, engagementId: string, li
     .limit(limit)
 }
 
+/** The execution a caller submitted under a correlation id (the reasoning loop uses its action id), if any. */
+export async function findSecurityExecutionByCorrelation(db: Db, engagementId: string, correlationId: string): Promise<SecurityExecutionRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(securityExecutions)
+    .where(and(eq(securityExecutions.engagementId, engagementId), eq(securityExecutions.correlationId, correlationId)))
+    .limit(1)
+  return row
+}
+
 /** Executions that are not final (queued or held by a worker), oldest first. */
 export async function listUnfinishedSecurityExecutions(db: Db): Promise<SecurityExecutionRow[]> {
   return db

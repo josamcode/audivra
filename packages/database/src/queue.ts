@@ -15,6 +15,8 @@ export const QUEUES = {
   benchmark: 'benchmark-run',
   /** Durable security executions (one job per execution; the job carries nothing but its id). */
   securityExecution: 'security-execution',
+  /** Bounded reasoning runs (Phase 4): one job drives a run until it waits for executions or stops. */
+  securityReasoning: 'security-reasoning',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -38,6 +40,11 @@ export interface SecurityExecutionJob {
   executionId: string
 }
 
+/** A reasoning job names the run and nothing else; its state, budget and stage are loaded from the database. */
+export interface SecurityReasoningJob {
+  runId: string
+}
+
 const HOUR = 3600
 
 interface QueueSettings {
@@ -45,7 +52,7 @@ interface QueueSettings {
   retryLimit: number
   retryDelay: number
   /** pg-boss queue policy; fixed when the queue is created (default `standard`). */
-  policy?: 'standard' | 'exclusive'
+  policy?: 'standard' | 'exclusive' | 'stately'
 }
 
 /** Queue policies: AI stages are long-running and rely on heartbeats rather than short expirations. */
@@ -65,6 +72,9 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // A job lost with a crashed worker is retried; the handler only ever starts a *queued* execution,
     // so a retry can resume a never-started execution but never re-runs one that started.
     [QUEUES.securityExecution]: { expireInSeconds: 5 * HOUR, retryLimit: 2, retryDelay: 5, policy: 'exclusive' },
+    // One queued + one active job per run (`stately` + singletonKey = run id): a wake-up that arrives while
+    // the run's job is still finishing is kept, never lost. A second driver is fenced off by the run lease.
+    [QUEUES.securityReasoning]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -108,4 +118,9 @@ export async function hasPendingEnrichJob(db: Db, auditId: string, kind: EnrichK
 /** Queues one security execution. A second send for the same execution while its job exists is a no-op (null). */
 export async function enqueueSecurityExecution(boss: PgBoss, executionId: string, jobId?: string): Promise<string | null> {
   return boss.send(QUEUES.securityExecution, { executionId } satisfies SecurityExecutionJob, { singletonKey: executionId, ...(jobId ? { id: jobId } : {}) })
+}
+
+/** Queues a reasoning run to be driven (no-op while one is already queued for it). */
+export async function enqueueSecurityReasoning(boss: PgBoss, runId: string): Promise<string | null> {
+  return boss.send(QUEUES.securityReasoning, { runId } satisfies SecurityReasoningJob, { singletonKey: runId })
 }
