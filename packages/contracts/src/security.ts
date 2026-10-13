@@ -342,6 +342,18 @@ export const SECURITY_EVENT_TYPES = [
   'execution.network-ready',
   'execution.network-summary',
   'execution.network-cleanup-failed',
+  // Security Graph and hypothesis reasoning (Phase 4). One concise event per projection/decision.
+  'graph.entity-discovered',
+  'graph.relationship-added',
+  'graph.contradiction-detected',
+  'hypothesis.proposed',
+  'hypothesis.updated',
+  'hypothesis.disproved',
+  'reasoning.started',
+  'reasoning.action-proposed',
+  'reasoning.action-executed',
+  'reasoning.blocked',
+  'reasoning.completed',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>
