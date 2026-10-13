@@ -78,6 +78,10 @@ export const queryKeys = {
   reasoningRuns: (id: string) => ['security', 'engagement', id, 'reasoning', 'runs'] as const,
   reasoningActions: (id: string) => ['security', 'engagement', id, 'reasoning', 'actions'] as const,
   reasoningCoverage: (id: string) => ['security', 'engagement', id, 'reasoning', 'coverage'] as const,
+  engagementIdentities: (id: string) => ['security', 'engagement', id, 'identities'] as const,
+  engagementCredentials: (id: string) => ['security', 'engagement', id, 'credentials'] as const,
+  engagementSessions: (id: string) => ['security', 'engagement', id, 'sessions'] as const,
+  engagementIdentityCoverage: (id: string) => ['security', 'engagement', id, 'identity-coverage'] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -270,5 +274,15 @@ export const hypothesisQuery = (hypothesisId: string, active = false) =>
 
 export const reasoningCoverageQuery = (id: string, active = false) =>
   queryOptions({ queryKey: queryKeys.reasoningCoverage(id), queryFn: () => api.reasoningCoverage(id), refetchInterval: reasoningPace(active) })
+
+export const engagementIdentitiesQuery = (id: string) => queryOptions({ queryKey: queryKeys.engagementIdentities(id), queryFn: () => api.identities(id) })
+
+export const engagementCredentialsQuery = (id: string) => queryOptions({ queryKey: queryKeys.engagementCredentials(id), queryFn: () => api.engagementCredentials(id) })
+
+export const engagementSessionsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementSessions(id), queryFn: () => api.engagementSessions(id), refetchInterval: 10_000 })
+
+export const engagementIdentityCoverageQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementIdentityCoverage(id), queryFn: () => api.identityCoverage(id), refetchInterval: 10_000 })
 
 export { isActiveRun }

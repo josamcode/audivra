@@ -3,7 +3,13 @@ import type {
   AuthorizationMethod,
   AuthorizationSubject,
   CreateEngagementInput,
+  CredentialMetadata,
+  EstablishSessionInput,
+  IdentityCoverageItem,
   LifecycleAction,
+  SecurityDomainDeclaration,
+  SessionEstablishmentResult,
+  SessionMetadata,
   UpdateEngagementInput,
   AgentRunItem,
   Artifact,
@@ -209,6 +215,13 @@ export const api = {
   cancelReasoning: (runId: string) => request<ReasoningRun>(`/api/security/reasoning/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }),
   reasoningActions: (id: string) => request<ReasoningAction[]>(`${engagementPath(id)}/reasoning/actions`),
   reasoningCoverage: (id: string) => request<ReasoningCoverage>(`${engagementPath(id)}/reasoning/coverage`),
+  // Identities & sessions (Phase 5). Secrets are never returned — only safe metadata.
+  identities: (id: string) => request<SecurityDomainDeclaration[]>(`${engagementPath(id)}/domain/declarations?kind=identity`),
+  engagementCredentials: (id: string) => request<CredentialMetadata[]>(`${engagementPath(id)}/credentials`),
+  engagementSessions: (id: string) => request<SessionMetadata[]>(`${engagementPath(id)}/sessions`),
+  identityCoverage: (id: string) => request<IdentityCoverageItem[]>(`${engagementPath(id)}/identities/coverage`),
+  establishSession: (id: string, input: EstablishSessionInput) => request<SessionEstablishmentResult>(`${engagementPath(id)}/sessions/establish`, post(input)),
+  revokeSession: (sessionId: string) => request<SessionMetadata>(`/api/security/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' }),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
   executionArtifactUrl: (id: string, artifactPath: string) =>
     `${executionPath(id)}/artifacts/${artifactPath
