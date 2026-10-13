@@ -1,5 +1,6 @@
 import { domainSourceMapping, type DomainDeclarationKind, type DomainSource, type ScopeManifest, type SecurityEnvironment, type SecurityObservation, type SessionStatus } from '@audivra/contracts'
 import { businessActionKey, businessStateKey, identityKey, invariantKey, resourceKey, roleKey, sessionKey, tenantKey } from './identity.ts'
+import { projectFindingsInto, type FindingProjection } from './project-findings.ts'
 import { Builder, projectObservationsInto, type DesiredGraph } from './project.ts'
 
 /*
@@ -271,12 +272,13 @@ export function projectComparisonsInto(b: Builder, comparisons: readonly Compari
   }
 }
 
-/** Projects observations, declarations, sessions and comparison derivations into one deterministic desired graph. */
+/** Projects observations, declarations, sessions, comparison derivations and findings into one deterministic desired graph. */
 export function projectGraph(input: {
   observations: readonly SecurityObservation[]
   declarations: readonly DomainDeclaration[]
   sessions?: readonly EstablishedSession[]
   comparisons?: readonly ComparisonProjection[]
+  findings?: readonly FindingProjection[]
   manifest: ScopeManifest
 }): DesiredGraph {
   const b = new Builder(input.manifest)
@@ -287,5 +289,7 @@ export function projectGraph(input: {
     const index = new Map(input.declarations.map((d) => [`${d.kind}|${d.ref}`, d.key]))
     projectComparisonsInto(b, input.comparisons, (kind, ref) => index.get(`${kind}|${ref}`) ?? null)
   }
+  // Findings last: their edges attach to entities the earlier passes created.
+  projectFindingsInto(b, input.findings ?? [])
   return b.result()
 }

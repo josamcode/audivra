@@ -15,6 +15,9 @@ export type PromptName =
   | 'security-verifier-system'
   | 'security-planner-system'
   | 'security-comparison-planner-system'
+  | 'security-finding-verifier-system'
+  | 'security-finding-reviewer-system'
+  | 'security-finding-prose-system'
 
 export interface PromptFile {
   name: PromptName
@@ -50,5 +53,17 @@ export function promptVersions(): Record<string, string> {
 
 /** Phase 4 security reasoning prompts (kept apart so the Website Audit benchmark's prompt versions are unchanged). */
 export function reasoningPromptVersions(): Record<string, string> {
-  return Object.fromEntries((['security-researcher-system', 'security-verifier-system', 'security-planner-system', 'security-comparison-planner-system'] as const).map((name) => [name.replace('-system', ''), loadPrompt(name).version]))
+  return Object.fromEntries(
+    (
+      [
+        'security-researcher-system',
+        'security-verifier-system',
+        'security-planner-system',
+        'security-comparison-planner-system',
+        'security-finding-verifier-system',
+        'security-finding-reviewer-system',
+        'security-finding-prose-system',
+      ] as const
+    ).map((name) => [name.replace('-system', ''), loadPrompt(name).version]),
+  )
 }

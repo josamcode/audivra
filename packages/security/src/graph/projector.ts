@@ -9,6 +9,7 @@ import {
   listComparisonsForEngagement,
   listExecutionFactsForGraph,
   listDomainDeclarationsForGraph,
+  listFindingsForEngagement,
   listObservationsForGraph,
   listSessionsForGraph,
   loadGraphRows,
@@ -34,6 +35,8 @@ import { grantedAccess } from '../comparison/normalize.ts'
 import { deriveGraph, roundConfidence, type FactInput, type FinalFact, type ProvenanceLike } from './derive.ts'
 import type { DesiredGraph, DesiredProvenance } from './project.ts'
 import { projectGraph, type ComparisonProjection } from './project-domain.ts'
+import type { FindingProjection } from './project-findings.ts'
+import { FINDING_WORTHY_STATES, type SecurityFinding } from '@audivra/contracts'
 
 /*
  * The graph projector: stored observations → Security Graph, deterministically and idempotently.
@@ -140,9 +143,10 @@ export class GraphProjector {
       const declarations = await listDomainDeclarationsForGraph(tx, engagementId)
       const sessions = await listSessionsForGraph(tx, engagementId)
       const comparisons = toComparisonProjections(await listComparisonsForEngagement(tx, engagementId))
+      const findings = toFindingProjections(await listFindingsForEngagement(tx, engagementId))
       const executions = await listExecutionFactsForGraph(tx, engagementId)
       const stored = await loadGraphRows(tx, engagementId)
-      const desired = projectGraph({ observations, declarations, sessions, comparisons, manifest: engagement.scope })
+      const desired = projectGraph({ observations, declarations, sessions, comparisons, findings, manifest: engagement.scope })
       const derived = this.#derive(desired, stored, executions, observations, now.toISOString())
       return this.#apply(tx, engagementId, desired.provenance, derived, stored, observations.length, now)
     })
@@ -386,4 +390,25 @@ function toComparisonProjections(comparisons: Awaited<ReturnType<typeof listComp
       .filter((a) => a.status === 'executed' && a.observation)
       .map((a) => ({ identityRef: a.identityRef, granted: grantedAccess(a.observation!), executionId: a.executionId, evidenceRefs: a.observation!.evidenceRefs })),
   }))
+}
+
+/** Maps stored findings to the projector's view; only verified/supported findings become graph nodes. */
+function toFindingProjections(findings: SecurityFinding[]): FindingProjection[] {
+  return findings
+    .filter((f) => FINDING_WORTHY_STATES.includes(f.verificationState))
+    .map((f) => ({
+      issueKey: f.issueKey,
+      title: f.title,
+      category: f.category,
+      severity: f.severity,
+      verificationState: f.verificationState,
+      status: f.status,
+      confidence: f.confidence,
+      fromComparison: f.comparisonIds.length > 0,
+      affectedEntityKeys: f.affectedEntities.map((e) => e.key),
+      invariantKeys: f.invariantRefs,
+      evidenceRefs: f.evidenceRefs,
+      executionIds: f.reproduction?.executionIds ?? [],
+      at: f.updatedAt,
+    }))
 }

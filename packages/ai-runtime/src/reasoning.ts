@@ -20,7 +20,7 @@ import type { ProviderRouter, RouterEvent } from './router.ts'
 
 export interface ReasoningTaskRequest {
   spec: AiTaskSpec
-  prompt: 'security-researcher' | 'security-verifier' | 'security-planner' | 'security-comparison-planner'
+  prompt: 'security-researcher' | 'security-verifier' | 'security-planner' | 'security-comparison-planner' | 'security-finding-verifier' | 'security-finding-reviewer' | 'security-finding-prose'
   context: { trusted: AiContextSection[]; untrusted: AiContextSection[] }
   instruction: string
   jsonSchema: Record<string, unknown>

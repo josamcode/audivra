@@ -470,6 +470,7 @@ export const ENTITY_KIND_LABEL: Record<GraphEntityKind, string> = {
   'business-action': 'Business action',
   'business-state': 'Business state',
   invariant: 'Invariant',
+  finding: 'Finding',
 }
 
 /** Why Audivra holds a fact. Inferred (AI-only) is never presented like an observed fact. */

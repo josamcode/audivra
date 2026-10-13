@@ -99,6 +99,12 @@ export function invariantKey(category: string, affects: readonly string[], rule:
 }
 
 /**
+ * A finding's stable graph identity. A finding's issueKey is already engagement-unique and key-safe
+ * (category + a hash of its affected entities and security property), so the graph node key simply wraps it.
+ */
+export const findingKey = (issueKey: string) => `finding:${issueKey}`
+
+/**
  * Parses a technology string the way sensors report it ("Nginx:1.18.0", "nginx/1.18.0 (Ubuntu)",
  * "Express", "PHP 8.1") into a normalized name and an optional version.
  */

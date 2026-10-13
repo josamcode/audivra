@@ -14,7 +14,14 @@ export interface ReasoningContextSection {
   content: string
 }
 
-export type ReasoningPrompt = 'security-researcher' | 'security-verifier' | 'security-planner' | 'security-comparison-planner'
+export type ReasoningPrompt =
+  | 'security-researcher'
+  | 'security-verifier'
+  | 'security-planner'
+  | 'security-comparison-planner'
+  | 'security-finding-verifier'
+  | 'security-finding-reviewer'
+  | 'security-finding-prose'
 
 export interface ReasoningAiTask {
   spec: AiTaskSpec
