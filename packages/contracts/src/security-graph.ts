@@ -16,8 +16,10 @@ import { ObservationScopeClass, ObservationType } from './security-observation.t
  */
 
 /**
- * Entity kinds with a Phase 4 use case. Identity, role, tenant, session, resource and business-action kinds
- * need authenticated testing (Phase 5) and are deliberately absent until a sensor can observe them.
+ * Entity kinds. Phase 4 kinds come from sensor observations; the Phase 5 application-semantics kinds
+ * (identity … invariant) come from declarations/source/AI and are projected by the domain projector. A
+ * `session` is produced at runtime once authenticated sessions exist (Phase 5, Step 3); its kind is
+ * declared here so the vocabulary is stable for the phase.
  */
 export const GRAPH_ENTITY_KINDS = [
   /** An origin (scheme + host + port) serving the application. */
@@ -34,14 +36,31 @@ export const GRAPH_ENTITY_KINDS = [
   'signal',
   /** A source file a static analyser reported on. */
   'source-file',
+  // ── Phase 5: application semantics (declared / source / AI-derived, never a secret) ──────────────────
+  /** A test principal available to the authorized assessment (anonymous, a tenant member/admin, …). */
+  'identity',
+  /** A role a principal can hold. */
+  'role',
+  /** A tenant / organization / workspace boundary. */
+  'tenant',
+  /** An authenticated session bound to an identity (produced at runtime in Step 3; no Step-1 producer). */
+  'session',
+  /** An application resource instance (an invoice, project, ticket …), typed by the application. */
+  'resource',
+  /** A meaningful application operation (view, create, approve, transfer …). */
+  'business-action',
+  /** A resource lifecycle state (draft, pending, approved …). */
+  'business-state',
+  /** A security/business invariant: an expected rule (never a verified finding). */
+  'invariant',
 ] as const
 export const GraphEntityKind = z.enum(GRAPH_ENTITY_KINDS)
 export type GraphEntityKind = z.infer<typeof GraphEntityKind>
 
 /**
- * Stable relationship types. OBSERVED_BY / SUPPORTED_BY are provenance rows rather than edges; WRITES,
- * MODIFIES, OWNED_BY, AUTHENTICATES_AS, HAS_ROLE and REQUIRES wait for identities and authenticated
- * testing (Phase 5).
+ * Stable relationship types. OBSERVED_BY / SUPPORTED_BY are provenance rows rather than edges. The Phase 5
+ * relations are produced by the domain projector from declarations (except AUTHENTICATES_AS, which needs a
+ * runtime session — Step 3; it is declared here to keep the vocabulary stable for the phase).
  */
 export const GRAPH_RELATION_TYPES = [
   /** host → endpoint */
@@ -60,6 +79,25 @@ export const GRAPH_RELATION_TYPES = [
   'REDIRECTS_TO',
   /** signal → endpoint | api-operation | source-file | host */
   'AFFECTS',
+  // ── Phase 5: application semantics ───────────────────────────────────────────────────────────────────
+  /** identity → role */
+  'HAS_ROLE',
+  /** identity | resource | role → tenant */
+  'BELONGS_TO_TENANT',
+  /** session → identity (produced at runtime in Step 3; no Step-1 producer) */
+  'AUTHENTICATES_AS',
+  /** identity → resource */
+  'OWNS',
+  /** role → business-action */
+  'PERMITS',
+  /** business-action → resource */
+  'ACTS_ON',
+  /** resource → business-state */
+  'HAS_STATE',
+  /** business-state → business-state */
+  'TRANSITIONS_TO',
+  /** <any entity> → invariant (the entity is governed by the invariant) */
+  'GOVERNED_BY',
 ] as const
 export const GraphRelationType = z.enum(GRAPH_RELATION_TYPES)
 export type GraphRelationType = z.infer<typeof GraphRelationType>
