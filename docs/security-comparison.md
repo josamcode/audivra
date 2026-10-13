@@ -144,3 +144,55 @@ cleanup and bounded planner selection. It uses no real AI and no Docker; results
   state-changing policy constraints in staging, the secret canary, bounded/deduplicated planner proposals,
   adversarial-proposal rejection, reference validation and idempotent re-run.
 - Benchmark regression (`apps/worker/test/authorization-benchmark.integration.test.ts`).
+
+---
+
+# Phase 5 Step 5 — hardening & completion
+
+Step 5 closes the remaining gaps so the application-semantics layer is complete.
+
+## Comparison → graph derivation
+A STRONG comparison (decisive result, a positive control, confidence ≥ 0.6) now derives graph facts
+(`packages/security/src/graph/project-domain.ts` `projectComparisonsInto`, loaded by the `GraphProjector`):
+a `CAN_ACCESS` edge (identity → resource) for each arm that obtained access, and the governed invariant's
+`comparisonEvaluation` attribute. These carry a distinct **`comparison-derivation`** provenance source and
+**`differential-comparison`** trust (contracts `security-graph.ts`), map to the `derived` knowledge basis, and
+keep provenance back to the comparison, its executions and evidence. Because `derived` is weaker than
+`declared`/`observed`, a derived fact never overwrites a declared one (a declared `OWNS` stays declared and
+merely gains corroboration); contradictions remain explicit on the comparison, the hypothesis and the
+invariant node. The comparison engine re-projects after every run, so the loop closes automatically.
+
+## Planner coverage & pruning
+The deterministic planner (`plan.ts`) now proposes across **object-, tenant-, field-, session-, role-,
+function-level and business-rule** boundaries — role/function/business-rule come from business actions that
+declare an `endpointUrl` (`BusinessActionSpec`). It still never enumerates the Cartesian product: one
+representative subject + controls per resource/action, deduplicated, ranked by information gain (open
+Phase-5 gaps and test-owned resources first). `proposeComparisons` returns `PruningStats`
+(`cartesian → candidates → proposed`, with discard reasons) so pruning is measurable.
+
+## AI proposal in the reasoning loop
+`ComparisonReasoner` (`comparison/reasoner.ts`) runs a comparison pass that the reasoning worker drives after a
+sensor run (`apps/worker/src/security-reasoning.ts`): deterministic proposals always, plus optional AI
+proposals from the Phase 3C router (task `security-plan-comparisons`, prompt
+`prompts/security-comparison-planner-system.md`). **Every** AI proposal passes the same
+`validateProposedComparison` (no invented identity/session/tenant/resource/ownership/expectation) before it can
+run, and provider refusal/unavailability falls back to the deterministic planner (never rerouted). This closes
+the loop: graph gap → boundary hypothesis → comparison proposal → validated comparison → execution → graph
+derivation → invariant/hypothesis update.
+
+## Domain declaration management & history
+The domain is now managed through the API (`apps/server/src/routes-domain.ts`): `POST` declare, `PUT` update,
+`POST …/retire`, with strict per-kind contracts and no secret material. Updates preserve history — the active
+version is **superseded** and a new version inserted (`version`, `supersededBy`, a partial unique index on the
+active version); retirement marks the version `retired`. Resolution and projection always use the active
+version. Relationship references (a resource's owner identity, an identity's roles) are validated — no dangling
+references (tenant/state handles stay opaque labels; the commonly-circular role↔action links project leniently).
+The **Domain** tab (`apps/web/src/features/security/domain-tab.tsx`) declares/retires every kind, so a real
+engagement needs no fixture/database seeding.
+
+## Phase-5 knowledge gaps & coverage
+Eight application-semantics gap kinds (`identity-role-unknown`, `tenant-membership-unknown`,
+`resource-ownership-unknown`, `authorization-expectation-unknown`, `function-permission-unknown`,
+`field-visibility-unknown`, `session-behavior-unknown`, `state-transition-rule-unknown`) are generated
+deterministically from the domain graph (`graph/derive.ts`) and answered by comparisons; they feed the planner's
+ranking. Coverage (`comparison/coverage.ts`) reports the authorization/business dimensions as counts and states.
