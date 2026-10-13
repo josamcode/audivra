@@ -181,6 +181,7 @@ describe('engagement setup through the API', () => {
       'discovery.crawl',
       'discovery.http-inspect',
       'discovery.http-observe',
+      'discovery.identity-http',
       'source.static-analysis',
       'web.signal-scan',
     ])

@@ -35,3 +35,36 @@ export async function startScopeFixture(label = 'primary'): Promise<ScopeFixture
   const mod = (await import('../fixtures/scope/server.mjs')) as { startScopeFixture(options: { port: number; label: string }): Promise<ScopeFixture> }
   return mod.startScopeFixture({ port: 0, label })
 }
+
+export interface IdentityFixtureRequest {
+  method: string
+  path: string
+  headers: Record<string, string | string[] | undefined>
+  authenticatedAs: string | null
+}
+
+export interface IdentityFixture {
+  server: Server
+  label: string
+  port: number
+  url: string
+  hits: Map<string, number>
+  /** Every request the fixture received, in order (with the identity it was recognized as). */
+  requests: IdentityFixtureRequest[]
+  /** sid cookie value → identity. */
+  sessions: Map<string, string>
+  /** bearer token value → identity. */
+  tokens: Map<string, string>
+  /** "header-name: value" (lower-cased name) → identity. */
+  headerSecrets: Map<string, string>
+  /** username → { password, sid, who } for the form-login routes. */
+  users: Map<string, { password: string; sid: string; who: string }>
+  close(): Promise<void>
+}
+
+/** The identity fixture (fixtures/identity/server.mjs): tells authenticated requests apart from anonymous ones. */
+export async function startIdentityFixture(label = 'identity'): Promise<IdentityFixture> {
+  // @ts-expect-error -- plain JS fixture module without type declarations
+  const mod = (await import('../fixtures/identity/server.mjs')) as { startIdentityFixture(options: { port: number; label: string }): Promise<IdentityFixture> }
+  return mod.startIdentityFixture({ port: 0, label })
+}

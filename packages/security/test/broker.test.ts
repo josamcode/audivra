@@ -62,6 +62,7 @@ describe('capability registry', () => {
       ['discovery.crawl', 'low-impact', 'read-only'],
       ['discovery.http-inspect', 'passive', 'read-only'],
       ['discovery.http-observe', 'passive', 'read-only'],
+      ['discovery.identity-http', 'passive', 'read-only'],
       ['source.static-analysis', 'passive', 'read-only'],
       ['web.signal-scan', 'low-impact', 'read-only'],
     ])
