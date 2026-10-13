@@ -1,19 +1,19 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Logger } from '@audivra/config'
-import { redact, type DomainDeclarationKind } from '@audivra/contracts'
+import { redact, type DomainDeclarationKind, type DomainDeclarationStatus } from '@audivra/contracts'
 import type { Db } from '@audivra/database'
-import { DomainService, SecurityRequestError } from '@audivra/security'
+import { DomainService, LOCAL_USER, SecurityRequestError } from '@audivra/security'
 
 type App = FastifyInstance<Server, IncomingMessage, ServerResponse, Logger>
 
 /*
- * Phase 5 Step 1: read-only inspection of an engagement's declared application-semantics domain (identities,
- * roles, tenants, resources, business actions/states, invariants). Responses are redacted and never carry
- * credential material (a declaration's `credentialRef` is an opaque pointer, resolved only at execution time
- * by the later credential vault). Declaring is a configuration action done by a person/Audivra; the write
- * surface arrives with the Identities area in a later step — the projected entities are already inspectable
- * through the existing Security Graph endpoints (`…/graph/nodes?kind=identity`, etc.).
+ * Phase 5: management of an engagement's declared application-semantics domain (identities, roles, tenants,
+ * resources, business actions/states, invariants). Declaring/updating/retiring is a configuration action a
+ * person/Audivra performs — an agent is refused in the service, so a model can never invent an identity,
+ * tenant, role or ownership. Responses are redacted and never carry credential material (a declaration's
+ * `credentialRef` is an opaque pointer, resolved only by the credential vault). Updates preserve history: the
+ * active version is superseded and a new one created, so earlier assessments' beliefs are never rewritten.
  */
 export function registerDomainRoutes(app: App, deps: { db: Db }): void {
   const service = new DomainService({ db: deps.db })
@@ -27,9 +27,18 @@ export function registerDomainRoutes(app: App, deps: { db: Db }): void {
     }
   }
 
-  app.get<{ Params: { id: string }; Querystring: { kind?: DomainDeclarationKind } }>('/api/security/engagements/:id/domain/declarations', (request, reply) =>
-    respond(reply, () => service.list(request.params.id, request.query.kind)),
+  app.get<{ Params: { id: string }; Querystring: { kind?: DomainDeclarationKind; status?: DomainDeclarationStatus | 'all' } }>('/api/security/engagements/:id/domain/declarations', (request, reply) =>
+    respond(reply, () => service.list(request.params.id, request.query.kind, request.query.status ?? 'active')),
   )
 
+  // Declare a new domain record (strict per-kind contract; no secret material).
+  app.post<{ Params: { id: string } }>('/api/security/engagements/:id/domain/declarations', (request, reply) => respond(reply, () => service.declare(request.params.id, request.body, LOCAL_USER), 201))
+
   app.get<{ Params: { declarationId: string } }>('/api/security/domain/declarations/:declarationId', (request, reply) => respond(reply, () => service.get(request.params.declarationId)))
+
+  // Update a declaration (supersedes the active version; history is preserved).
+  app.put<{ Params: { declarationId: string } }>('/api/security/domain/declarations/:declarationId', (request, reply) => respond(reply, () => service.update(request.params.declarationId, request.body, LOCAL_USER)))
+
+  // Retire a declaration (kept for history; no longer projected or resolvable).
+  app.post<{ Params: { declarationId: string } }>('/api/security/domain/declarations/:declarationId/retire', (request, reply) => respond(reply, () => service.retire(request.params.declarationId, LOCAL_USER)))
 }
