@@ -19,6 +19,7 @@ import {
   getEngagementRow,
   getGraphNodeRow,
   getGraphNodeRows,
+  getSecurityObservationsByIds,
   graphCounts,
   hypothesisIdsLinkedTo,
   listEdgesTouching,
@@ -124,7 +125,8 @@ export class GraphService {
       listKnowledgeGaps(this.#db, row.engagementId, { subjectIds: [row.id] }),
       hypothesisIdsLinkedTo(this.#db, row.engagementId, 'node', [row.id]),
     ])
-    return { node: toGraphNode(row), neighbors, provenance, gaps, hypothesisIds, truncated }
+    const observations = (await getSecurityObservationsByIds(this.#db, [...new Set(provenance.map((p) => p.observationId).filter((id): id is string => !!id))])).map((o) => ({ id: o.id, type: o.type, title: o.title, asset: o.asset }))
+    return { node: toGraphNode(row), neighbors, provenance, observations, gaps, hypothesisIds, truncated }
   }
 
   /** Entities within one or two hops of an entity (bounded). */

@@ -254,6 +254,8 @@ export const SecurityGraphNodeDetail = z.object({
   neighbors: z.array(GraphNeighbor),
   provenance: z.array(SecurityGraphProvenance),
   gaps: z.array(KnowledgeGap),
+  /** The observations behind the provenance rows (so each source can be named). */
+  observations: z.array(z.object({ id: z.string(), type: ObservationType, title: z.string(), asset: z.string() })),
   /** Ids of hypotheses that involve this entity. */
   hypothesisIds: z.array(z.string()),
   /** The neighbor list was cut to stay bounded. */

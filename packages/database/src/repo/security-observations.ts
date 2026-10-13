@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   redactSensitive,
   type ObservationContribution,
@@ -111,6 +111,13 @@ export async function recordSecurityObservation(db: Db, input: RecordObservation
     if (!row) throw new Error('Failed to update security observation')
     return toObservation(row)
   })
+}
+
+/** Observations by id (bounded), e.g. to name the sources behind a graph fact. */
+export async function getSecurityObservationsByIds(db: Db, ids: string[]): Promise<SecurityObservation[]> {
+  if (ids.length === 0) return []
+  const rows = await db.select().from(securityObservations).where(inArray(securityObservations.id, ids.slice(0, 500)))
+  return rows.map(toObservation)
 }
 
 export interface ListObservationsOptions {
