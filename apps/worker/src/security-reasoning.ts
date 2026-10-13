@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '@audivra/config'
-import { enqueueSecurityReasoning, getSecurityExecutionRow, QUEUES, type Db, type PgBoss, type SecurityReasoningJob } from '@audivra/database'
+import { enqueueSecurityReasoning, enqueueSecurityVerification, getSecurityExecutionRow, QUEUES, type Db, type PgBoss, type SecurityReasoningJob } from '@audivra/database'
 import { createProviderRegistry, createProviderRouter, createReasoningAi, type ProviderRegistry } from '@audivra/ai-runtime'
 import { ComparisonEngine, ComparisonReasoner, ComparisonService, createDurableBroker, createRuntimeRegistry, GraphProjector, ReasoningEngine, type CapabilityRegistry, type ReasoningAi, type Resolver } from '@audivra/security'
 
@@ -69,6 +69,8 @@ export function createSecurityReasoningWorker(options: {
             } catch (error) {
               log.error({ err: error, runId }, 'comparison reasoning pass failed')
             }
+            // Closed loop (Phase 6A): once comparisons are settled, run verification to synthesize findings.
+            await enqueueSecurityVerification(boss, run.engagementId)
           }
         }
         return

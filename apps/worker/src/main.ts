@@ -21,6 +21,7 @@ import { Pipeline } from './pipeline.ts'
 import { createSecurityComparisonWorker } from './security-comparisons.ts'
 import { createSecurityExecutionWorker } from './security-executions.ts'
 import { createSecurityReasoningWorker } from './security-reasoning.ts'
+import { createSecurityVerificationWorker } from './security-verification.ts'
 
 const config = getConfig()
 const log = getLogger()
@@ -55,6 +56,7 @@ await ensureQueues(boss)
 // waiting for are woken. Reasoning runs themselves are durable jobs on their own queue.
 const securityReasoning = createSecurityReasoningWorker({ db, boss, log })
 const securityComparisons = createSecurityComparisonWorker({ db, boss, log })
+const securityVerification = createSecurityVerificationWorker({ db, boss, log })
 const securityExecutions = createSecurityExecutionWorker({ db, boss, log, onSettled: (id) => securityReasoning.executionSettled(id) })
 await securityExecutions.recover()
 
@@ -127,6 +129,7 @@ await securityExecutions.start()
 await securityReasoning.recover()
 await securityReasoning.start()
 await securityComparisons.start()
+await securityVerification.start()
 log.info({ queues: [...handlers.map(([q]) => q), QUEUES.enrich, QUEUES.benchmark, QUEUES.securityExecution, QUEUES.securityReasoning, QUEUES.securityComparison], ai: config.AUDIVRA_AI }, 'worker ready')
 
 let shuttingDown = false
@@ -138,6 +141,7 @@ async function shutdown(signal: string) {
   // terminated exactly. Audit stages are not graceful: pg-boss retries them after restart (heartbeat expiry).
   await securityReasoning.stop().catch((error) => log.error({ err: error }, 'security reasoning shutdown failed'))
   await securityComparisons.stop().catch((error) => log.error({ err: error }, 'security comparison shutdown failed'))
+  await securityVerification.stop().catch((error) => log.error({ err: error }, 'security verification shutdown failed'))
   await securityExecutions.shutdown().catch((error) => log.error({ err: error }, 'security execution shutdown failed'))
   // Only processes this worker started (ownership registry) are terminated.
   const killed = await killAllOwned()

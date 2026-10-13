@@ -19,6 +19,8 @@ export const QUEUES = {
   securityReasoning: 'security-reasoning',
   /** Differential comparisons (Phase 5 Step 4): one job runs one planned comparison to completion. */
   securityComparison: 'security-comparison',
+  /** Verification pass (Phase 6A): one job drives candidate generation, verification and finding synthesis. */
+  securityVerification: 'security-verification',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -50,6 +52,11 @@ export interface SecurityReasoningJob {
 /** A comparison job names the comparison and nothing else; its plan is loaded from the database. */
 export interface SecurityComparisonJob {
   comparisonId: string
+}
+
+/** A verification job names the engagement; the pass loads all stored knowledge and is idempotent. */
+export interface SecurityVerificationJob {
+  engagementId: string
 }
 
 const HOUR = 3600
@@ -85,6 +92,9 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // One job per comparison (`stately` + singletonKey = comparison id). A retry re-runs the engine, which
     // resumes from persisted arm state (completed arms are not re-executed), so a crash is recoverable.
     [QUEUES.securityComparison]: { expireInSeconds: 1 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
+    // One job per engagement (`stately` + singletonKey = engagement id). The pass is deterministic and
+    // idempotent: a retry re-generates candidates and advances them by issueKey, never duplicating.
+    [QUEUES.securityVerification]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -138,4 +148,9 @@ export async function enqueueSecurityReasoning(boss: PgBoss, runId: string): Pro
 /** Queues a planned comparison to be executed (no-op while one is already queued for it). */
 export async function enqueueSecurityComparison(boss: PgBoss, comparisonId: string): Promise<string | null> {
   return boss.send(QUEUES.securityComparison, { comparisonId } satisfies SecurityComparisonJob, { singletonKey: comparisonId })
+}
+
+/** Queues a verification pass for an engagement (no-op while one is already queued for it). */
+export async function enqueueSecurityVerification(boss: PgBoss, engagementId: string): Promise<string | null> {
+  return boss.send(QUEUES.securityVerification, { engagementId } satisfies SecurityVerificationJob, { singletonKey: engagementId })
 }
