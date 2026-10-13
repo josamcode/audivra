@@ -7,6 +7,13 @@ import type {
   EstablishSessionInput,
   IdentityCoverageItem,
   LifecycleAction,
+  ComparisonCoverage,
+  ComparisonDimension,
+  ComparisonPlanInput,
+  ComparisonResult,
+  InvariantEvaluation,
+  SecurityComparison,
+  SecurityComparisonDetail,
   SecurityDomainDeclaration,
   SessionEstablishmentResult,
   SessionMetadata,
@@ -220,6 +227,16 @@ export const api = {
   engagementCredentials: (id: string) => request<CredentialMetadata[]>(`${engagementPath(id)}/credentials`),
   engagementSessions: (id: string) => request<SessionMetadata[]>(`${engagementPath(id)}/sessions`),
   identityCoverage: (id: string) => request<IdentityCoverageItem[]>(`${engagementPath(id)}/identities/coverage`),
+  // Differential authorization comparisons (Phase 5 Step 4).
+  comparisons: (id: string, filters: { dimension?: ComparisonDimension; result?: ComparisonResult } = {}) => {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString()
+    return request<SecurityComparison[]>(`${engagementPath(id)}/comparisons${query ? `?${query}` : ''}`)
+  },
+  securityComparison: (comparisonId: string) => request<SecurityComparisonDetail>(`/api/security/comparisons/${encodeURIComponent(comparisonId)}`),
+  comparisonCoverage: (id: string) => request<ComparisonCoverage>(`${engagementPath(id)}/comparisons/coverage`),
+  comparisonInvariants: (id: string) => request<InvariantEvaluation[]>(`${engagementPath(id)}/comparisons/invariants`),
+  proposeComparisons: (id: string) => request<{ plan: ComparisonPlanInput; informationGain: number; reason: string }[]>(`${engagementPath(id)}/comparisons/propose`),
+  createComparison: (id: string, input: ComparisonPlanInput) => request<SecurityComparison>(`${engagementPath(id)}/comparisons`, post(input)),
   establishSession: (id: string, input: EstablishSessionInput) => request<SessionEstablishmentResult>(`${engagementPath(id)}/sessions/establish`, post(input)),
   revokeSession: (sessionId: string) => request<SessionMetadata>(`/api/security/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' }),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */

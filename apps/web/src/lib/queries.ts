@@ -82,6 +82,10 @@ export const queryKeys = {
   engagementCredentials: (id: string) => ['security', 'engagement', id, 'credentials'] as const,
   engagementSessions: (id: string) => ['security', 'engagement', id, 'sessions'] as const,
   engagementIdentityCoverage: (id: string) => ['security', 'engagement', id, 'identity-coverage'] as const,
+  engagementComparisons: (id: string) => ['security', 'engagement', id, 'comparisons'] as const,
+  engagementComparisonCoverage: (id: string) => ['security', 'engagement', id, 'comparison-coverage'] as const,
+  engagementInvariants: (id: string) => ['security', 'engagement', id, 'invariants'] as const,
+  securityComparison: (comparisonId: string) => ['security', 'comparison', comparisonId] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -284,5 +288,17 @@ export const engagementSessionsQuery = (id: string) =>
 
 export const engagementIdentityCoverageQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementIdentityCoverage(id), queryFn: () => api.identityCoverage(id), refetchInterval: 10_000 })
+
+export const engagementComparisonsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementComparisons(id), queryFn: () => api.comparisons(id), refetchInterval: 5000 })
+
+export const engagementComparisonCoverageQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementComparisonCoverage(id), queryFn: () => api.comparisonCoverage(id), refetchInterval: 10_000 })
+
+export const engagementInvariantsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementInvariants(id), queryFn: () => api.comparisonInvariants(id), refetchInterval: 10_000 })
+
+export const securityComparisonQuery = (comparisonId: string) =>
+  queryOptions({ queryKey: queryKeys.securityComparison(comparisonId), queryFn: () => api.securityComparison(comparisonId) })
 
 export { isActiveRun }

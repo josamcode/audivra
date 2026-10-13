@@ -56,6 +56,13 @@ const CATEGORY_LABEL: Record<SecurityHypothesis['category'], string> = {
   configuration: 'Configuration',
   'evidence-gap': 'Evidence gap',
   'signal-confirmation': 'Signal confirmation',
+  'object-boundary': 'Object boundary',
+  'role-boundary': 'Role boundary',
+  'tenant-boundary': 'Tenant boundary',
+  'function-level': 'Function-level access',
+  'field-boundary': 'Field boundary',
+  'session-boundary': 'Session boundary',
+  'business-rule': 'Business rule',
 }
 
 const column = createColumnHelper<SecurityHypothesis>()
@@ -147,6 +154,8 @@ function checkText(check: EvidenceCheck, entities: Map<string, string>, gaps: Ma
       return `${entity} is contradicted by another fact`
     case 'gap-resolved':
       return `the unknown "${gaps.get(check.gapId) ?? check.gapId}" is answered`
+    case 'comparison-result':
+      return `a differential comparison${check.dimension ? ` (${check.dimension})` : ''} settles ${check.results.join('/')}`
   }
 }
 
