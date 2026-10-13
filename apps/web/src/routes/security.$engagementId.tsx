@@ -10,6 +10,8 @@ import { ActivityTab } from '@/features/security/activity-tab'
 import { AuthorizationTab } from '@/features/security/authorization-tab'
 import { EngagementHeader } from '@/features/security/engagement-header'
 import { ExecutionsTab } from '@/features/security/executions-tab'
+import { GraphTab } from '@/features/security/graph-tab'
+import { HypothesesTab } from '@/features/security/hypotheses-tab'
 import { ObservationsTab } from '@/features/security/observations-tab'
 import { OverviewTab } from '@/features/security/overview-tab'
 import { PolicyTab } from '@/features/security/policy-tab'
@@ -17,12 +19,16 @@ import { ScopeTab } from '@/features/security/scope-tab'
 import { ApiError } from '@/lib/api'
 import { engagementQuery } from '@/lib/queries'
 
-const TABS = ['overview', 'scope', 'authorization', 'policy', 'executions', 'observations', 'activity'] as const
+const TABS = ['overview', 'scope', 'authorization', 'policy', 'executions', 'observations', 'graph', 'hypotheses', 'activity'] as const
 type EngagementTab = (typeof TABS)[number]
+const ENTITY_ID = /^gn_[0-9a-z]{14}$/
+const HYPOTHESIS_ID = /^hy_[0-9a-z]{14}$/
 
 export const Route = createFileRoute('/security/$engagementId')({
-  validateSearch: (search: Record<string, unknown>): { tab?: EngagementTab } => ({
+  validateSearch: (search: Record<string, unknown>): { tab?: EngagementTab; entity?: string; hypothesis?: string } => ({
     tab: TABS.includes(search.tab as EngagementTab) ? (search.tab as EngagementTab) : undefined,
+    entity: typeof search.entity === 'string' && ENTITY_ID.test(search.entity) ? search.entity : undefined,
+    hypothesis: typeof search.hypothesis === 'string' && HYPOTHESIS_ID.test(search.hypothesis) ? search.hypothesis : undefined,
   }),
   component: EngagementPage,
 })
@@ -30,7 +36,11 @@ export const Route = createFileRoute('/security/$engagementId')({
 function EngagementPage() {
   const { engagementId } = Route.useParams()
   const navigate = Route.useNavigate()
-  const tab: EngagementTab = Route.useSearch().tab ?? 'overview'
+  const search = Route.useSearch()
+  const tab: EngagementTab = search.tab ?? 'overview'
+  // Cross-navigation between the graph and the hypotheses keeps the selection in the URL.
+  const showEntity = (entity: string) => void navigate({ search: { tab: 'graph', entity }, replace: true })
+  const showHypothesis = (hypothesis: string) => void navigate({ search: { tab: 'hypotheses', hypothesis }, replace: true })
   const query = useQuery(engagementQuery(engagementId))
 
   if (query.isError) {
@@ -81,6 +91,8 @@ function EngagementPage() {
           { value: 'policy', label: 'Policy' },
           { value: 'executions', label: 'Executions' },
           { value: 'observations', label: 'Observations' },
+          { value: 'graph', label: 'Graph' },
+          { value: 'hypotheses', label: 'Hypotheses' },
           { value: 'activity', label: 'Audit trail' },
         ]}
       >
@@ -102,6 +114,12 @@ function EngagementPage() {
           </TabPanel>
           <TabPanel value="observations">
             <ObservationsTab engagement={engagement} />
+          </TabPanel>
+          <TabPanel value="graph">
+            <GraphTab engagement={engagement} entity={search.entity} onEntity={showEntity} onHypothesis={showHypothesis} />
+          </TabPanel>
+          <TabPanel value="hypotheses">
+            <HypothesesTab engagement={engagement} hypothesis={search.hypothesis} onHypothesis={showHypothesis} onEntity={showEntity} />
           </TabPanel>
           <TabPanel value="activity">
             <ActivityTab engagement={engagement} />

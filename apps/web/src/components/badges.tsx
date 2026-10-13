@@ -13,6 +13,14 @@ import type {
   EngagementStatus,
   ExecutionFailureKind,
   ExecutionStatus,
+  ActionStatus,
+  FactStatus,
+  GapKind,
+  GraphEntityKind,
+  HypothesisStatus,
+  KnowledgeBasis,
+  ReasoningRunStatus,
+  ReasoningStopReason,
   ReadinessState,
   SecurityEnvironment,
   Severity,
@@ -442,4 +450,124 @@ export const FAILURE_KIND_LABEL: Record<ExecutionFailureKind, string> = {
   'network-setup-failed': 'Network setup failed',
   'gateway-unavailable': 'Gateway unavailable',
   'network-cleanup-failed': 'Network cleanup failed',
+}
+
+// ── Phase 4: Security Graph and reasoning ─────────────────────────────────────────────────────────────
+
+export const ENTITY_KIND_LABEL: Record<GraphEntityKind, string> = {
+  host: 'Host',
+  endpoint: 'Endpoint',
+  'api-operation': 'API operation',
+  parameter: 'Parameter',
+  technology: 'Technology',
+  signal: 'Signal',
+  'source-file': 'Source file',
+}
+
+/** Why Audivra holds a fact. Inferred (AI-only) is never presented like an observed fact. */
+const BASIS: Record<KnowledgeBasis, { label: string; tone: BadgeTone; hint: string }> = {
+  observed: { label: 'Observed', tone: 'success', hint: 'Reported by a deterministic sensor (an observation)' },
+  declared: { label: 'Declared', tone: 'neutral', hint: 'Stated by a person' },
+  derived: { label: 'Derived', tone: 'info', hint: 'Computed by Audivra from observed facts by a deterministic rule' },
+  inferred: { label: 'Inferred', tone: 'medium', hint: 'Proposed by an AI and validated, but not observed' },
+}
+
+export function BasisBadge({ basis }: { basis: KnowledgeBasis }) {
+  return (
+    <Badge tone={BASIS[basis].tone} title={BASIS[basis].hint}>
+      {BASIS[basis].label}
+    </Badge>
+  )
+}
+
+const FACT_STATUS: Record<FactStatus, { label: string; tone: BadgeTone; hint: string }> = {
+  active: { label: 'Active', tone: 'neutral', hint: 'Currently supported by its sources' },
+  stale: { label: 'Stale', tone: 'neutral', hint: 'Not reported again by the latest complete run of the sensors that reported it' },
+  superseded: { label: 'Superseded', tone: 'neutral', hint: 'Replaced by a newer fact (e.g. a redirect that now goes elsewhere)' },
+  contradicted: { label: 'Contradicted', tone: 'high', hint: 'In conflict with another active fact; both are kept until resolved' },
+}
+
+export function FactStatusBadge({ status }: { status: FactStatus }) {
+  return (
+    <Badge tone={FACT_STATUS[status].tone} title={FACT_STATUS[status].hint} className={cn(status === 'stale' || status === 'superseded' ? 'opacity-70' : undefined)}>
+      {FACT_STATUS[status].label}
+    </Badge>
+  )
+}
+
+export const GAP_KIND_LABEL: Record<GapKind, string> = {
+  'endpoint-behavior-unknown': 'Behavior unknown',
+  'technology-uncorroborated': 'Uncorroborated technology',
+  'api-operation-unobserved': 'API operation not observed',
+  'signal-unconfirmed': 'Unconfirmed signal',
+  'contradiction-unresolved': 'Unresolved contradiction',
+  'authentication-requirement-unknown': 'Authentication unknown',
+}
+
+/** A hypothesis is a claim to investigate — never a verified vulnerability. */
+const HYPOTHESIS_STATUS: Record<HypothesisStatus, { label: string; tone: BadgeTone; hint: string }> = {
+  proposed: { label: 'Proposed', tone: 'neutral', hint: 'Accepted by validation; not ranked yet' },
+  'needs-evidence': { label: 'Needs evidence', tone: 'info', hint: 'Worth investigating; an eligible capability can gather evidence' },
+  supported: { label: 'Supported', tone: 'medium', hint: 'Evidence supports it (not independently confirmed)' },
+  'confirmed-signal': { label: 'Confirmed signal', tone: 'high', hint: 'Independently corroborated signal — still not a verified vulnerability' },
+  disproved: { label: 'Disproved', tone: 'success', hint: 'Contradicted by evidence' },
+  deferred: { label: 'Deferred', tone: 'neutral', hint: 'Expected information gain too low for its cost' },
+  blocked: { label: 'Blocked', tone: 'medium', hint: 'Policy or environment does not allow gathering the evidence' },
+  exhausted: { label: 'Exhausted', tone: 'neutral', hint: 'Every eligible way to gather evidence was tried' },
+}
+
+export function HypothesisStatusBadge({ status }: { status: HypothesisStatus }) {
+  return (
+    <Badge tone={HYPOTHESIS_STATUS[status].tone} dot title={HYPOTHESIS_STATUS[status].hint}>
+      {HYPOTHESIS_STATUS[status].label}
+    </Badge>
+  )
+}
+
+const RUN_STATUS: Record<ReasoningRunStatus, { label: string; tone: BadgeTone }> = {
+  queued: { label: 'Queued', tone: 'neutral' },
+  running: { label: 'Reasoning', tone: 'running' },
+  waiting: { label: 'Waiting for evidence', tone: 'running' },
+  completed: { label: 'Completed', tone: 'success' },
+  blocked: { label: 'Blocked', tone: 'medium' },
+  failed: { label: 'Failed', tone: 'critical' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
+}
+
+export function ReasoningRunStatusBadge({ status }: { status: ReasoningRunStatus }) {
+  return (
+    <Badge tone={RUN_STATUS[status].tone} dot>
+      {RUN_STATUS[status].label}
+    </Badge>
+  )
+}
+
+export const STOP_REASON_LABEL: Record<ReasoningStopReason, string> = {
+  'sufficient-evidence': 'Every hypothesis is resolved',
+  'nothing-to-investigate': 'Nothing worth investigating was found',
+  'no-eligible-capability': 'No eligible capability can reduce the remaining uncertainty',
+  'low-information-gain': 'Remaining hypotheses would teach too little for their cost',
+  'policy-blocked': 'Policy blocked every proposed action',
+  'awaiting-approval': 'Actions approved by policy, awaiting a person',
+  'budget-exhausted': 'Budget reached',
+  'provider-unavailable': 'AI unavailable — AI work paused',
+  'provider-refused': 'The AI provider declined (not rerouted)',
+  'ai-output-invalid': 'AI output failed validation',
+  cancelled: 'Cancelled',
+  'internal-error': 'Internal error',
+}
+
+const ACTION_STATUS: Record<ActionStatus, { label: string; tone: BadgeTone }> = {
+  proposed: { label: 'Proposed', tone: 'neutral' },
+  'approved-by-policy': { label: 'Approved by policy', tone: 'info' },
+  queued: { label: 'Running', tone: 'running' },
+  completed: { label: 'Completed', tone: 'success' },
+  failed: { label: 'Failed', tone: 'critical' },
+  blocked: { label: 'Blocked by policy', tone: 'medium' },
+  rejected: { label: 'Rejected', tone: 'neutral' },
+  skipped: { label: 'Not executed', tone: 'neutral' },
+}
+
+export function ActionStatusBadge({ status }: { status: ActionStatus }) {
+  return <Badge tone={ACTION_STATUS[status].tone}>{ACTION_STATUS[status].label}</Badge>
 }

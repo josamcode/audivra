@@ -69,6 +69,15 @@ export const queryKeys = {
   executionEvents: (id: string) => ['security', 'execution', id, 'events'] as const,
   executionEvidence: (id: string) => ['security', 'execution', id, 'evidence'] as const,
   executionObservations: (id: string) => ['security', 'execution', id, 'observations'] as const,
+  graphSummary: (id: string) => ['security', 'engagement', id, 'graph', 'summary'] as const,
+  graphNodes: (id: string, kind: string, status: string, basis: string, q: string) => ['security', 'engagement', id, 'graph', 'nodes', kind, status, basis, q] as const,
+  graphGaps: (id: string) => ['security', 'engagement', id, 'graph', 'gaps'] as const,
+  graphNode: (nodeId: string) => ['security', 'graph-node', nodeId] as const,
+  hypotheses: (id: string) => ['security', 'engagement', id, 'hypotheses'] as const,
+  hypothesis: (hypothesisId: string) => ['security', 'hypothesis', hypothesisId] as const,
+  reasoningRuns: (id: string) => ['security', 'engagement', id, 'reasoning', 'runs'] as const,
+  reasoningActions: (id: string) => ['security', 'engagement', id, 'reasoning', 'actions'] as const,
+  reasoningCoverage: (id: string) => ['security', 'engagement', id, 'reasoning', 'coverage'] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -222,3 +231,44 @@ export const executionEvidenceQuery = (id: string, active: boolean) =>
 
 export const executionObservationsQuery = (id: string, active: boolean) =>
   queryOptions({ queryKey: queryKeys.executionObservations(id), queryFn: () => api.executionObservations(id), refetchInterval: active ? EXECUTION_POLL_MS : false })
+
+// ── Phase 4: Security Graph and reasoning ─────────────────────────────────────────────────────────────
+
+/** Reasoning runs change while the worker drives them; views poll quickly only while one is active. */
+const REASONING_ACTIVE_POLL_MS = 2000
+const isActiveRun = (status: string) => status === 'queued' || status === 'running' || status === 'waiting'
+
+export const reasoningRunsQuery = (id: string) =>
+  queryOptions({
+    queryKey: queryKeys.reasoningRuns(id),
+    queryFn: () => api.reasoningRuns(id),
+    refetchInterval: (query) => (query.state.data?.some((r) => isActiveRun(r.status)) ? REASONING_ACTIVE_POLL_MS : EXECUTION_IDLE_POLL_MS),
+  })
+
+/** Everything that changes while a run is active polls at the run's pace. */
+const reasoningPace = (active: boolean) => (active ? REASONING_ACTIVE_POLL_MS : EXECUTION_IDLE_POLL_MS)
+
+export const graphSummaryQuery = (id: string, active = false) =>
+  queryOptions({ queryKey: queryKeys.graphSummary(id), queryFn: () => api.graphSummary(id), refetchInterval: reasoningPace(active) })
+
+export const graphNodesQuery = (id: string, filters: { kind?: string; status?: string; basis?: string; q?: string }, active = false) =>
+  queryOptions({
+    queryKey: queryKeys.graphNodes(id, filters.kind ?? 'all', filters.status ?? 'all', filters.basis ?? 'all', filters.q ?? ''),
+    queryFn: () => api.graphNodes(id, filters),
+    placeholderData: keepPreviousData,
+    refetchInterval: reasoningPace(active),
+  })
+
+export const graphGapsQuery = (id: string, active = false) => queryOptions({ queryKey: queryKeys.graphGaps(id), queryFn: () => api.graphGaps(id), refetchInterval: reasoningPace(active) })
+
+export const graphNodeQuery = (nodeId: string, active = false) => queryOptions({ queryKey: queryKeys.graphNode(nodeId), queryFn: () => api.graphNode(nodeId), refetchInterval: reasoningPace(active) })
+
+export const hypothesesQuery = (id: string, active = false) => queryOptions({ queryKey: queryKeys.hypotheses(id), queryFn: () => api.hypotheses(id), refetchInterval: reasoningPace(active) })
+
+export const hypothesisQuery = (hypothesisId: string, active = false) =>
+  queryOptions({ queryKey: queryKeys.hypothesis(hypothesisId), queryFn: () => api.hypothesis(hypothesisId), refetchInterval: reasoningPace(active) })
+
+export const reasoningCoverageQuery = (id: string, active = false) =>
+  queryOptions({ queryKey: queryKeys.reasoningCoverage(id), queryFn: () => api.reasoningCoverage(id), refetchInterval: reasoningPace(active) })
+
+export { isActiveRun }

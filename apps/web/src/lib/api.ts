@@ -34,7 +34,18 @@ import type {
   SecurityExecutionDetail,
   SecurityExecutionItem,
   AiSystemStatus,
+  GraphProjectionResult,
+  KnowledgeGap,
+  ReasoningAction,
+  ReasoningCoverage,
+  ReasoningRun,
+  SecurityGraphNode,
+  SecurityGraphNodeDetail,
+  SecurityGraphSummary,
+  SecurityHypothesis,
+  SecurityHypothesisDetail,
   SecurityObservation,
+  StartReasoningInput,
   SensorCoverageItem,
   SiteHistory,
   SystemHealth,
@@ -178,6 +189,26 @@ export const api = {
   executionEvidence: (id: string) => request<SecurityEvidenceItem[]>(`${executionPath(id)}/evidence`),
   executionObservations: (id: string) => request<SecurityObservation[]>(`${executionPath(id)}/observations`),
   cancelExecution: (id: string) => request<SecurityExecutionDetail>(`${executionPath(id)}/cancel`, { method: 'POST' }),
+  /*
+   * Phase 4: the Security Graph (bounded reads, deterministic rebuild), hypotheses (read-only) and
+   * reasoning runs (start with a mode and budget; cancel). Nothing here runs a capability or a prompt.
+   */
+  graphSummary: (id: string) => request<SecurityGraphSummary>(`${engagementPath(id)}/graph/summary`),
+  graphNodes: (id: string, filters: { kind?: string; status?: string; basis?: string; q?: string } = {}) => {
+    const q = new URLSearchParams(Object.entries(filters).filter((e): e is [string, string] => !!e[1]))
+    const query = q.toString()
+    return request<SecurityGraphNode[]>(`${engagementPath(id)}/graph/nodes${query ? `?${query}` : ''}`)
+  },
+  graphGaps: (id: string, status?: string) => request<KnowledgeGap[]>(`${engagementPath(id)}/graph/gaps${status ? `?status=${status}` : ''}`),
+  graphNode: (nodeId: string) => request<SecurityGraphNodeDetail>(`/api/security/graph/nodes/${encodeURIComponent(nodeId)}`),
+  rebuildGraph: (id: string) => request<GraphProjectionResult>(`${engagementPath(id)}/graph/project`, { method: 'POST' }),
+  hypotheses: (id: string) => request<SecurityHypothesis[]>(`${engagementPath(id)}/hypotheses`),
+  hypothesis: (hypothesisId: string) => request<SecurityHypothesisDetail>(`/api/security/hypotheses/${encodeURIComponent(hypothesisId)}`),
+  reasoningRuns: (id: string) => request<ReasoningRun[]>(`${engagementPath(id)}/reasoning/runs`),
+  startReasoning: (id: string, input: StartReasoningInput) => request<ReasoningRun>(`${engagementPath(id)}/reasoning/runs`, post(input)),
+  cancelReasoning: (runId: string) => request<ReasoningRun>(`/api/security/reasoning/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }),
+  reasoningActions: (id: string) => request<ReasoningAction[]>(`${engagementPath(id)}/reasoning/actions`),
+  reasoningCoverage: (id: string) => request<ReasoningCoverage>(`${engagementPath(id)}/reasoning/coverage`),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
   executionArtifactUrl: (id: string, artifactPath: string) =>
     `${executionPath(id)}/artifacts/${artifactPath
