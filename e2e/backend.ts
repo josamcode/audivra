@@ -16,5 +16,12 @@ if (process.env.E2E_RESET === '1') {
   await handle.close()
 }
 
+// The deterministic E2E suite runs with AI off; for Phase 4 reasoning it adds a deterministic, rule-based
+// provider (eligible only for security reasoning tasks) so the full loop is exercised end to end.
+if (process.env.E2E_SCRIPTED_REASONING === '1') {
+  const { registerAdditionalProvider, ScriptedReasoningProvider } = await import('../packages/ai-runtime/src/index.ts')
+  registerAdditionalProvider(new ScriptedReasoningProvider())
+}
+
 await import('../apps/worker/src/main.ts')
 await import('../apps/server/src/main.ts')

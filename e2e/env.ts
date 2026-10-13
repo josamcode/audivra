@@ -28,6 +28,8 @@ export function e2eServers(
     BASELINE_BROWSER_PAGES: '3',
     // ZAP and testssl take minutes per audit (and testssl needs HTTPS); the E2E fixture uses the fast scanners.
     BASELINE_SCANNERS: 'httpx,katana,pa11y',
+    // AI off: security reasoning uses the deterministic scripted provider instead (Website Audits are unaffected).
+    ...(ai === 'off' ? { E2E_SCRIPTED_REASONING: '1' } : {}),
     ...extraEnv,
   }
   return [
