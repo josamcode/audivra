@@ -22,10 +22,19 @@ export interface ExecutionHandles {
  */
 export function createExecutionHandles(
   snapshot: SecurityExecutionSnapshot,
-  options: { workspace: ExecutionWorkspace; signal: AbortSignal; resolver: Resolver; store: Pick<SecurityStore, 'recordEvidence' | 'recordObservation'>; sensor?: { tool: string; toolVersion: string } | null },
+  options: {
+    workspace: ExecutionWorkspace
+    signal: AbortSignal
+    resolver: Resolver
+    store: Pick<SecurityStore, 'recordEvidence' | 'recordObservation'>
+    sensor?: { tool: string; toolVersion: string } | null
+    /** Identity-aware auth material injected by the trusted runtime (Phase 5 Step 3); never from input. */
+    auth?: { headers: Record<string, string>; origin: string } | null
+  },
 ): ExecutionHandles {
   const { workspace, signal } = options
   const s = snapshot
+  const identity = s.identity ?? null
   const registrar = new ArtifactRegistrar({
     workspace,
     maxBytes: s.runtime.maxArtifactBytes,
@@ -49,6 +58,8 @@ export function createExecutionHandles(
           configVersion: s.engagement.configVersion,
           policyProfile: { key: s.policy.profileKey, version: s.policy.profileVersion },
           authorizationIds: s.authorization.authorizationIds,
+          identityRef: identity?.identityRef ?? null,
+          sessionRef: identity?.sessionRef ?? null,
           sensitivity,
         },
       }),
@@ -76,13 +87,15 @@ export function createExecutionHandles(
           toolVersion: sensor.toolVersion,
           evidenceRef: input.evidenceRef ?? null,
           confidence: input.confidence ?? 1,
+          identityRef: identity?.identityRef ?? null,
+          sessionRef: identity?.sessionRef ?? null,
           at: new Date().toISOString(),
         },
       })
     },
   }
   const processes = new ExecutionProcesses({ executionId: s.executionId, tool: s.capability.id, workspace, maxProcesses: s.runtime.maxProcesses, signal })
-  const http = new ScopedHttpClient({ manifest: s.scope.manifest, limits: s.limits, mutation: s.capability.sideEffect, resolver: options.resolver, signal })
+  const http = new ScopedHttpClient({ manifest: s.scope.manifest, limits: s.limits, mutation: s.capability.sideEffect, resolver: options.resolver, signal, auth: options.auth ?? null })
   const handles: CapabilityHandles = {
     http,
     signal,

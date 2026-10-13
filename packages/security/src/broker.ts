@@ -4,6 +4,7 @@ import { engagementWorkspaceDir, getConfig, type Logger } from '@audivra/config'
 import {
   authorizationRequiredFor,
   capabilityExecution,
+  capabilityIdentity,
   parseIp,
   redact,
   SecurityActor,
@@ -15,6 +16,7 @@ import {
   type SecurityExecutionSnapshot,
 } from '@audivra/contracts'
 import { newId } from '@audivra/database'
+import { AuthResolutionError, type ExecutionAuthResolver, type ValidatedIdentity } from './session/auth-resolver.ts'
 import { dockerImagePresent, killOwnedForExecution } from '@audivra/tool-runtime'
 import { evaluateAuthorizationCoverage } from './authorization.ts'
 import { compact } from './compact.ts'
@@ -60,6 +62,9 @@ export const BrokerRequest = z.strictObject({
   input: z.unknown(),
   actor: SecurityActor,
   correlationId: z.string().min(1).max(120).optional(),
+  /** Identity-aware execution (Phase 5 Step 3): references only — never a secret, never from a model as auth. */
+  identityRef: z.string().min(1).max(120).optional(),
+  sessionRef: z.string().min(1).max(120).optional(),
 })
 export type BrokerRequest = z.input<typeof BrokerRequest>
 
@@ -93,6 +98,7 @@ type Allowed = {
   policy: CapabilityPolicyResult
   decision: PolicyDecision
   decisionEventId: number
+  identity: ValidatedIdentity | null
 }
 type Decided = Allowed | { kind: 'denied'; executionId: string; decision: PolicyDecision }
 
@@ -106,6 +112,8 @@ export interface BrokerDependencies {
   /** Engagement workspace root (default: the configured data directory). */
   workspaceRoot?: (engagementId: string) => string
   checkResources?: (input: ResourceCheckInput) => Promise<ResourceCheck>
+  /** Resolves/validates identity-aware execution references (Phase 5 Step 3). Absent: anonymous only. */
+  authResolver?: ExecutionAuthResolver
   log?: Logger
 }
 
@@ -118,6 +126,7 @@ export class CapabilityBroker {
   readonly #checkResources: (input: ResourceCheckInput) => Promise<ResourceCheck>
   readonly #log: Logger | undefined
   readonly #executions: BrokerDependencies['executions']
+  readonly #authResolver: ExecutionAuthResolver | undefined
 
   constructor(deps: BrokerDependencies) {
     this.#registry = deps.registry
@@ -128,6 +137,7 @@ export class CapabilityBroker {
     this.#checkResources = deps.checkResources ?? checkExecutionResources
     this.#log = deps.log
     this.#executions = deps.executions
+    this.#authResolver = deps.authResolver
   }
 
   get registry(): CapabilityRegistry {
@@ -295,6 +305,7 @@ export class CapabilityBroker {
       policy: evaluation.policy,
       decision,
       decisionEventId: allowedEvent.id,
+      identity: evaluation.identity,
     }
   }
 
@@ -309,6 +320,7 @@ export class CapabilityBroker {
       policy: d.policy,
       input: d.input,
       actor: d.req.actor,
+      identity: d.identity,
     })
   }
 
@@ -348,7 +360,7 @@ export class CapabilityBroker {
     capability: SecurityCapability | undefined,
     now: Date,
     path: 'in-process' | 'durable',
-  ): Promise<{ decision: PolicyDecision; input: unknown; policy: CapabilityPolicyResult | null }> {
+  ): Promise<{ decision: PolicyDecision; input: unknown; policy: CapabilityPolicyResult | null; identity: ValidatedIdentity | null }> {
     const checks: DecisionCheck[] = []
     const check = (stage: DecisionStage, ok: boolean, rule: string, reason: string) => checks.push({ stage, outcome: ok ? 'pass' : 'fail', rule, reason })
     const skip = (stage: DecisionStage, reason: string) => checks.push({ stage, outcome: 'skipped', rule: `${stage}.skipped`, reason })
@@ -359,8 +371,9 @@ export class CapabilityBroker {
     let scopeEvaluations: ScopeEvaluation[] = []
     let policyResult: CapabilityPolicyResult | null = null
     let input: unknown = null
+    let identity: ValidatedIdentity | null = null
 
-    const finish = (): { decision: PolicyDecision; input: unknown; policy: CapabilityPolicyResult | null } => {
+    const finish = (): { decision: PolicyDecision; input: unknown; policy: CapabilityPolicyResult | null; identity: ValidatedIdentity | null } => {
       const failed = checks.find((c) => c.outcome === 'fail')
       const decision: PolicyDecision = {
         decision: failed ? 'deny' : 'allow',
@@ -383,7 +396,7 @@ export class CapabilityBroker {
         actor: req.actor,
         evaluatedAt: now.toISOString(),
       }
-      return { decision, input, policy: failed ? null : policyResult }
+      return { decision, input, policy: failed ? null : policyResult, identity: failed ? null : identity }
     }
 
     // 1. The capability must be registered.
@@ -471,6 +484,31 @@ export class CapabilityBroker {
       authState = { required: false, state: 'not-required', authorizationIds: [], reason: 'Passive, read-only capability that does not declare an authorization requirement' }
     }
 
+    // 6b. Identity-aware execution (Phase 5 Step 3): validate the referenced session; never touch a secret.
+    const capId = capabilityIdentity(meta)
+    const wantsIdentity = !!req.identityRef || !!req.sessionRef
+    if (wantsIdentity && !capId.supportsIdentity) {
+      check('identity', false, 'identity.not-supported', `${meta.name} does not support identity-aware execution`)
+    } else if (capId.requiresSession && !req.sessionRef) {
+      check('identity', false, 'identity.session-required', `${meta.name} requires an established session`)
+    } else if (capId.requiresIdentity && !req.identityRef && !req.sessionRef) {
+      check('identity', false, 'identity.identity-required', `${meta.name} requires an identity`)
+    } else if (wantsIdentity) {
+      if (!this.#authResolver) {
+        check('identity', false, 'identity.resolver-unavailable', 'Identity-aware execution is not available in this process')
+      } else {
+        try {
+          identity = await this.#authResolver.validate({ engagementId: engagement.id, environment: engagement.environment ?? 'production', identityRef: req.identityRef ?? null, sessionRef: req.sessionRef ?? null })
+          check('identity', true, 'identity.valid', `Identity ${identity.identityRef ?? '\u2014'}${identity.sessionRef ? ` \u00b7 session ${identity.sessionRef}` : ''} (${identity.authMethod ?? 'n/a'})`)
+        } catch (error) {
+          const kind = error instanceof AuthResolutionError ? error.kind : 'session-invalid'
+          check('identity', false, `identity.${kind}`, error instanceof Error ? error.message : String(error))
+        }
+      }
+    } else if (!capId.supportsAnonymous) {
+      check('identity', false, 'identity.anonymous-not-allowed', `${meta.name} requires an identity or session`)
+    }
+
     // 7. Environment and risk policy.
     policyResult = evaluateCapabilityPolicy(policy, meta)
     check('policy', policyResult.allowed, policyResult.rule, policyResult.reason)
@@ -513,10 +551,23 @@ export class CapabilityBroker {
     const execute = d.capability.implementation.execute
     if (typeof execute !== 'function') throw new Error(`${meta.id} has no in-process implementation`)
     const workspace = new ExecutionWorkspace(this.#workspaceRoot(engagement.id), executionId)
-    const sensor = meta.sensor ? { tool: meta.sensor.tool, toolVersion: snapshot.isolation?.runtime?.image ?? `${meta.id}@${meta.version}` } : null
-    const { handles, registrar, http } = createExecutionHandles(snapshot, { workspace, signal: controller.signal, resolver: this.#resolver, store: this.#store, sensor })
     const event = (type: 'capability.started' | 'capability.completed' | 'capability.failed' | 'capability.cancelled', message: string, data: Record<string, unknown>, level: 'info' | 'warn' | 'error' = 'info') =>
       this.#store.recordEvent({ engagementId: engagement.id, type, level, message, actor: req.actor, executionId, capabilityId: meta.id, configVersion: engagement.configVersion, data })
+    const sensor = meta.sensor ? { tool: meta.sensor.tool, toolVersion: snapshot.isolation?.runtime?.image ?? `${meta.id}@${meta.version}` } : null
+    // Identity-aware execution: resolve the session's auth material (trusted boundary) and inject it.
+    let auth: { headers: Record<string, string>; origin: string } | null = null
+    if (snapshot.identity?.sessionRef) {
+      try {
+        auth = this.#authResolver ? await this.#authResolver.resolve(snapshot) : null
+      } catch (error) {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        const message = redact(error instanceof Error ? error.message : String(error)).slice(0, 500)
+        await event('capability.failed', `${meta.name} could not resolve its session: ${message}`, { error: message, identity: snapshot.identity }, 'error')
+        return { executionId, status: 'failed', decision, output: null, summary: null, evidence: [], error: message, network: [] }
+      }
+    }
+    const { handles, registrar, http } = createExecutionHandles(snapshot, { workspace, signal: controller.signal, resolver: this.#resolver, store: this.#store, sensor, auth })
 
     await event('capability.started', `${meta.name} started`, { correlationId, limits: context.limits, targets: context.allowedTargets })
     try {

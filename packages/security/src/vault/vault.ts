@@ -4,6 +4,7 @@ import {
   ReplaceCredentialInput,
   SetCredentialInput,
   sensitive,
+  type SecurityEnvironment,
   type CredentialMetadata,
   type CredentialSecret,
   type SecurityActor,
@@ -203,6 +204,29 @@ export class SecretVault {
     // Revoking also drops the sealed material, so it can never be resolved again.
     const row = (await updateSessionRow(this.#db, sessionId, { status: 'revoked', revokedAt: this.#now(), sealed: null, keyId: null })) ?? existing
     await this.#event(engagement.id, engagement.configVersion, 'session.revoked', `Session for "${existing.identityRef}" revoked`, { id: existing.id, ref: existing.identityRef, identityRef: existing.identityRef }, actor, 'warn')
+    return toSessionMetadata(row)
+  }
+
+  /**
+   * Trusted (Step 3): creates an established session with its sealed material in one step. It emits no event —
+   * the establishment service emits the richer `session.established` once authentication actually succeeded.
+   */
+  async createEstablishedSession(
+    engagementId: string,
+    params: { identityRef: string; environment: SecurityEnvironment; authMethod: string; material: SessionMaterial; expiresAt: Date | null; status?: SessionStatus },
+  ): Promise<SessionMetadata> {
+    const { sealed, keyId } = this.#seal(params.material)
+    const row = await createSessionRow(this.#db, {
+      id: newSessionId(),
+      engagementId,
+      identityRef: params.identityRef,
+      environment: params.environment,
+      authMethod: params.authMethod,
+      status: params.status ?? 'active',
+      sealed,
+      keyId,
+      expiresAt: params.expiresAt,
+    })
     return toSessionMetadata(row)
   }
 

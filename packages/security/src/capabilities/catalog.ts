@@ -1,5 +1,6 @@
 import { egressCheckCapability } from './egress-check.ts'
 import { httpObserveCapability } from './http-observe.ts'
+import { identityHttpCapability } from './identity-http.ts'
 import { isolatedCheckCapability } from './isolated-check.ts'
 import { CapabilityRegistry } from './registry.ts'
 import { runtimeCheckCapability } from './runtime-check.ts'
@@ -17,6 +18,7 @@ import { semgrepSensorCapability } from '../sensors/semgrep-sensor.ts'
 export function createDefaultRegistry(): CapabilityRegistry {
   return new CapabilityRegistry()
     .register(httpObserveCapability)
+    .register(identityHttpCapability)
     .register(httpxSensorCapability)
     .register(katanaSensorCapability)
     .register(semgrepSensorCapability)

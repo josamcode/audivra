@@ -52,6 +52,8 @@ export interface SnapshotInput {
   /** Input as validated by the capability's strict schema. */
   input: unknown
   actor: SecurityActor
+  /** Identity-aware execution references (Phase 5 Step 3); never secret material. */
+  identity?: { identityRef: string | null; sessionRef: string | null; authMethod: string | null } | null
 }
 
 export function buildExecutionSnapshot(input: SnapshotInput): SecurityExecutionSnapshot {
@@ -84,6 +86,7 @@ export function buildExecutionSnapshot(input: SnapshotInput): SecurityExecutionS
     runtime: runtimeLimitsFor(policy.limits, capability),
     isolation: isolationFor(capability),
     input: structuredClone(input.input),
+    ...(input.identity && (input.identity.identityRef || input.identity.sessionRef) ? { identity: { ...input.identity } } : {}),
     allowedTargets: decision.scope!.evaluations.filter((e) => e.kind !== 'network').map((e) => e.destination.url!),
     actor: { ...input.actor },
     decision: { eventId: input.decisionEventId, rule: decision.rule, evaluatedAt: decision.evaluatedAt },
@@ -150,6 +153,7 @@ export function contextFromSnapshot(s: SecurityExecutionSnapshot): Readonly<Secu
     scope: { version: s.scope.version, hash: s.scope.hash, manifest: structuredClone(s.scope.manifest) },
     policy: { profileKey: s.policy.profileKey, profileVersion: s.policy.profileVersion, risk: s.policy.risk, mutation: s.policy.mutation },
     capability: { id: s.capability.id, version: s.capability.version, implementation: s.capability.implementation, riskClass: s.capability.riskClass, sideEffect: s.capability.sideEffect },
+    identity: s.identity ? { identityRef: s.identity.identityRef, sessionRef: s.identity.sessionRef, authMethod: s.identity.authMethod } : null,
     limits: { ...s.limits },
     actor: { ...s.actor },
     allowedTargets: [...s.allowedTargets],

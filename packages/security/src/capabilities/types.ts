@@ -33,6 +33,8 @@ export interface SecurityExecutionContext {
   scope: { version: number; hash: string; manifest: ScopeManifest }
   policy: { profileKey: string; profileVersion: number; risk: EffectivePermission; mutation: EffectivePermission }
   capability: { id: string; version: number; implementation: string; riskClass: RiskClass; sideEffect: MutationClass }
+  /** Identity-aware execution (Phase 5 Step 3): references only, never secret material. Null when anonymous. */
+  identity: { identityRef: string | null; sessionRef: string | null; authMethod: string | null } | null
   limits: ExecutionLimits
   actor: SecurityActor
   /** Destinations the decision allowed (canonical URLs). */

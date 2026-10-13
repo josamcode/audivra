@@ -20,6 +20,7 @@ import type { CapabilityRegistry } from '../capabilities/registry.ts'
 import type { SecurityCapability } from '../capabilities/types.ts'
 import { compact } from '../compact.ts'
 import { systemResolver, type Resolver } from '../dns.ts'
+import { AuthResolutionError, type ExecutionAuthResolver } from '../session/auth-resolver.ts'
 import { checkExecutionResources, type ResourceCheck, type ResourceCheckInput } from '../resources.ts'
 import type { SecurityStore } from '../store.ts'
 import type { ArtifactRegistrar } from './artifacts.ts'
@@ -83,6 +84,8 @@ export interface ExecutionRuntimeOptions {
   resolver?: Resolver
   workspaceRoot?: (engagementId: string) => string
   checkResources?: (input: ResourceCheckInput) => Promise<ResourceCheck>
+  /** Resolves identity-aware session material at the trusted boundary (Phase 5 Step 3). */
+  authResolver?: ExecutionAuthResolver
   /** Executions that may be active at once across every worker sharing the database. */
   maxActive?: number
   /** How often a running execution's record is checked for cancellation. */
@@ -139,6 +142,7 @@ export class ExecutionRuntime {
   readonly #queue: ExecutionQueue | undefined
   readonly #backends: Partial<Record<ExecutionMode, ExecutionBackend>>
   readonly #resolver: Resolver
+  readonly #authResolver: ExecutionAuthResolver | undefined
   readonly #workspaceRoot: (engagementId: string) => string
   readonly #checkResources: (input: ResourceCheckInput) => Promise<ResourceCheck>
   readonly #maxActive: number
@@ -159,6 +163,7 @@ export class ExecutionRuntime {
     this.#queue = options.queue
     this.#backends = { 'in-process': options.backend ?? new InProcessBackend(), ...options.backends }
     this.#resolver = options.resolver ?? systemResolver
+    this.#authResolver = options.authResolver
     this.#workspaceRoot = options.workspaceRoot ?? engagementWorkspaceDir
     this.#checkResources = options.checkResources ?? checkExecutionResources
     this.#maxActive = options.maxActive ?? 2
@@ -399,16 +404,26 @@ export class ExecutionRuntime {
       runtime,
     })
     if (!resources.ok) throw new ExecutionError(resources.rule === 'resources.runtime-unavailable' ? 'runtime-unavailable' : 'preflight-failed', resources.rule, resources.reason)
-    const spec = this.#spec(state, snapshot, capability, input.data, workspace, stop)
+    // Identity-aware execution (Phase 5 Step 3): resolve the session's auth material at the trusted boundary.
+    let auth: { headers: Record<string, string>; origin: string } | null = null
+    if (snapshot.identity?.sessionRef) {
+      try {
+        auth = this.#authResolver ? await this.#authResolver.resolve(snapshot) : null
+      } catch (error) {
+        const kind = error instanceof AuthResolutionError ? error.kind : 'session-invalid'
+        throw new ExecutionError('preflight-failed', `execution.${kind}`, error instanceof Error ? error.message : String(error))
+      }
+    }
+    const spec = this.#spec(state, snapshot, capability, input.data, workspace, stop, auth)
     const prepared = await backend.prepare(spec)
     state.prepared = prepared
     return prepared
   }
 
   /** Everything a backend gets for one execution, built from the verified snapshot only. */
-  #spec(state: RunState, snapshot: SecurityExecutionSnapshot, capability: SecurityCapability, input: unknown, workspace: ExecutionWorkspace, stop: AbortController): BackendSpec {
+  #spec(state: RunState, snapshot: SecurityExecutionSnapshot, capability: SecurityCapability, input: unknown, workspace: ExecutionWorkspace, stop: AbortController, auth: { headers: Record<string, string>; origin: string } | null = null): BackendSpec {
     const sensor = capability.metadata.sensor ? { tool: capability.metadata.sensor.tool, toolVersion: snapshot.isolation?.runtime?.image ?? `${snapshot.capability.id}@${snapshot.capability.version}` } : null
-    const { handles, registrar, processes } = createExecutionHandles(snapshot, { workspace, signal: stop.signal, resolver: this.#resolver, store: this.#store, sensor })
+    const { handles, registrar, processes } = createExecutionHandles(snapshot, { workspace, signal: stop.signal, resolver: this.#resolver, store: this.#store, sensor, auth })
     state.registrar = registrar
     state.processes = processes
     return {

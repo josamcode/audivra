@@ -76,6 +76,12 @@ export interface ScopedHttpClientOptions {
   mutation: MutationClass
   resolver: Resolver
   signal: AbortSignal
+  /**
+   * Identity-aware auth material injected by the trusted runtime (Phase 5 Step 3). Attached ONLY to
+   * requests whose origin matches `origin`, so a session's cookies/token never leak to another host even
+   * across an in-scope redirect. Never set from capability input or model output.
+   */
+  auth?: { headers: Record<string, string>; origin: string } | null
 }
 
 const sleep = (ms: number, signal: AbortSignal) =>
@@ -208,6 +214,8 @@ export class ScopedHttpClient {
     }
     const transport = target.protocol === 'https:' ? https : http
     const { maxResponseBytes, executionTimeoutSeconds } = this.options.limits
+    // Auth material is attached only when the request origin matches the session's origin.
+    const auth = this.options.auth && this.options.auth.origin === target.origin ? this.options.auth.headers : {}
     return new Promise((resolve, reject) => {
       const req = transport.request(
         {
@@ -216,7 +224,7 @@ export class ScopedHttpClient {
           port: target.port || undefined,
           path: `${target.pathname}${target.search}`,
           method,
-          headers: { 'user-agent': SECURITY_USER_AGENT, accept: '*/*' },
+          headers: { 'user-agent': SECURITY_USER_AGENT, accept: '*/*', ...auth },
           lookup,
           signal: this.options.signal,
           timeout: Math.min(executionTimeoutSeconds * 1000, 30_000),

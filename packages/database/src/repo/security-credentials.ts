@@ -1,8 +1,9 @@
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, ne } from 'drizzle-orm'
 import type { CredentialMetadata, CredentialStatus, CredentialType, SecurityEnvironment, SessionMetadata, SessionStatus } from '@audivra/contracts'
 import type { Db } from '../client.ts'
 import { newId } from '../ids.ts'
 import { securityCredentials, securitySessions } from '../schema.ts'
+import type { DbOrTx } from './security-graph.ts'
 
 /*
  * Persistence for the credential/session secret boundary. Rows carry only an opaque AES-256-GCM envelope
@@ -158,4 +159,33 @@ export interface SessionPatch {
 export async function updateSessionRow(db: Db, id: string, patch: SessionPatch): Promise<SessionRow | undefined> {
   const [row] = await db.update(securitySessions).set({ ...patch, updatedAt: new Date() }).where(eq(securitySessions.id, id)).returning()
   return row
+}
+
+/** What the graph projector reads: established sessions (never `pending`) as safe, secret-free facts. */
+export interface SessionForGraph {
+  id: string
+  identityRef: string
+  environment: SecurityEnvironment
+  authMethod: string
+  status: SessionStatus
+  establishedAt: string
+  expiresAt: string | null
+}
+
+export async function listSessionsForGraph(db: DbOrTx, engagementId: string, limit = 5000): Promise<SessionForGraph[]> {
+  const rows = await db
+    .select()
+    .from(securitySessions)
+    .where(and(eq(securitySessions.engagementId, engagementId), ne(securitySessions.status, 'pending')))
+    .orderBy(asc(securitySessions.identityRef), asc(securitySessions.id))
+    .limit(limit)
+  return rows.map((row) => ({
+    id: row.id,
+    identityRef: row.identityRef,
+    environment: row.environment,
+    authMethod: row.authMethod,
+    status: row.status,
+    establishedAt: (row.refreshedAt ?? row.createdAt).toISOString(),
+    expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+  }))
 }
