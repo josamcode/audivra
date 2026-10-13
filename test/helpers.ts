@@ -59,6 +59,10 @@ export interface IdentityFixture {
   headerSecrets: Map<string, string>
   /** username → { password, sid, who } for the form-login routes. */
   users: Map<string, { password: string; sid: string; who: string }>
+  /** who → { tenant, role } — the multi-tenant principal model (Phase 5 Step 4). */
+  principals: Map<string, { tenant: string; role: 'user' | 'admin' }>
+  /** resource id → { tenant, owner, state, enforce } for the resource API. */
+  resources: Map<string, { tenant: string; owner: string; state: string; enforce: 'strict' | 'tenant' | 'leaky' }>
   close(): Promise<void>
 }
 

@@ -22,6 +22,28 @@ export function startIdentityFixture({ port = 0, label = 'identity' } = {}) {
   const tokens = new Map() // bearer token value → who
   const headerSecrets = new Map() // "name: value" (lower-cased name) → who
   const users = new Map() // username → { password, sid, who }
+  // Multi-tenant application model for differential-authorization comparisons (Phase 5 Step 4).
+  const principals = new Map() // who → { tenant, role }  (role: 'user' | 'admin')
+  const resources = new Map() // id → { tenant, owner (who), state, enforce: 'strict'|'tenant'|'leaky' }
+
+  // Can `who` read `resource`? strict = owner or same-tenant admin; tenant = any same-tenant member; leaky = any authenticated.
+  const canRead = (who, resource) => {
+    if (!who) return false
+    if (who === resource.owner) return true
+    if (resource.enforce === 'leaky') return true
+    const p = principals.get(who)
+    if (!p) return false
+    if (resource.enforce === 'tenant') return p.tenant === resource.tenant
+    return p.role === 'admin' && p.tenant === resource.tenant // strict
+  }
+  // Can `who` mutate `resource` (perform an action / change state)? owner or same-tenant admin, or leaky.
+  const canWrite = (who, resource) => {
+    if (!who) return false
+    if (who === resource.owner) return true
+    if (resource.enforce === 'leaky') return true
+    const p = principals.get(who)
+    return !!p && p.role === 'admin' && p.tenant === resource.tenant
+  }
 
   const cookie = (header, name) => {
     for (const part of (header ?? '').split(';')) {
@@ -56,6 +78,31 @@ export function startIdentityFixture({ port = 0, label = 'identity' } = {}) {
       if (url.pathname === '/public') return json(200, { ok: true })
       if (url.pathname === '/echo') return json(200, { headers: req.headers })
       if (url.pathname === '/me') return who ? json(200, { authenticated: true, who }) : json(401, { authenticated: false })
+
+      // ── Multi-tenant resource API (object/tenant/role boundaries + state transitions) ──
+      // GET /api/resources/:id           read a resource (enforced by ownership/tenant/role)
+      // GET /api/resources/:id/state     read just the current state (for before/after state probes)
+      // POST /api/resources/:id/approve  state transition draft → approved (mutating)
+      // POST /api/resources/:id/reset    state transition → draft (used for cleanup)
+      const resourceMatch = url.pathname.match(/^\/api\/resources\/([^/]+)(?:\/(state|approve|reset))?$/)
+      if (resourceMatch) {
+        const id = resourceMatch[1]
+        const sub = resourceMatch[2]
+        const resource = resources.get(id)
+        if (!who) return json(401, { authenticated: false })
+        if (!resource) return json(404, { error: 'not found' })
+        if (req.method === 'GET') {
+          if (!canRead(who, resource)) return json(403, { error: 'forbidden' })
+          if (sub === 'state') return json(200, { id, state: resource.state })
+          return json(200, { id, tenant: resource.tenant, owner: resource.owner, state: resource.state, fields: ['id', 'tenant', 'owner', 'state'] })
+        }
+        if (req.method === 'POST' && (sub === 'approve' || sub === 'reset')) {
+          if (!canWrite(who, resource)) return json(403, { error: 'forbidden' })
+          resource.state = sub === 'approve' ? 'approved' : 'draft'
+          return json(200, { id, state: resource.state, by: who })
+        }
+        return json(405, { error: 'method not allowed' })
+      }
 
       if (url.pathname === '/login' && req.method === 'GET') {
         res.writeHead(200, { 'content-type': 'text/html' })
@@ -104,6 +151,8 @@ export function startIdentityFixture({ port = 0, label = 'identity' } = {}) {
         tokens,
         headerSecrets,
         users,
+        principals,
+        resources,
         close: () => new Promise((done) => server.close(() => done())),
       })
     })

@@ -149,6 +149,8 @@ describe('capability execution modes', () => {
     expect(createDefaultRegistry().list().map((c) => c.id)).toEqual(['api.contract-test', 'discovery.crawl', 'discovery.http-inspect', 'discovery.http-observe', 'discovery.identity-http', 'source.static-analysis', 'web.signal-scan'])
     const runtime = createRuntimeRegistry()
     expect(runtime.list().map((c) => [c.id, c.execution?.mode ?? 'in-process', c.execution?.network ?? 'none'])).toEqual([
+      ['access.identity-action', 'in-process', 'none'],
+      ['access.identity-read', 'in-process', 'none'],
       ['api.contract-test', 'isolated-container', 'scoped-egress'],
       ['diagnostic.egress-check', 'isolated-container', 'scoped-egress'],
       ['diagnostic.isolated-check', 'isolated-container', 'none'],
