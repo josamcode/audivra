@@ -510,6 +510,14 @@ export const GAP_KIND_LABEL: Record<GapKind, string> = {
   'signal-unconfirmed': 'Unconfirmed signal',
   'contradiction-unresolved': 'Unresolved contradiction',
   'authentication-requirement-unknown': 'Authentication unknown',
+  'identity-role-unknown': 'Identity role unknown',
+  'tenant-membership-unknown': 'Tenant membership unknown',
+  'resource-ownership-unknown': 'Resource ownership unknown',
+  'authorization-expectation-unknown': 'Authorization expectation unknown',
+  'function-permission-unknown': 'Function permission unknown',
+  'field-visibility-unknown': 'Field visibility unknown',
+  'session-behavior-unknown': 'Session behavior unknown',
+  'state-transition-rule-unknown': 'State transition rule unknown',
 }
 
 /** A hypothesis is a claim to investigate — never a verified vulnerability. */

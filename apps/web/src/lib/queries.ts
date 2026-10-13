@@ -86,6 +86,7 @@ export const queryKeys = {
   engagementComparisonCoverage: (id: string) => ['security', 'engagement', id, 'comparison-coverage'] as const,
   engagementInvariants: (id: string) => ['security', 'engagement', id, 'invariants'] as const,
   securityComparison: (comparisonId: string) => ['security', 'comparison', comparisonId] as const,
+  engagementDeclarations: (id: string) => ['security', 'engagement', id, 'declarations'] as const,
 }
 
 export const dashboardQuery = (includeBenchmarks: boolean) =>
@@ -300,5 +301,8 @@ export const engagementInvariantsQuery = (id: string) =>
 
 export const securityComparisonQuery = (comparisonId: string) =>
   queryOptions({ queryKey: queryKeys.securityComparison(comparisonId), queryFn: () => api.securityComparison(comparisonId) })
+
+export const engagementDeclarationsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementDeclarations(id), queryFn: () => api.declarations(id) })
 
 export { isActiveRun }

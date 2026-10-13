@@ -11,6 +11,7 @@ import { AuthorizationTab } from '@/features/security/authorization-tab'
 import { EngagementHeader } from '@/features/security/engagement-header'
 import { ExecutionsTab } from '@/features/security/executions-tab'
 import { AccessTab } from '@/features/security/access-tab'
+import { DomainTab } from '@/features/security/domain-tab'
 import { GraphTab } from '@/features/security/graph-tab'
 import { HypothesesTab } from '@/features/security/hypotheses-tab'
 import { IdentitiesTab } from '@/features/security/identities-tab'
@@ -21,7 +22,7 @@ import { ScopeTab } from '@/features/security/scope-tab'
 import { ApiError } from '@/lib/api'
 import { engagementQuery } from '@/lib/queries'
 
-const TABS = ['overview', 'scope', 'authorization', 'identities', 'access', 'policy', 'executions', 'observations', 'graph', 'hypotheses', 'activity'] as const
+const TABS = ['overview', 'scope', 'authorization', 'identities', 'domain', 'access', 'policy', 'executions', 'observations', 'graph', 'hypotheses', 'activity'] as const
 type EngagementTab = (typeof TABS)[number]
 const ENTITY_ID = /^gn_[0-9a-z]{14}$/
 const HYPOTHESIS_ID = /^hy_[0-9a-z]{14}$/
@@ -91,6 +92,7 @@ function EngagementPage() {
           { value: 'scope', label: 'Scope' },
           { value: 'authorization', label: 'Authorization' },
           { value: 'identities', label: 'Identities' },
+          { value: 'domain', label: 'Domain' },
           { value: 'access', label: 'Access' },
           { value: 'policy', label: 'Policy' },
           { value: 'executions', label: 'Executions' },
@@ -112,6 +114,9 @@ function EngagementPage() {
           </TabPanel>
           <TabPanel value="identities">
             <IdentitiesTab engagement={engagement} />
+          </TabPanel>
+          <TabPanel value="domain">
+            <DomainTab engagement={engagement} />
           </TabPanel>
           <TabPanel value="access">
             <AccessTab engagement={engagement} />

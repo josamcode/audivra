@@ -169,6 +169,7 @@ function Select<T extends string>({
 const SOURCE_LABEL: Record<SecurityGraphProvenance['source'], string> = {
   observation: 'Sensor observation',
   derivation: 'Deterministic derivation',
+  'comparison-derivation': 'Differential comparison (evidence-backed)',
   'ai-inference': 'AI inference (validated, not observed)',
   'user-declaration': 'Declared by a person',
 }

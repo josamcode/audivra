@@ -224,6 +224,11 @@ export const api = {
   reasoningCoverage: (id: string) => request<ReasoningCoverage>(`${engagementPath(id)}/reasoning/coverage`),
   // Identities & sessions (Phase 5). Secrets are never returned — only safe metadata.
   identities: (id: string) => request<SecurityDomainDeclaration[]>(`${engagementPath(id)}/domain/declarations?kind=identity`),
+  // Domain declaration management (Phase 5 Step 5): create / update / retire. No secret material.
+  declarations: (id: string, kind?: string) => request<SecurityDomainDeclaration[]>(`${engagementPath(id)}/domain/declarations${kind ? `?kind=${kind}` : ''}`),
+  createDeclaration: (id: string, body: { kind: string; ref: string; label?: string; spec: Record<string, unknown> }) => request<SecurityDomainDeclaration>(`${engagementPath(id)}/domain/declarations`, post(body)),
+  updateDeclaration: (declarationId: string, body: { label?: string; spec: Record<string, unknown> }) => request<SecurityDomainDeclaration>(`/api/security/domain/declarations/${encodeURIComponent(declarationId)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  retireDeclaration: (declarationId: string) => request<SecurityDomainDeclaration>(`/api/security/domain/declarations/${encodeURIComponent(declarationId)}/retire`, { method: 'POST' }),
   engagementCredentials: (id: string) => request<CredentialMetadata[]>(`${engagementPath(id)}/credentials`),
   engagementSessions: (id: string) => request<SessionMetadata[]>(`${engagementPath(id)}/sessions`),
   identityCoverage: (id: string) => request<IdentityCoverageItem[]>(`${engagementPath(id)}/identities/coverage`),
