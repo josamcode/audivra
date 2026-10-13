@@ -28,6 +28,7 @@ import {
   type Db,
 } from '@audivra/database'
 import type { BrokerOutcome, CapabilityBroker } from '../broker.ts'
+import { GraphProjector } from '../graph/projector.ts'
 import { LOCAL_USER, SecurityRequestError } from '../service.ts'
 import { classifyComparison, classifyRelationship, comparisonDedupeKey } from './classify.ts'
 import { ensureBoundaryHypothesis, reassessBoundaryHypothesis } from './hypothesis.ts'
@@ -54,6 +55,8 @@ function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown): T {
 export interface ComparisonEngineOptions {
   db: Db
   broker: CapabilityBroker
+  /** Re-projects the graph after a comparison completes (default: a GraphProjector; derives CAN_ACCESS, closes gaps). */
+  projector?: { project(engagementId: string): Promise<unknown> }
   now?: () => Date
   log?: Logger
 }
@@ -61,12 +64,14 @@ export interface ComparisonEngineOptions {
 export class ComparisonEngine {
   readonly #db: Db
   readonly #broker: CapabilityBroker
+  readonly #projector: { project(engagementId: string): Promise<unknown> }
   readonly #now: () => Date
   readonly #log: Logger | undefined
 
   constructor(options: ComparisonEngineOptions) {
     this.#db = options.db
     this.#broker = options.broker
+    this.#projector = options.projector ?? new GraphProjector({ db: options.db, log: options.log })
     this.#now = options.now ?? (() => new Date())
     this.#log = options.log
   }
@@ -221,7 +226,9 @@ export class ComparisonEngine {
     const type = classification.result === 'inconclusive' ? 'comparison.inconclusive' : 'comparison.completed'
     await this.#event(comparison.engagementId, engagement.configVersion, type, `Comparison on "${comparison.resourceRef}" → ${classification.result}: ${classification.resultReason}`, { comparisonId, result: classification.result }, actor, level)
 
-    // Deterministic downstream updates: the linked hypothesis and the governed invariant.
+    // Close the loop: re-project the graph so strong evidence derives facts (CAN_ACCESS) and answers the
+    // Phase-5 knowledge gaps, then re-assess the linked hypothesis and the governed invariant.
+    await this.#reproject(comparison.engagementId)
     if (comparison.hypothesisId) await reassessBoundaryHypothesis(this.#db, comparison.hypothesisId, actor)
     if (comparison.invariantRef && classification.invariantEvaluation && classification.invariantEvaluation !== 'inconclusive') {
       await this.#event(
@@ -366,6 +373,15 @@ export class ComparisonEngine {
 
   async #patch(comparisonId: string, patch: ComparisonPatch): Promise<void> {
     await updateComparison(this.#db, comparisonId, patch)
+  }
+
+  async #reproject(engagementId: string): Promise<void> {
+    try {
+      await this.#projector.project(engagementId)
+    } catch (error) {
+      // Projection is deterministic and repeatable; a failure must not fail (or roll back) a stored comparison.
+      this.#log?.warn({ engagementId, error: error instanceof Error ? error.message : String(error) }, 'graph projection after comparison failed')
+    }
   }
 
   async #event(engagementId: string, configVersion: number, type: Parameters<typeof recordSecurityEvent>[1]['type'], message: string, data: Record<string, unknown>, actor: SecurityActor, level: 'info' | 'warn' = 'info'): Promise<void> {

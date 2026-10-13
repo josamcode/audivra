@@ -1,4 +1,4 @@
-import { toAgentJsonSchema, PlannerOutput, ResearcherOutput, VerifierOutput, type AiTaskOutcome, type AiTaskSpec } from '@audivra/contracts'
+import { toAgentJsonSchema, ComparisonPlannerOutput, PlannerOutput, ResearcherOutput, VerifierOutput, type AiTaskOutcome, type AiTaskSpec } from '@audivra/contracts'
 import type { z } from 'zod'
 
 /*
@@ -14,7 +14,7 @@ export interface ReasoningContextSection {
   content: string
 }
 
-export type ReasoningPrompt = 'security-researcher' | 'security-verifier' | 'security-planner'
+export type ReasoningPrompt = 'security-researcher' | 'security-verifier' | 'security-planner' | 'security-comparison-planner'
 
 export interface ReasoningAiTask {
   spec: AiTaskSpec
@@ -84,6 +84,21 @@ export const REASONING_TASKS = {
     },
     prompt: 'security-planner',
     schema: PlannerOutput,
+  },
+  comparisonPlanner: {
+    spec: {
+      taskType: 'security-plan',
+      role: 'security-comparison-planner',
+      effort: 'standard',
+      budget: { wallClockMs: 6 * 60_000, toolCalls: 0, turns: 4 },
+      requirements: { structuredOutput: true, toolUse: false, sessionResume: false },
+      outputSchemaId: 'audivra.security.comparison-planner-output.v1',
+      allowedCapabilities: [],
+      trustedRefs: ['identities', 'resources', 'roles', 'actions', 'invariants', 'gaps', 'comparisons'],
+      untrustedRefs: [],
+    },
+    prompt: 'security-comparison-planner',
+    schema: ComparisonPlannerOutput,
   },
 } as const satisfies Record<string, { spec: AiTaskSpec; prompt: ReasoningPrompt; schema: z.ZodType }>
 

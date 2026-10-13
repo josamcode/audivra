@@ -6,6 +6,7 @@ import {
   insertGraphGaps,
   insertGraphNodes,
   insertGraphProvenance,
+  listComparisonsForEngagement,
   listExecutionFactsForGraph,
   listDomainDeclarationsForGraph,
   listObservationsForGraph,
@@ -29,9 +30,10 @@ import {
   type GraphProvenanceRow,
   type GraphRows,
 } from '@audivra/database'
+import { grantedAccess } from '../comparison/normalize.ts'
 import { deriveGraph, roundConfidence, type FactInput, type FinalFact, type ProvenanceLike } from './derive.ts'
 import type { DesiredGraph, DesiredProvenance } from './project.ts'
-import { projectGraph } from './project-domain.ts'
+import { projectGraph, type ComparisonProjection } from './project-domain.ts'
 
 /*
  * The graph projector: stored observations → Security Graph, deterministically and idempotently.
@@ -137,9 +139,10 @@ export class GraphProjector {
       const observations = await listObservationsForGraph(tx, engagementId)
       const declarations = await listDomainDeclarationsForGraph(tx, engagementId)
       const sessions = await listSessionsForGraph(tx, engagementId)
+      const comparisons = toComparisonProjections(await listComparisonsForEngagement(tx, engagementId))
       const executions = await listExecutionFactsForGraph(tx, engagementId)
       const stored = await loadGraphRows(tx, engagementId)
-      const desired = projectGraph({ observations, declarations, sessions, manifest: engagement.scope })
+      const desired = projectGraph({ observations, declarations, sessions, comparisons, manifest: engagement.scope })
       const derived = this.#derive(desired, stored, executions, observations, now.toISOString())
       return this.#apply(tx, engagementId, desired.provenance, derived, stored, observations.length, now)
     })
@@ -365,4 +368,22 @@ export class GraphProjector {
     if (groups.length === 0) return
     await recordSecurityEvent(this.#db, { engagementId, type: 'graph.contradiction-detected', level: 'warn', message: `Security graph: conflicting facts detected (${groups.slice(0, 3).join('; ')})`, actor: SYSTEM, configVersion, data: { groups } })
   }
+}
+
+/** Maps stored comparisons to the projector's secret-free view (per-arm access computed deterministically). */
+function toComparisonProjections(comparisons: Awaited<ReturnType<typeof listComparisonsForEngagement>>): ComparisonProjection[] {
+  return comparisons.map((c) => ({
+    id: c.id,
+    dimension: c.dimension,
+    resourceRef: c.resourceRef,
+    invariantRef: c.invariantRef,
+    result: c.result,
+    invariantEvaluation: c.invariantEvaluation,
+    confidence: c.confidence,
+    controls: c.controls,
+    at: c.updatedAt,
+    arms: c.arms
+      .filter((a) => a.status === 'executed' && a.observation)
+      .map((a) => ({ identityRef: a.identityRef, granted: grantedAccess(a.observation!), executionId: a.executionId, evidenceRefs: a.observation!.evidenceRefs })),
+  }))
 }

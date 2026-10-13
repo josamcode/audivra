@@ -93,7 +93,7 @@ export interface DerivedGraph {
   conflictGroups: string[]
 }
 
-const BASIS_OF: Record<ProvenanceSource, KnowledgeBasis> = { observation: 'observed', 'user-declaration': 'declared', derivation: 'derived', 'ai-inference': 'inferred' }
+const BASIS_OF: Record<ProvenanceSource, KnowledgeBasis> = { observation: 'observed', 'user-declaration': 'declared', derivation: 'derived', 'comparison-derivation': 'derived', 'ai-inference': 'inferred' }
 export const roundConfidence = (value: number) => Math.round(Math.min(1, Math.max(0, value)) * 10_000) / 10_000
 
 /** Aggregates a fact's provenance. Deterministic support always outranks inference. */
@@ -250,6 +250,15 @@ function evaluateGaps(nodes: Map<string, FinalFact>, edges: Map<string, FinalFac
 
   const callTargets = new Set([...edges.values()].filter((e) => e.type === 'CALLS').map((e) => e.toKey!))
 
+  // Phase 5: application-semantics unknowns feed the comparison planner. They are answered by a controlled
+  // differential comparison (an incoming CAN_ACCESS edge), never by a sensor — so `answeredBy` is empty.
+  const edgeList = [...edges.values()]
+  const hasOut = (fromKey: string, type: string) => edgeList.some((e) => e.type === type && e.fromKey === fromKey && !inactive(e))
+  const hasIn = (toKey: string, type: string) => edgeList.some((e) => e.type === type && e.toKey === toKey && !inactive(e))
+  const roleCount = [...nodes.values()].filter((n) => n.kind === 'role' && !inactive(n)).length
+  const domainGap = (kind: GapKind, key: string, open: boolean, question: string, resolution: string) =>
+    gap({ kind, subjectKey: key, state: open ? 'open' : 'resolved', question, resolution: open ? null : resolution, resolvedBy: null, answeredBy: [] })
+
   for (const node of [...nodes.values()].sort((a, b) => a.key.localeCompare(b.key))) {
     const label = node.kind === 'endpoint' ? String(node.attributes.url ?? node.label) : node.label
     switch (node.kind) {
@@ -340,6 +349,31 @@ function evaluateGaps(nodes: Map<string, FinalFact>, edges: Map<string, FinalFac
           : undefined
         if (confirming) gap({ kind: 'signal-unconfirmed', subjectKey: node.key, state: 'resolved', question, resolution: `Confirmed independently by ${rule!.how} (${[...new Set(confirming.contributions.map((c) => c.tool))].join(', ')})`, resolvedBy: { observationId: confirming.id, executionId: latestExecution(confirming) }, answeredBy })
         else gap({ kind: 'signal-unconfirmed', subjectKey: node.key, state: 'open', question, resolution: null, resolvedBy: null, answeredBy })
+        break
+      }
+      case 'identity': {
+        if (inactive(node)) break
+        domainGap('identity-role-unknown', node.key, !hasOut(node.key, 'HAS_ROLE'), `What role does ${node.label} hold? No role is declared or observed.`, 'A role is known')
+        domainGap('tenant-membership-unknown', node.key, !hasOut(node.key, 'BELONGS_TO_TENANT'), `Which tenant does ${node.label} belong to?`, 'A tenant is known')
+        break
+      }
+      case 'resource': {
+        if (inactive(node)) break
+        const compared = hasIn(node.key, 'CAN_ACCESS')
+        domainGap('resource-ownership-unknown', node.key, !hasIn(node.key, 'OWNS'), `Who owns ${node.label}? No owning identity is declared or observed.`, 'An owner is known')
+        domainGap('authorization-expectation-unknown', node.key, !compared && !hasOut(node.key, 'GOVERNED_BY'), `What is the expected access boundary on ${node.label}? No invariant governs it and no comparison has tested it.`, 'A comparison or invariant established the expectation')
+        domainGap('session-behavior-unknown', node.key, !compared, `Does ${node.label} enforce a session boundary (authenticated vs anonymous)?`, 'A comparison observed its session behaviour')
+        if (roleCount >= 2) domainGap('field-visibility-unknown', node.key, !compared, `Do different roles see different fields on ${node.label}?`, 'A field-boundary comparison observed the returned fields')
+        break
+      }
+      case 'business-action': {
+        if (inactive(node)) break
+        domainGap('function-permission-unknown', node.key, !hasIn(node.key, 'PERMITS'), `Which role may perform ${node.label}? No permitting role is declared or observed.`, 'A permitting role is known')
+        break
+      }
+      case 'business-state': {
+        if (inactive(node)) break
+        domainGap('state-transition-rule-unknown', node.key, !hasOut(node.key, 'TRANSITIONS_TO'), `What transitions out of ${node.label}? No transition is declared or observed.`, 'A transition is known')
         break
       }
       default:

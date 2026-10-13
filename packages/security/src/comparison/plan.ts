@@ -13,12 +13,14 @@ import { comparisonDedupeKey } from './classify.ts'
 
 export interface PlannerIdentity {
   ref: string
+  key: string
   tenantRef: string | null
   roleRefs: string[]
   hasSession: boolean
 }
 export interface PlannerResource {
   ref: string
+  key: string
   ownerRef: string | null
   tenantRef: string | null
   testData: string
@@ -31,11 +33,26 @@ export interface PlannerInvariant {
   rule: string
   resourceRefs: string[]
 }
+export interface PlannerAction {
+  ref: string
+  verb: string
+  endpointUrl: string | null
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  stateProbeUrl: string | null
+  requiredRoleRefs: string[]
+  requiredStateRef: string | null
+  resultingStateRef: string | null
+  actsOnRefs: string[]
+}
 export interface PlannerInput {
   environment: string
   identities: PlannerIdentity[]
   resources: PlannerResource[]
   invariants: PlannerInvariant[]
+  actions: PlannerAction[]
+  roles: { ref: string; permits: string[] }[]
+  /** Open Phase-5 knowledge gaps by subject key, to prioritise the most uncertain boundaries. */
+  openGaps: { kind: string; subjectKey: string }[]
   /** Dedupe keys of comparisons that already exist (not re-proposed). */
   existingDedupeKeys: Set<string>
 }
@@ -46,63 +63,61 @@ export interface RankedPlan {
   reason: string
 }
 
-const expected = (outcome: ExpectedBehavior['outcome'], basis: ExpectedBehavior['basis'], invariantRef: string | null, rationale: string): ExpectedBehavior => ({ outcome, basis, invariantRef, sourceRef: null, rationale })
-const arm = (role: ComparisonArmPlan['role'], identityRef: string | null, resourceRef: string, url: string, exp: ExpectedBehavior): ComparisonArmPlan => ({ role, identityRef, resourceRef, url, method: 'GET', body: null, expected: exp })
+/** How the candidate space was pruned — proof that the planner avoids a Cartesian explosion. */
+export interface PruningStats {
+  /** Raw possible identity × resource × (read + actions) combinations. */
+  cartesian: number
+  /** Candidate comparisons the planner actually considered (after graph/declaration filtering). */
+  candidates: number
+  proposed: number
+  /** Why candidates were discarded. */
+  discarded: Record<string, number>
+}
 
-/** Proposes a bounded, ranked, deduplicated set of comparisons. */
-export function proposeComparisons(input: PlannerInput, limit = 4): RankedPlan[] {
+const expected = (outcome: ExpectedBehavior['outcome'], basis: ExpectedBehavior['basis'], invariantRef: string | null, rationale: string): ExpectedBehavior => ({ outcome, basis, invariantRef, sourceRef: null, rationale })
+const arm = (role: ComparisonArmPlan['role'], identityRef: string | null, resourceRef: string, url: string, exp: ExpectedBehavior, method: ComparisonArmPlan['method'] = 'GET'): ComparisonArmPlan => ({ role, identityRef, resourceRef, url, method, body: null, expected: exp })
+
+class Candidates {
+  readonly plans: RankedPlan[] = []
+  readonly discarded: Record<string, number> = {}
+  considered = 0
+  constructor(
+    private readonly existing: Set<string>,
+    private readonly openGaps: { kind: string; subjectKey: string }[],
+  ) {}
+  discard(reason: string): void {
+    this.discarded[reason] = (this.discarded[reason] ?? 0) + 1
+  }
+  add(plan: ComparisonPlanInput, resourceKey: string, baseGain: number, reason: string): void {
+    this.considered++
+    const key = comparisonDedupeKey(plan.dimension, plan.action, plan.arms)
+    if (this.existing.has(key) || this.plans.some((p) => comparisonDedupeKey(p.plan.dimension, p.plan.action, p.plan.arms) === key)) {
+      this.discard('duplicate')
+      return
+    }
+    // Boost gain when an open Phase-5 gap on this resource would be answered by the comparison.
+    const gapBoost = this.openGaps.some((g) => g.subjectKey === resourceKey) ? 0.15 : 0
+    this.plans.push({ plan, informationGain: Math.min(1, baseGain + gapBoost), reason })
+  }
+}
+
+/**
+ * Proposes a bounded, ranked, deduplicated set of comparisons across all supported categories WITHOUT
+ * enumerating identities × resources × actions: for each resource/action it picks one representative subject
+ * and the needed controls, deduplicates against what already ran, and ranks by information gain (open
+ * Phase-5 gaps and test-owned resources first). Returns pruning stats proving the candidate set stays small.
+ */
+export function proposeComparisons(input: PlannerInput, limit = 6): { plans: RankedPlan[]; stats: PruningStats } {
   const withSession = input.identities.filter((i) => i.hasSession)
   const invariantFor = (resourceRef: string, categories: string[]) => input.invariants.find((inv) => categories.includes(inv.category) && inv.resourceRefs.includes(resourceRef))
-  const out: RankedPlan[] = []
-
-  for (const resource of input.resources) {
-    if (!resource.url) continue
-    const owner = resource.ownerRef ? withSession.find((i) => i.ref === resource.ownerRef) : undefined
-
-    // Object boundary: an identity that does not own the resource should be denied; the owner should be allowed.
-    const other = withSession.find((i) => i.ref !== resource.ownerRef && (!resource.tenantRef || !i.tenantRef || i.tenantRef === resource.tenantRef))
-    if (owner && other) {
-      const inv = invariantFor(resource.ref, ['object-boundary', 'ownership'])
-      const plan = objectBoundaryPlan(resource, owner, other, inv?.ref ?? null)
-      pushUnique(out, input.existingDedupeKeys, plan, gain(resource, true, true), `Object boundary on ${resource.ref}: can ${other.ref} read ${owner.ref}'s resource?`)
-    }
-
-    // Tenant boundary: an identity in a different tenant should be denied a tenant-scoped resource.
-    if (resource.tenantRef) {
-      const crossTenant = withSession.find((i) => i.tenantRef && i.tenantRef !== resource.tenantRef)
-      const sameTenant = withSession.find((i) => i.tenantRef === resource.tenantRef)
-      if (crossTenant) {
-        const inv = invariantFor(resource.ref, ['tenant-boundary'])
-        const plan = tenantBoundaryPlan(resource, crossTenant, sameTenant ?? null, inv?.ref ?? null)
-        pushUnique(out, input.existingDedupeKeys, plan, gain(resource, !!sameTenant, true), `Tenant boundary on ${resource.ref}: can ${crossTenant.ref} (other tenant) read it?`)
-      }
-    }
-  }
-
-  return out.sort((a, b) => b.informationGain - a.informationGain).slice(0, limit)
-}
-
-function objectBoundaryPlan(resource: PlannerResource, owner: PlannerIdentity, other: PlannerIdentity, invariantRef: string | null): ComparisonPlanInput {
-  return basePlan('object-boundary', resource, invariantRef, [
-    arm('subject', other.ref, resource.ref, resource.url!, expected('deny', invariantRef ? 'declared' : 'ai-inferred', invariantRef, `${other.ref} does not own ${resource.ref}`)),
-    arm('positive-control', owner.ref, resource.ref, resource.url!, expected('allow', 'observed', invariantRef, `${owner.ref} owns ${resource.ref}`)),
-    arm('negative-control', null, resource.ref, resource.url!, expected('deny', 'observed', invariantRef, 'anonymous access should be denied')),
-  ])
-}
-
-function tenantBoundaryPlan(resource: PlannerResource, crossTenant: PlannerIdentity, sameTenant: PlannerIdentity | null, invariantRef: string | null): ComparisonPlanInput {
-  const arms = [arm('subject', crossTenant.ref, resource.ref, resource.url!, expected('deny', invariantRef ? 'declared' : 'ai-inferred', invariantRef, `${crossTenant.ref} is in a different tenant than ${resource.ref}`))]
-  if (sameTenant) arms.push(arm('positive-control', sameTenant.ref, resource.ref, resource.url!, expected('allow', 'observed', invariantRef, `${sameTenant.ref} is in the resource's tenant`)))
-  arms.push(arm('negative-control', null, resource.ref, resource.url!, expected('deny', 'observed', invariantRef, 'anonymous access should be denied')))
-  return basePlan('tenant-boundary', resource, invariantRef, arms)
-}
-
-function basePlan(dimension: ComparisonDimension, resource: PlannerResource, invariantRef: string | null, arms: ComparisonArmPlan[]): ComparisonPlanInput {
-  return {
+  const c = new Candidates(input.existingDedupeKeys, input.openGaps)
+  const baseGain = (r: PlannerResource, hasPositive: boolean, hasNegative: boolean) =>
+    Math.max(0, Math.min(0.9, 0.5 + (hasPositive ? 0.2 : 0) + (hasNegative ? 0.1 : 0) + (r.testData === 'test-owned' || r.testData === 'synthetic' ? 0.1 : r.testData === 'production-like' ? -0.2 : 0)))
+  const base = (dimension: ComparisonDimension, resource: PlannerResource, action: string, invariantRef: string | null, arms: ComparisonArmPlan[], extra: Partial<ComparisonPlanInput> = {}): ComparisonPlanInput => ({
     hypothesisId: null,
     dimension,
     resourceRef: resource.ref,
-    action: 'read',
+    action,
     invariantRef,
     arms,
     cleanupRequired: false,
@@ -111,23 +126,138 @@ function basePlan(dimension: ComparisonDimension, resource: PlannerResource, inv
     expectedTransition: null,
     reason: `Representative ${dimension} comparison on ${resource.ref}`,
     coverageSampled: true,
+    ...extra,
+  })
+
+  for (const resource of input.resources) {
+    if (!resource.url) {
+      c.discard('resource-no-url')
+      continue
+    }
+    const url = resource.url
+    const owner = resource.ownerRef ? withSession.find((i) => i.ref === resource.ownerRef) : undefined
+
+    // Object boundary: a non-owner (same tenant) should be denied; the owner should be allowed.
+    const nonOwner = withSession.find((i) => i.ref !== resource.ownerRef && (!resource.tenantRef || !i.tenantRef || i.tenantRef === resource.tenantRef))
+    if (owner && nonOwner) {
+      const inv = invariantFor(resource.ref, ['object-boundary', 'ownership'])
+      c.add(
+        base('object-boundary', resource, 'read', inv?.ref ?? null, [
+          arm('subject', nonOwner.ref, resource.ref, url, expected('deny', inv ? 'declared' : 'ai-inferred', inv?.ref ?? null, `${nonOwner.ref} does not own ${resource.ref}`)),
+          arm('positive-control', owner.ref, resource.ref, url, expected('allow', 'observed', inv?.ref ?? null, `${owner.ref} owns ${resource.ref}`)),
+          arm('negative-control', null, resource.ref, url, expected('deny', 'observed', inv?.ref ?? null, 'anonymous access should be denied')),
+        ]),
+        resource.key,
+        baseGain(resource, true, true),
+        `Object boundary: can ${nonOwner.ref} read ${owner.ref}'s ${resource.ref}?`,
+      )
+    } else if (resource.ownerRef) c.discard('object-no-second-identity')
+
+    // Tenant boundary: a cross-tenant identity should be denied a tenant-scoped resource.
+    if (resource.tenantRef) {
+      const crossTenant = withSession.find((i) => i.tenantRef && i.tenantRef !== resource.tenantRef)
+      const sameTenant = withSession.find((i) => i.tenantRef === resource.tenantRef)
+      if (crossTenant) {
+        const inv = invariantFor(resource.ref, ['tenant-boundary'])
+        const arms = [arm('subject', crossTenant.ref, resource.ref, url, expected('deny', inv ? 'declared' : 'ai-inferred', inv?.ref ?? null, `${crossTenant.ref} is in a different tenant`))]
+        if (sameTenant) arms.push(arm('positive-control', sameTenant.ref, resource.ref, url, expected('allow', 'observed', inv?.ref ?? null, `${sameTenant.ref} is in the tenant`)))
+        arms.push(arm('negative-control', null, resource.ref, url, expected('deny', 'observed', inv?.ref ?? null, 'anonymous access should be denied')))
+        c.add(base('tenant-boundary', resource, 'read', inv?.ref ?? null, arms), resource.key, baseGain(resource, !!sameTenant, true), `Tenant boundary: can ${crossTenant.ref} (other tenant) read ${resource.ref}?`)
+      } else c.discard('tenant-no-cross-tenant-identity')
+    }
+
+    // Field boundary: a non-owner that can read should see a limited view vs the owner (full view).
+    if (owner && nonOwner) {
+      c.add(
+        base('field-boundary', resource, 'read', null, [
+          arm('subject', nonOwner.ref, resource.ref, url, expected('limited', 'ai-inferred', null, `${nonOwner.ref} should see fewer fields than the owner`)),
+          arm('positive-control', owner.ref, resource.ref, url, expected('allow', 'observed', null, `${owner.ref} sees the full resource`)),
+        ]),
+        resource.key,
+        baseGain(resource, true, false) - 0.1,
+        `Field boundary: does ${nonOwner.ref} see the same fields as ${owner.ref} on ${resource.ref}?`,
+      )
+    }
+
+    // Session boundary: an anonymous request should be denied; an authenticated identity allowed.
+    const anyAuthed = owner ?? withSession[0]
+    if (anyAuthed) {
+      c.add(
+        base('session-boundary', resource, 'read', null, [
+          arm('subject', null, resource.ref, url, expected('deny', 'ai-inferred', null, 'an anonymous request should be denied a protected resource')),
+          arm('positive-control', anyAuthed.ref, resource.ref, url, expected('allow', 'observed', null, `${anyAuthed.ref} is authenticated`)),
+        ]),
+        resource.key,
+        baseGain(resource, true, false) - 0.15,
+        `Session boundary: is ${resource.ref} protected from anonymous access?`,
+      )
+    }
   }
-}
 
-/** Information gain: untested boundaries on test-owned resources with a positive control rank highest. */
-function gain(resource: PlannerResource, hasPositiveControl: boolean, hasNegativeControl: boolean): number {
-  let g = 0.5
-  if (hasPositiveControl) g += 0.25
-  if (hasNegativeControl) g += 0.1
-  if (resource.testData === 'test-owned' || resource.testData === 'synthetic') g += 0.1
-  if (resource.testData === 'production-like') g -= 0.2
-  return Math.max(0, Math.min(1, g))
-}
+  // Role / function-level and business-rule comparisons come from business actions with an endpoint.
+  for (const action of input.actions) {
+    if (!action.endpointUrl) {
+      c.discard('action-no-endpoint')
+      continue
+    }
+    const actsOn = action.actsOnRefs.map((ref) => input.resources.find((r) => r.ref === ref)).find((r): r is PlannerResource => !!r) ?? input.resources[0]
+    if (!actsOn) {
+      c.discard('action-no-resource')
+      continue
+    }
+    const requiredRole = action.requiredRoleRefs[0] ?? null
+    const safe = action.method === 'GET'
+    if (requiredRole) {
+      const privileged = withSession.find((i) => i.roleRefs.includes(requiredRole))
+      const unprivileged = withSession.find((i) => !i.roleRefs.includes(requiredRole))
+      if (privileged && unprivileged) {
+        const dimension: ComparisonDimension = safe ? 'function-level' : 'role-boundary'
+        c.add(
+          base(
+            dimension,
+            actsOn,
+            action.verb,
+            null,
+            [
+              arm('subject', unprivileged.ref, actsOn.ref, action.endpointUrl, expected('deny', 'ai-inferred', null, `${unprivileged.ref} lacks the role ${requiredRole}`), action.method),
+              arm('positive-control', privileged.ref, actsOn.ref, action.endpointUrl, expected('allow', 'observed', null, `${privileged.ref} holds ${requiredRole}`), action.method),
+            ],
+            safe ? {} : { cleanupRequired: true, cleanup: { identityRef: privileged.ref, url: `${action.endpointUrl.replace(/\/[^/]+$/, '')}/reset`, method: 'POST', body: null } },
+          ),
+          actsOn.key,
+          baseGain(actsOn, true, false),
+          `${dimension}: can ${unprivileged.ref} (no ${requiredRole}) perform ${action.verb}?`,
+        )
+      } else c.discard('role-no-contrast-identity')
+    }
+    // Business-rule / state transition: a permitted identity performs the action; state is read before/after.
+    if (action.stateProbeUrl && (action.resultingStateRef || action.requiredStateRef)) {
+      const actor = (requiredRole ? withSession.find((i) => i.roleRefs.includes(requiredRole)) : undefined) ?? (actsOn.ownerRef ? withSession.find((i) => i.ref === actsOn.ownerRef) : undefined) ?? withSession[0]
+      if (actor) {
+        const inv = invariantFor(actsOn.ref, ['state-transition', 'business-rule'])
+        c.add(
+          base('state-transition', actsOn, action.verb, inv?.ref ?? null, [arm('subject', actor.ref, actsOn.ref, action.endpointUrl, expected('allow', 'observed', inv?.ref ?? null, `${actor.ref} performs ${action.verb}`), action.method)], {
+            stateProbeUrl: action.stateProbeUrl,
+            expectedTransition: action.requiredStateRef && action.resultingStateRef ? `${action.requiredStateRef}→${action.resultingStateRef}` : null,
+            cleanupRequired: true,
+            cleanup: { identityRef: actor.ref, url: `${action.endpointUrl.replace(/\/[^/]+$/, '')}/reset`, method: 'POST', body: null },
+          }),
+          actsOn.key,
+          baseGain(actsOn, false, false),
+          `Business rule: does ${action.verb} move ${actsOn.ref} through its expected state transition?`,
+        )
+      } else c.discard('business-rule-no-actor')
+    }
+  }
 
-function pushUnique(out: RankedPlan[], existing: Set<string>, plan: ComparisonPlanInput, informationGain: number, reason: string): void {
-  const key = comparisonDedupeKey(plan.dimension, plan.action, plan.arms)
-  if (existing.has(key) || out.some((p) => comparisonDedupeKey(p.plan.dimension, p.plan.action, p.plan.arms) === key)) return
-  out.push({ plan, informationGain, reason })
+  // The raw space a naive planner could enumerate: every (subject identity × control identity × target ×
+  // boundary dimension). The planner considers only a small pruned fraction of this.
+  const DIMENSIONS = 8
+  const cartesian = input.identities.length * Math.max(1, input.identities.length - 1) * (input.resources.length + input.actions.length) * DIMENSIONS
+  const plans = c.plans.sort((a, b) => b.informationGain - a.informationGain).slice(0, limit)
+  const kept = new Set(plans)
+  for (const p of c.plans) if (!kept.has(p)) c.discard('below-rank-cutoff')
+  return { plans, stats: { cartesian, candidates: c.considered, proposed: plans.length, discarded: c.discarded } }
 }
 
 // ── AI proposal validation ────────────────────────────────────────────────────────────────────────────

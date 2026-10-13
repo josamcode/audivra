@@ -7,6 +7,7 @@ import {
   getHypothesisRow,
   listComparisonRows,
   listDomainDeclarationRows,
+  listKnowledgeGaps,
   listSecurityEvidence,
   listSessionsForGraph,
   toComparison,
@@ -15,7 +16,7 @@ import {
 import { LOCAL_USER, SecurityRequestError } from '../service.ts'
 import { comparisonCoverage, invariantEvaluations } from './coverage.ts'
 import type { ComparisonEngine } from './engine.ts'
-import { proposeComparisons, type PlannerInput, type RankedPlan } from './plan.ts'
+import { proposeComparisons, type PlannerInput, type PruningStats, type RankedPlan } from './plan.ts'
 
 /*
  * Phase 5 Step 4 — the API/orchestration surface for differential comparisons: validate+persist a plan,
@@ -71,29 +72,40 @@ export class ComparisonService {
     return invariantEvaluations(this.#db, engagementId)
   }
 
-  /** Deterministically propose a bounded, ranked set of useful comparisons (no AI required). */
-  async propose(engagementId: string): Promise<RankedPlan[]> {
+  /** Deterministically propose a bounded, ranked set of useful comparisons (no AI required), with pruning stats. */
+  async propose(engagementId: string): Promise<{ plans: RankedPlan[]; stats: PruningStats }> {
     const engagement = await this.#engagement(engagementId)
-    const input = await this.#plannerInput(engagementId, engagement.environment)
+    const input = await this.plannerInput(engagementId, engagement.environment)
     return proposeComparisons(input)
   }
 
-  async #plannerInput(engagementId: string, environment: string | null): Promise<PlannerInput> {
+  /** The planner input (identities, resources, actions, roles, invariants, open gaps, existing comparisons). */
+  async plannerInput(engagementId: string, environment: string | null): Promise<PlannerInput> {
     const str = (spec: Record<string, unknown>, key: string): string | null => (typeof spec[key] === 'string' && (spec[key] as string).trim() ? (spec[key] as string).trim() : null)
     const list = (spec: Record<string, unknown>, key: string): string[] => (Array.isArray(spec[key]) ? (spec[key] as unknown[]).filter((v): v is string => typeof v === 'string') : [])
-    const [identityRows, resourceRows, invariantRows, sessions] = await Promise.all([
+    const method = (spec: Record<string, unknown>): 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' => {
+      const m = str(spec, 'method')
+      return m === 'GET' || m === 'PUT' || m === 'PATCH' || m === 'DELETE' ? m : 'POST'
+    }
+    const [identityRows, resourceRows, invariantRows, actionRows, roleRows, sessions] = await Promise.all([
       listDomainDeclarationRows(this.#db, engagementId, { kind: 'identity' }),
       listDomainDeclarationRows(this.#db, engagementId, { kind: 'resource' }),
       listDomainDeclarationRows(this.#db, engagementId, { kind: 'invariant' }),
+      listDomainDeclarationRows(this.#db, engagementId, { kind: 'business-action' }),
+      listDomainDeclarationRows(this.#db, engagementId, { kind: 'role' }),
       listSessionsForGraph(this.#db, engagementId),
     ])
     const withSession = new Set(sessions.filter((s) => s.status === 'active').map((s) => s.identityRef))
     const existing = await listComparisonRows(this.#db, engagementId, { limit: 2000 })
+    const openGaps = (await listKnowledgeGaps(this.#db, engagementId, { status: 'open' })).map((g) => ({ kind: g.kind, subjectKey: g.subjectKey }))
     return {
       environment: environment ?? 'production',
-      identities: identityRows.map((d) => ({ ref: d.ref, tenantRef: str(d.spec, 'tenantRef'), roleRefs: list(d.spec, 'roleRefs'), hasSession: withSession.has(d.ref) })),
-      resources: resourceRows.map((d) => ({ ref: d.ref, ownerRef: str(d.spec, 'ownerRef'), tenantRef: str(d.spec, 'tenantRef'), testData: str(d.spec, 'testData') ?? 'unknown', url: str(d.spec, 'canonicalUrl') ?? str(d.spec, 'endpointUrl') })),
+      identities: identityRows.map((d) => ({ ref: d.ref, key: d.key, tenantRef: str(d.spec, 'tenantRef'), roleRefs: list(d.spec, 'roleRefs'), hasSession: withSession.has(d.ref) })),
+      resources: resourceRows.map((d) => ({ ref: d.ref, key: d.key, ownerRef: str(d.spec, 'ownerRef'), tenantRef: str(d.spec, 'tenantRef'), testData: str(d.spec, 'testData') ?? 'unknown', url: str(d.spec, 'canonicalUrl') ?? str(d.spec, 'endpointUrl') })),
       invariants: invariantRows.map((d) => ({ ref: d.ref, category: str(d.spec, 'category') ?? 'other', rule: str(d.spec, 'rule') ?? d.label, resourceRefs: affectedResourceRefs(d.spec) })),
+      actions: actionRows.map((d) => ({ ref: d.ref, verb: str(d.spec, 'verb') ?? d.ref, endpointUrl: str(d.spec, 'endpointUrl'), method: method(d.spec), stateProbeUrl: str(d.spec, 'stateProbeUrl'), requiredRoleRefs: list(d.spec, 'requiredRoleRefs'), requiredStateRef: str(d.spec, 'requiredStateRef'), resultingStateRef: str(d.spec, 'resultingStateRef'), actsOnRefs: list(d.spec, 'actsOnRefs') })),
+      roles: roleRows.map((d) => ({ ref: d.ref, permits: list(d.spec, 'permits') })),
+      openGaps,
       existingDedupeKeys: new Set(existing.map((c) => c.dedupeKey)),
     }
   }

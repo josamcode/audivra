@@ -215,11 +215,77 @@ export function projectSessionsInto(b: Builder, sessions: readonly EstablishedSe
   }
 }
 
-/** Projects observations, declarations and established sessions together into one deterministic desired graph. */
-export function projectGraph(input: { observations: readonly SecurityObservation[]; declarations: readonly DomainDeclaration[]; sessions?: readonly EstablishedSession[]; manifest: ScopeManifest }): DesiredGraph {
+/**
+ * A completed differential comparison as the graph projector sees it (Phase 5 Step 5): decisive result,
+ * controls, and the executed arms that obtained (or were denied) access. Secret-free.
+ */
+export interface ComparisonProjection {
+  id: string
+  dimension: string
+  resourceRef: string
+  invariantRef: string | null
+  result: 'consistent' | 'inconsistent' | 'inconclusive' | 'blocked' | 'not-tested'
+  invariantEvaluation: string | null
+  confidence: number
+  controls: { positive: boolean; negative: boolean }
+  at: string
+  arms: { identityRef: string | null; granted: boolean; executionId: string | null; evidenceRefs: string[] }[]
+}
+
+/**
+ * Derives graph facts from STRONG differential comparisons (Step 5): only a decisive result with a positive
+ * control and sufficient confidence derives anything, and only `comparison-derivation` provenance (basis
+ * `derived`) — so a declared or observed fact is never overwritten, and an authorization comparison never
+ * becomes a universal rule. Derives a `CAN_ACCESS` edge for each identity that obtained access, and marks the
+ * governed invariant's comparison evaluation. Needs a resolver from declaration refs to graph keys.
+ */
+export function projectComparisonsInto(b: Builder, comparisons: readonly ComparisonProjection[], resolve: (kind: DomainDeclarationKind, ref: string) => string | null): void {
+  for (const c of comparisons) {
+    // Only a decisive, controlled, confident comparison derives a graph fact.
+    if (c.result !== 'consistent' && c.result !== 'inconsistent') continue
+    if (!c.controls.positive || c.confidence < 0.6) continue
+    const resourceKey = resolve('resource', c.resourceRef)
+    if (!resourceKey || !b.nodes.has(resourceKey)) continue
+    for (const arm of c.arms) {
+      if (!arm.granted || !arm.identityRef) continue
+      const idKey = identityKey(arm.identityRef)
+      if (!b.nodes.has(idKey)) continue
+      const edge = b.edge('CAN_ACCESS', idKey, resourceKey)
+      b.attr(edge, 'dimension', c.dimension)
+      b.declare('edge', edge, {
+        sourceRef: c.id,
+        source: 'comparison-derivation',
+        trust: 'differential-comparison',
+        confidence: c.confidence,
+        rationale: `Observed access to ${c.resourceRef} in differential comparison ${c.id} (${c.result})`,
+        at: c.at,
+        evidenceRefs: arm.evidenceRefs,
+        executionIds: arm.executionId ? [arm.executionId] : [],
+      })
+    }
+    // Keep the invariant's comparison evaluation visible on its node (contradictions stay explicit).
+    if (c.invariantRef && c.invariantEvaluation) {
+      const invKey = resolve('invariant', c.invariantRef)
+      if (invKey && b.nodes.has(invKey)) b.attr(invKey, 'comparisonEvaluation', c.invariantEvaluation)
+    }
+  }
+}
+
+/** Projects observations, declarations, sessions and comparison derivations into one deterministic desired graph. */
+export function projectGraph(input: {
+  observations: readonly SecurityObservation[]
+  declarations: readonly DomainDeclaration[]
+  sessions?: readonly EstablishedSession[]
+  comparisons?: readonly ComparisonProjection[]
+  manifest: ScopeManifest
+}): DesiredGraph {
   const b = new Builder(input.manifest)
   projectObservationsInto(b, input.observations)
   projectDeclarationsInto(b, input.declarations)
   projectSessionsInto(b, input.sessions ?? [])
+  if (input.comparisons?.length) {
+    const index = new Map(input.declarations.map((d) => [`${d.kind}|${d.ref}`, d.key]))
+    projectComparisonsInto(b, input.comparisons, (kind, ref) => index.get(`${kind}|${ref}`) ?? null)
+  }
   return b.result()
 }

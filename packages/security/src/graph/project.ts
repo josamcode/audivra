@@ -180,8 +180,16 @@ export class Builder {
     this.observationsByEntity.set(subjectKey, entities)
   }
 
-  /** A provenance row from a domain declaration (no observation, no evidence/tools/executions). */
-  declare(subjectType: 'node' | 'edge', subjectKey: string, p: { sourceRef: string; source: ProvenanceSource; trust: SourceTrust; confidence: number; rationale: string | null; at: string }): void {
+  /**
+   * A provenance row from a domain declaration or a comparison derivation. A declaration carries no
+   * evidence/tools/executions; a comparison derivation (Step 5) carries the evidence refs and execution ids
+   * that back it, so a derived fact keeps provenance to the comparison that produced it.
+   */
+  declare(
+    subjectType: 'node' | 'edge',
+    subjectKey: string,
+    p: { sourceRef: string; source: ProvenanceSource; trust: SourceTrust; confidence: number; rationale: string | null; at: string; evidenceRefs?: string[]; executionIds?: string[]; capabilityIds?: string[] },
+  ): void {
     const id = `${subjectType}|${subjectKey}|${p.source}|${p.sourceRef}`
     if (this.provenance.has(id)) return
     this.provenance.set(id, {
@@ -191,9 +199,9 @@ export class Builder {
       trust: p.trust,
       sourceRef: p.sourceRef,
       observationId: null,
-      evidenceRefs: [],
-      executionIds: [],
-      capabilityIds: [],
+      evidenceRefs: uniq(p.evidenceRefs ?? []),
+      executionIds: uniq(p.executionIds ?? []),
+      capabilityIds: uniq(p.capabilityIds ?? []),
       tools: [],
       confidence: p.confidence,
       rationale: p.rationale ? p.rationale.slice(0, 400) : null,
