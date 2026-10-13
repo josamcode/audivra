@@ -20,6 +20,8 @@ export interface ScriptedReasonerOptions {
   researcher?: 'grounded' | 'adversarial' | 'silent'
   verifier?: 'approve' | 'strict'
   planner?: 'cheapest' | 'expensive' | 'invalid' | 'redundant'
+  /** Also propose graph relationships (one new, one restating an observed fact, one with invalid kinds). */
+  enrich?: boolean
   /** Normalized outcome to fail a task with (e.g. `provider-unavailable`, `provider-refused`), or `malformed`. */
   fail?: Partial<Record<'researcher' | 'verifier' | 'planner', AiOutcome | 'malformed'>>
   /** Called for every request (to inspect prompts in tests). */
@@ -156,7 +158,19 @@ export class ScriptedReasoningProvider implements AgentProvider {
       }
       if (outOfScope) hypotheses.push({ ...base, claim: `${outOfScope.label} is vulnerable`, subjectEntityIds: [outOfScope.id], supportingObservationIds: [], evidenceChecks: check(outOfScope.id) })
     }
-    return { hypotheses: hypotheses.slice(0, 8), relationships: [], notes: `${hypotheses.length} hypotheses from ${input.openGaps?.length ?? 0} open knowledge gaps.` }
+    const relationships: Record<string, unknown>[] = []
+    if (this.#options.enrich) {
+      const all = [...entities.values()]
+      const endpoints = all.filter((e) => e.kind === 'endpoint' && e.scopeClass === 'in-scope')
+      const hostNode = all.find((e) => e.kind === 'host')
+      const techNode = all.find((e) => e.kind === 'technology')
+      const about = (e: { label: string; attributes: Record<string, unknown> }) => (graph.observations ?? []).find((o) => trim(o.asset) === urlOf(e))?.id
+      const techObs = techNode ? (graph.observations ?? []).find((o) => o.type === 'technology')?.id : undefined
+      if (endpoints[0] && endpoints[1] && about(endpoints[0])) relationships.push({ type: 'CALLS', fromEntityId: endpoints[0].id, toEntityId: endpoints[1].id, confidence: 0.9, supportingObservationIds: [about(endpoints[0])], rationale: 'The page is likely the entry point to the second endpoint.' })
+      if (hostNode && techNode && techObs) relationships.push({ type: 'DEPENDS_ON', fromEntityId: hostNode.id, toEntityId: techNode.id, confidence: 0.95, supportingObservationIds: [techObs], rationale: 'The fingerprint shows the host runs it.' })
+      if (endpoints[0] && techNode && techObs) relationships.push({ type: 'DEPENDS_ON', fromEntityId: endpoints[0].id, toEntityId: techNode.id, confidence: 0.9, supportingObservationIds: [techObs], rationale: 'Wrong kinds on purpose.' })
+    }
+    return { hypotheses: hypotheses.slice(0, 8), relationships, notes: `${hypotheses.length} hypotheses from ${input.openGaps?.length ?? 0} open knowledge gaps.` }
   }
 
   #verify(input: TaskInput) {

@@ -246,6 +246,36 @@ describe('the bounded reasoning loop', () => {
   })
 })
 
+describe('AI enrichment', () => {
+  it('stores proposed relationships as inferred, never overriding observed facts, and keeps them across re-projection', async () => {
+    const engagement = await readyEngagement('enrichment')
+    await runSensor(engagement.id, 'discovery.fixture-inspect')
+    await runSensor(engagement.id, 'discovery.fixture-inspect', '/admin')
+    const { engine } = engineWith({ enrich: true })
+    const run = await engine.runToCompletion((await engine.start(engagement.id, {}, user)).id)
+    expect(run.usage.quality).toMatchObject({ relationshipsAccepted: 2, relationshipsRejected: 1 })
+
+    const calls = (await graph.edges(engagement.id, { type: 'CALLS' }))[0]!
+    expect(calls).toMatchObject({ basis: 'inferred', corroboration: 0 })
+    expect(calls.confidence).toBeLessThanOrEqual(0.6)
+    const callsProvenance = (await pool.query('select source, trust, reasoning_run_id from security_graph_provenance where subject_id = $1', [calls.id])).rows
+    expect(callsProvenance).toEqual([{ source: 'ai-inference', trust: 'ai-inference', reasoning_run_id: run.id }])
+
+    // An inference about an observed fact adds provenance but never downgrades it.
+    const depends = (await graph.edges(engagement.id, { type: 'DEPENDS_ON' }))[0]!
+    expect(depends.basis).toBe('observed')
+    const sources = (await pool.query('select source from security_graph_provenance where subject_id = $1 order by source', [depends.id])).rows.map((r: { source: string }) => r.source)
+    expect(sources).toContain('ai-inference')
+    expect(sources).toContain('observation')
+
+    // The deterministic projector keeps the inferred edge and its label.
+    await graph.project(engagement.id)
+    await graph.project(engagement.id)
+    expect((await graph.edges(engagement.id, { type: 'CALLS' }))[0]).toMatchObject({ id: calls.id, basis: 'inferred' })
+    expect((await graph.edges(engagement.id, { type: 'DEPENDS_ON' }))[0]!.basis).toBe('observed')
+  })
+})
+
 describe('provider resilience', () => {
   it('AI unavailable: graph, observations and existing hypotheses stay usable; only AI work pauses', async () => {
     const engagement = await readyEngagement('ai unavailable')
