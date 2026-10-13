@@ -67,6 +67,9 @@ import type {
   ActionStatus,
   AiCoverageState,
   AiRunProvenance,
+  DomainDeclarationKind,
+  DomainDeclarationStatus,
+  DomainSource,
   CheckResult,
   EvidenceCheck,
   FactStatus,
@@ -874,5 +877,43 @@ export const securityReasoningActions = pgTable(
     index('security_reasoning_actions_hypothesis_idx').on(t.hypothesisId),
     index('security_reasoning_actions_execution_idx').on(t.executionId),
     index('security_reasoning_actions_key_idx').on(t.engagementId, t.actionKey),
+  ],
+)
+
+// ── Phase 5 (Step 1): application-semantics domain declarations ─────────────────────────────────────
+
+/**
+ * Declared (or source/observation/AI-derived) domain records — identities, roles, tenants, resources,
+ * business actions, business states and invariants — that the deterministic domain projector turns into
+ * Phase 4 Security Graph nodes and edges with `user-declaration` provenance. One row per (engagement, kind,
+ * ref). No secrets live here: an identity's `credentialRef` inside `spec` is an opaque pointer a later
+ * credential vault resolves, never credential material, and the projector never copies it onto a graph node.
+ */
+export const securityDomainDeclarations = pgTable(
+  'security_domain_declarations',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<DomainDeclarationKind>().notNull(),
+    /** Stable handle, unique per (engagement, kind); other declarations reference this. */
+    ref: text('ref').notNull(),
+    /** Deterministic graph key this declaration projects to. */
+    key: text('key').notNull(),
+    label: text('label').notNull(),
+    source: text('source').$type<DomainSource>().notNull().default('declared'),
+    confidence: real('confidence').notNull().default(1),
+    status: text('status').$type<DomainDeclarationStatus>().notNull().default('active'),
+    /** Typed per kind on write (strict); the `credentialRef` here is a pointer, never a secret. */
+    spec: jsonb('spec').$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: jsonb('created_by').$type<SecurityActor>().notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_domain_declarations_ref_idx').on(t.engagementId, t.kind, t.ref),
+    index('security_domain_declarations_key_idx').on(t.engagementId, t.key),
+    index('security_domain_declarations_kind_idx').on(t.engagementId, t.kind),
   ],
 )

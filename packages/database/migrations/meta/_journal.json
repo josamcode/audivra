@@ -50,6 +50,13 @@
       "when": 1791887425602,
       "tag": "0006_security_graph_reasoning",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791894831381,
+      "tag": "0007_security_domain",
+      "breakpoints": true
     }
   ]
 }
