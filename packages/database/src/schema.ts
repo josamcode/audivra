@@ -99,6 +99,18 @@ import type {
   ReasoningUsage,
   RiskClass,
   SourceTrust,
+  ComparisonDimension,
+  ComparisonStatus,
+  ComparisonResult,
+  ResourceRelationship,
+  InvariantEvalStatus,
+  ComparisonArm,
+  ComparisonControls,
+  SemanticDifference,
+  BusinessStateChange,
+  CleanupStatus,
+  CleanupAction,
+  ComparisonTransition,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -991,5 +1003,57 @@ export const securitySessions = pgTable(
     index('security_sessions_engagement_idx').on(t.engagementId, t.createdAt),
     index('security_sessions_identity_idx').on(t.engagementId, t.identityRef, t.status),
     index('security_sessions_expiry_idx').on(t.expiresAt),
+  ],
+)
+
+// ── Phase 5 (Step 4): differential authorization / business-logic comparisons ─────────────────────────
+
+/**
+ * A structured differential comparison: identity × resource × action × state, optionally contrasted with a
+ * second identity/context. Every reference is to an existing declared entity/session; the result is computed
+ * deterministically from evidence (never AI-declared), and a comparison is never itself called a finding.
+ */
+export const securityComparisons = pgTable(
+  'security_comparisons',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    hypothesisId: text('hypothesis_id'),
+    dimension: text('dimension').$type<ComparisonDimension>().notNull(),
+    /** Stable key of dimension + arms — redundancy control. */
+    dedupeKey: text('dedupe_key').notNull(),
+    title: text('title').notNull(),
+    resourceRef: text('resource_ref').notNull(),
+    action: text('action').notNull(),
+    resourceRelationship: text('resource_relationship').$type<ResourceRelationship>().notNull().default('unknown'),
+    invariantRef: text('invariant_ref'),
+    status: text('status').$type<ComparisonStatus>().notNull().default('planned'),
+    arms: jsonb('arms').$type<ComparisonArm[]>().notNull().default([]),
+    controls: jsonb('controls').$type<ComparisonControls>().notNull().default({ positive: false, negative: false }),
+    semanticDifferences: jsonb('semantic_differences').$type<SemanticDifference[]>().notNull().default([]),
+    state: jsonb('state').$type<BusinessStateChange | null>(),
+    result: text('result').$type<ComparisonResult>().notNull().default('not-tested'),
+    resultReason: text('result_reason').notNull().default(''),
+    confidence: real('confidence').notNull().default(0),
+    invariantEvaluation: text('invariant_evaluation').$type<InvariantEvalStatus>(),
+    evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+    cleanupAction: jsonb('cleanup_action').$type<CleanupAction | null>(),
+    stateProbe: jsonb('state_probe').$type<{ url: string; expectedTransition: string | null } | null>(),
+    cleanup: jsonb('cleanup').$type<CleanupStatus>().notNull().default({ required: false, attempted: false, succeeded: null, detail: null }),
+    coverageSampled: boolean('coverage_sampled').notNull().default(false),
+    origin: text('origin').$type<'ai' | 'user'>().notNull().default('user'),
+    retries: integer('retries').notNull().default(0),
+    history: jsonb('history').$type<ComparisonTransition[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_comparisons_dedupe_idx').on(t.engagementId, t.dedupeKey),
+    index('security_comparisons_engagement_idx').on(t.engagementId, t.createdAt),
+    index('security_comparisons_hypothesis_idx').on(t.engagementId, t.hypothesisId),
+    index('security_comparisons_dimension_idx').on(t.engagementId, t.dimension),
+    index('security_comparisons_invariant_idx').on(t.engagementId, t.invariantRef),
   ],
 )

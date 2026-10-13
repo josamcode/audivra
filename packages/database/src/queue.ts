@@ -17,6 +17,8 @@ export const QUEUES = {
   securityExecution: 'security-execution',
   /** Bounded reasoning runs (Phase 4): one job drives a run until it waits for executions or stops. */
   securityReasoning: 'security-reasoning',
+  /** Differential comparisons (Phase 5 Step 4): one job runs one planned comparison to completion. */
+  securityComparison: 'security-comparison',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -43,6 +45,11 @@ export interface SecurityExecutionJob {
 /** A reasoning job names the run and nothing else; its state, budget and stage are loaded from the database. */
 export interface SecurityReasoningJob {
   runId: string
+}
+
+/** A comparison job names the comparison and nothing else; its plan is loaded from the database. */
+export interface SecurityComparisonJob {
+  comparisonId: string
 }
 
 const HOUR = 3600
@@ -75,6 +82,9 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // One queued + one active job per run (`stately` + singletonKey = run id): a wake-up that arrives while
     // the run's job is still finishing is kept, never lost. A second driver is fenced off by the run lease.
     [QUEUES.securityReasoning]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
+    // One job per comparison (`stately` + singletonKey = comparison id). A retry re-runs the engine, which
+    // resumes from persisted arm state (completed arms are not re-executed), so a crash is recoverable.
+    [QUEUES.securityComparison]: { expireInSeconds: 1 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -123,4 +133,9 @@ export async function enqueueSecurityExecution(boss: PgBoss, executionId: string
 /** Queues a reasoning run to be driven (no-op while one is already queued for it). */
 export async function enqueueSecurityReasoning(boss: PgBoss, runId: string): Promise<string | null> {
   return boss.send(QUEUES.securityReasoning, { runId } satisfies SecurityReasoningJob, { singletonKey: runId })
+}
+
+/** Queues a planned comparison to be executed (no-op while one is already queued for it). */
+export async function enqueueSecurityComparison(boss: PgBoss, comparisonId: string): Promise<string | null> {
+  return boss.send(QUEUES.securityComparison, { comparisonId } satisfies SecurityComparisonJob, { singletonKey: comparisonId })
 }

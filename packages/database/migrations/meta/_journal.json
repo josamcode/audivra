@@ -64,6 +64,13 @@
       "when": 1791917675531,
       "tag": "0008_security_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791926318152,
+      "tag": "0009_security_comparisons",
+      "breakpoints": true
     }
   ]
 }
