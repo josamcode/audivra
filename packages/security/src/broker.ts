@@ -201,6 +201,26 @@ export class CapabilityBroker {
   }
 
   /**
+   * A side-effect-free policy preflight: the same checks a durable `submit` makes (capability, input,
+   * readiness, authorization, scope + DNS, policy, resources), but nothing is persisted and nothing runs.
+   * The reasoning planner uses it to tell an action that would be denied from one that would be allowed;
+   * it never authorizes anything — `submit` decides again, authoritatively, when the action is executed.
+   */
+  async preflight(request: unknown): Promise<PolicyDecision> {
+    const executionId = newId('sx')
+    const evaluatedAt = this.#now()
+    const parsed = BrokerRequest.safeParse(request)
+    const engagementId = typeof (request as { engagementId?: unknown })?.engagementId === 'string' ? (request as { engagementId: string }).engagementId : 'unknown'
+    if (!parsed.success) return denial(executionId, engagementId, evaluatedAt, 'input', 'request.invalid', `Invalid capability request: ${issueText(parsed.error)}`)
+    const req = parsed.data
+    const loaded = await this.#store.loadEngagement(req.engagementId)
+    if (!loaded) return denial(executionId, req.engagementId, evaluatedAt, 'engagement', 'engagement.not-found', 'No such security engagement')
+    const capability = this.#registry.get(req.capabilityId)
+    const { decision } = await this.#evaluate(executionId, req.correlationId ?? executionId, req, loaded.engagement, loaded.authorizations, capability, evaluatedAt, 'durable')
+    return decision
+  }
+
+  /**
    * The decision path shared by `execute` (in-process) and `submit` (durable): every check, one persisted,
    * explained decision. The path only matters for the execution mode: a capability that must run isolated
    * is refused on the in-process path — nothing can downgrade it.
