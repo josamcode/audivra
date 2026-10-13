@@ -1,4 +1,4 @@
-import pino, { type Logger, type LoggerOptions } from 'pino'
+import pino, { type DestinationStream, type Logger, type LoggerOptions } from 'pino'
 import { getConfig } from './env.ts'
 
 let root: Logger | undefined
@@ -25,6 +25,11 @@ export function loggerOptions(): LoggerOptions {
     timestamp: pino.stdTimeFunctions.isoTime,
     redact: { paths: LOG_REDACT_PATHS, censor: '[REDACTED]' },
   }
+}
+
+/** A logger with the shared options, writing to an explicit destination. Used by tests to capture output. */
+export function createLogger(destination?: DestinationStream): Logger {
+  return destination ? pino(loggerOptions(), destination) : pino(loggerOptions())
 }
 
 export function getLogger(): Logger {

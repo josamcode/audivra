@@ -62,6 +62,15 @@ const Env = z.object({
    * worker's pg-boss concurrency for the execution queue). Operational capacity, not policy.
    */
   SECURITY_EXECUTION_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  /**
+   * Active encryption key for the credential/session vault (AES-256-GCM), as base64 or hex for 32 bytes.
+   * Kept OUTSIDE ordinary DB state — set it from a real secrets source in production. When empty (local
+   * development) the vault loads or generates a persisted dev key file under the data directory; it is never
+   * regenerated on restart, so stored secrets stay recoverable.
+   */
+  AUDIVRA_SECRET_KEY: optionalString,
+  /** Optional path to a JSON keyring file ({ active, keys }) for explicit key management / rotation. */
+  AUDIVRA_SECRET_KEY_FILE: optionalString,
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
   CLAUDE_BIN: z.string().default('claude'),
 })
