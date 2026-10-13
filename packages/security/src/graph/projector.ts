@@ -7,6 +7,7 @@ import {
   insertGraphNodes,
   insertGraphProvenance,
   listExecutionFactsForGraph,
+  listDomainDeclarationsForGraph,
   listObservationsForGraph,
   loadGraphRows,
   newGraphEdgeId,
@@ -28,7 +29,8 @@ import {
   type GraphRows,
 } from '@audivra/database'
 import { deriveGraph, roundConfidence, type FactInput, type FinalFact, type ProvenanceLike } from './derive.ts'
-import { projectObservations, type DesiredProvenance } from './project.ts'
+import type { DesiredGraph, DesiredProvenance } from './project.ts'
+import { projectGraph } from './project-domain.ts'
 
 /*
  * The graph projector: stored observations → Security Graph, deterministically and idempotently.
@@ -132,9 +134,10 @@ export class GraphProjector {
     const { result, newConflictGroups } = await withGraphLock(this.#db, engagementId, async (tx) => {
       // One client per transaction: queries run one after another.
       const observations = await listObservationsForGraph(tx, engagementId)
+      const declarations = await listDomainDeclarationsForGraph(tx, engagementId)
       const executions = await listExecutionFactsForGraph(tx, engagementId)
       const stored = await loadGraphRows(tx, engagementId)
-      const desired = projectObservations(observations, engagement.scope)
+      const desired = projectGraph({ observations, declarations, manifest: engagement.scope })
       const derived = this.#derive(desired, stored, executions, observations, now.toISOString())
       return this.#apply(tx, engagementId, desired.provenance, derived, stored, observations.length, now)
     })
@@ -147,7 +150,7 @@ export class GraphProjector {
     return result
   }
 
-  #derive(desired: ReturnType<typeof projectObservations>, stored: GraphRows, executions: Awaited<ReturnType<typeof listExecutionFactsForGraph>>, observations: SecurityObservation[], now: string) {
+  #derive(desired: DesiredGraph, stored: GraphRows, executions: Awaited<ReturnType<typeof listExecutionFactsForGraph>>, observations: SecurityObservation[], now: string) {
     const keyById = new Map(stored.nodes.map((n) => [n.id, n.key]))
     const edgeKeyById = new Map(stored.edges.map((e) => [e.id, e.key]))
     const subjectKey = (row: GraphProvenanceRow) => (row.subjectType === 'node' ? keyById.get(row.subjectId) : edgeKeyById.get(row.subjectId))

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { GraphEntityKind, GraphRelationType } from '@audivra/contracts'
 
 /*
@@ -57,6 +58,42 @@ export function apiOperationKey(origin: string, basePath: string, method: string
 /** Kind of an identity key (its prefix). */
 export function keyKind(key: string): GraphEntityKind {
   return key.slice(0, key.indexOf(':')) as GraphEntityKind
+}
+
+// ── Phase 5: deterministic identity for declared application-semantics entities ──────────────────────
+
+/** A stable, filesystem-/key-safe slug of a handle: lower-cased, non-alphanumerics collapsed to a dash. */
+export function slug(value: string): string {
+  const s = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+  return s || 'x'
+}
+
+export const identityKey = (ref: string) => `identity:${slug(ref)}`
+export const tenantKey = (ref: string, externalId?: string | null) => `tenant:${slug(externalId ?? ref)}`
+export const roleKey = (ref: string, scopeTenantRef?: string | null) => `role:${scopeTenantRef ? `${slug(scopeTenantRef)}/` : ''}${slug(ref)}`
+export const businessActionKey = (verb: string, resourceType?: string | null) => `business-action:${slug(verb)}${resourceType ? `@${slug(resourceType)}` : ''}`
+export const businessStateKey = (name: string, resourceType?: string | null) => `business-state:${resourceType ? `${slug(resourceType)}:` : ''}${slug(name)}`
+
+/** A resource's stable identity: its external id, else its canonical URL (origin+path), else its handle. */
+export function resourceKey(resourceType: string, opts: { externalId?: string | null; canonicalUrl?: string | null; ref: string }): string {
+  let id: string
+  if (opts.externalId) id = slug(opts.externalId)
+  else {
+    const parts = opts.canonicalUrl ? urlParts(opts.canonicalUrl) : null
+    id = parts ? `${parts.origin}${parts.path}` : slug(opts.ref)
+  }
+  return `resource:${slug(resourceType)}:${id.slice(0, 200)}`
+}
+
+/** An invariant's stable identity: category + the entities it governs + its rule (order-independent). */
+export function invariantKey(category: string, affects: readonly string[], rule: string): string {
+  const basis = `${[...affects].sort().join(',')}|${rule.trim().replace(/\s+/g, ' ').toLowerCase()}`
+  return `invariant:${category}:${createHash('sha256').update(basis).digest('hex').slice(0, 20)}`
 }
 
 /**

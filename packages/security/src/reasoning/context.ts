@@ -36,6 +36,18 @@ function entityAttributes(n: SecurityGraphNode): Record<string, unknown> {
       return pick('observationType', 'templateId', 'subject', 'toolSeverity', 'type', 'operation')
     case 'parameter':
       return pick('location', 'name')
+    case 'identity':
+      return pick('identityType', 'authMethod', 'lifecycle', 'credentialConfigured')
+    case 'tenant':
+      return pick('tenantType', 'externalId')
+    case 'resource':
+      return pick('resourceType', 'testData', 'externalId', 'endpoint')
+    case 'business-action':
+      return pick('verb', 'effectClass', 'actsOnResourceType')
+    case 'business-state':
+      return pick('resourceType', 'terminal')
+    case 'invariant':
+      return pick('category', 'rule', 'status', 'expectation')
     default:
       return {}
   }

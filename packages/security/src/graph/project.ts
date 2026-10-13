@@ -60,7 +60,8 @@ export interface DesiredEdge {
 export interface DesiredProvenance {
   subjectType: 'node' | 'edge'
   subjectKey: string
-  source: Extract<ProvenanceSource, 'observation' | 'derivation'>
+  /** `observation` / `derivation` from a sensor, or `user-declaration` / `ai-inference` from a domain declaration. */
+  source: ProvenanceSource
   trust: SourceTrust
   sourceRef: string
   observationId: string | null
@@ -103,7 +104,7 @@ export const SIGNAL_CONFIRMATIONS: Record<string, { observationType: SecurityObs
   'audivra-server-banner': { observationType: 'http-header', subject: 'server', how: 'a Server header read by another sensor' },
 }
 
-class Builder {
+export class Builder {
   readonly nodes = new Map<string, DesiredNode & { sets: Map<string, Set<string>> }>()
   readonly edges = new Map<string, DesiredEdge & { sets: Map<string, Set<string>> }>()
   readonly provenance = new Map<string, DesiredProvenance>()
@@ -177,6 +178,28 @@ class Builder {
     const entities = this.observationsByEntity.get(subjectKey) ?? new Set<string>()
     entities.add(o.id)
     this.observationsByEntity.set(subjectKey, entities)
+  }
+
+  /** A provenance row from a domain declaration (no observation, no evidence/tools/executions). */
+  declare(subjectType: 'node' | 'edge', subjectKey: string, p: { sourceRef: string; source: ProvenanceSource; trust: SourceTrust; confidence: number; rationale: string | null; at: string }): void {
+    const id = `${subjectType}|${subjectKey}|${p.source}|${p.sourceRef}`
+    if (this.provenance.has(id)) return
+    this.provenance.set(id, {
+      subjectType,
+      subjectKey,
+      source: p.source,
+      trust: p.trust,
+      sourceRef: p.sourceRef,
+      observationId: null,
+      evidenceRefs: [],
+      executionIds: [],
+      capabilityIds: [],
+      tools: [],
+      confidence: p.confidence,
+      rationale: p.rationale ? p.rationale.slice(0, 400) : null,
+      firstAt: p.at,
+      lastAt: p.at,
+    })
   }
 
   /** Host + endpoint + HOSTS (+ query parameters) for a URL an observation is about. */
@@ -450,11 +473,16 @@ function deriveTemplateMatches(b: Builder, observations: Map<string, SecurityObs
   }
 }
 
-/** Projects observations into the desired deterministic graph. Pure and order-independent. */
-export function projectObservations(observations: readonly SecurityObservation[], manifest: ScopeManifest): DesiredGraph {
-  const b = new Builder(manifest)
+/** Projects observations into an existing builder (shared by observation-only and combined projection). */
+export function projectObservationsInto(b: Builder, observations: readonly SecurityObservation[]): void {
   const sorted = [...observations].sort(byTimeThenId)
   for (const o of sorted) projectOne(b, o)
   deriveTemplateMatches(b, new Map(sorted.map((o) => [o.id, o])))
+}
+
+/** Projects observations into the desired deterministic graph. Pure and order-independent. */
+export function projectObservations(observations: readonly SecurityObservation[], manifest: ScopeManifest): DesiredGraph {
+  const b = new Builder(manifest)
+  projectObservationsInto(b, observations)
   return b.result()
 }
