@@ -1,5 +1,5 @@
-import { domainSourceMapping, type DomainDeclarationKind, type DomainSource, type ScopeManifest, type SecurityObservation } from '@audivra/contracts'
-import { businessActionKey, businessStateKey, identityKey, invariantKey, resourceKey, roleKey, tenantKey } from './identity.ts'
+import { domainSourceMapping, type DomainDeclarationKind, type DomainSource, type ScopeManifest, type SecurityEnvironment, type SecurityObservation, type SessionStatus } from '@audivra/contracts'
+import { businessActionKey, businessStateKey, identityKey, invariantKey, resourceKey, roleKey, sessionKey, tenantKey } from './identity.ts'
 import { Builder, projectObservationsInto, type DesiredGraph } from './project.ts'
 
 /*
@@ -175,10 +175,51 @@ export function projectDeclarationsInto(b: Builder, declarations: readonly Domai
   }
 }
 
-/** Projects observations and declarations together into one deterministic desired graph. */
-export function projectGraph(input: { observations: readonly SecurityObservation[]; declarations: readonly DomainDeclaration[]; manifest: ScopeManifest }): DesiredGraph {
+/** An established session as the projector sees it (safe metadata only — never any material). */
+export interface EstablishedSession {
+  id: string
+  identityRef: string
+  environment: SecurityEnvironment
+  authMethod: string
+  status: SessionStatus
+  establishedAt: string
+  expiresAt: string | null
+}
+
+/**
+ * Projects established sessions into `session` nodes and `AUTHENTICATES_AS` edges (session → identity).
+ * Unlike the rest of the domain, a session is runtime state Audivra established, so the edge carries a
+ * `user-declaration` provenance (a person/Audivra, never a model, established it) and its `active` attribute
+ * reflects the current lifecycle: a revoked or expired session keeps its edge (it DID authenticate) but
+ * `active:false`, so the graph is an honest, deterministic function of the stored sessions. A session with
+ * no established identity node is skipped (`UNKNOWN != FALSE`). Declarations must be projected first so the
+ * identity node exists.
+ */
+export function projectSessionsInto(b: Builder, sessions: readonly EstablishedSession[]): void {
+  for (const s of sessions) {
+    const idKey = identityKey(s.identityRef)
+    const sKey = b.node('session', sessionKey(s.id), s.id, null)
+    const active = s.status === 'active'
+    b.attr(sKey, 'status', s.status)
+    b.attr(sKey, 'authMethod', s.authMethod)
+    b.attr(sKey, 'environment', s.environment)
+    b.attr(sKey, 'active', active)
+    b.attr(sKey, 'expiresAt', s.expiresAt)
+    b.declare('node', sKey, { sourceRef: s.id, source: 'user-declaration', trust: 'user-declaration', confidence: 1, rationale: null, at: s.establishedAt })
+    // Only link to an identity the engagement actually declared.
+    if (!b.nodes.has(idKey)) continue
+    const edge = b.edge('AUTHENTICATES_AS', sKey, idKey)
+    b.attr(edge, 'active', active)
+    b.attr(edge, 'authMethod', s.authMethod)
+    b.declare('edge', edge, { sourceRef: s.id, source: 'user-declaration', trust: 'user-declaration', confidence: 1, rationale: `Session ${s.id} authenticates as ${s.identityRef} via ${s.authMethod}`, at: s.establishedAt })
+  }
+}
+
+/** Projects observations, declarations and established sessions together into one deterministic desired graph. */
+export function projectGraph(input: { observations: readonly SecurityObservation[]; declarations: readonly DomainDeclaration[]; sessions?: readonly EstablishedSession[]; manifest: ScopeManifest }): DesiredGraph {
   const b = new Builder(input.manifest)
   projectObservationsInto(b, input.observations)
   projectDeclarationsInto(b, input.declarations)
+  projectSessionsInto(b, input.sessions ?? [])
   return b.result()
 }

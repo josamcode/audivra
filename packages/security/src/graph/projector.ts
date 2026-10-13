@@ -9,6 +9,7 @@ import {
   listExecutionFactsForGraph,
   listDomainDeclarationsForGraph,
   listObservationsForGraph,
+  listSessionsForGraph,
   loadGraphRows,
   newGraphEdgeId,
   newGraphGapId,
@@ -135,9 +136,10 @@ export class GraphProjector {
       // One client per transaction: queries run one after another.
       const observations = await listObservationsForGraph(tx, engagementId)
       const declarations = await listDomainDeclarationsForGraph(tx, engagementId)
+      const sessions = await listSessionsForGraph(tx, engagementId)
       const executions = await listExecutionFactsForGraph(tx, engagementId)
       const stored = await loadGraphRows(tx, engagementId)
-      const desired = projectGraph({ observations, declarations, manifest: engagement.scope })
+      const desired = projectGraph({ observations, declarations, sessions, manifest: engagement.scope })
       const derived = this.#derive(desired, stored, executions, observations, now.toISOString())
       return this.#apply(tx, engagementId, desired.provenance, derived, stored, observations.length, now)
     })

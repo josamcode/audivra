@@ -74,6 +74,8 @@ export function slug(value: string): string {
 }
 
 export const identityKey = (ref: string) => `identity:${slug(ref)}`
+/** A session's stable identity: its own id (already unique and key-safe). */
+export const sessionKey = (sessionId: string) => `session:${sessionId}`
 export const tenantKey = (ref: string, externalId?: string | null) => `tenant:${slug(externalId ?? ref)}`
 export const roleKey = (ref: string, scopeTenantRef?: string | null) => `role:${scopeTenantRef ? `${slug(scopeTenantRef)}/` : ''}${slug(ref)}`
 export const businessActionKey = (verb: string, resourceType?: string | null) => `business-action:${slug(verb)}${resourceType ? `@${slug(resourceType)}` : ''}`
