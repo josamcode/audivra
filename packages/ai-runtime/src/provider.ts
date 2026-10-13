@@ -15,7 +15,8 @@ export interface McpServerSpec {
 }
 
 export interface AgentRunRequest {
-  role: AgentRole
+  /** A Website Audit role, or a logical reasoning role (e.g. `security-researcher`) for AI tasks. */
+  role: AgentRole | (string & {})
   /** Audit the run belongs to (process ownership + accounting). */
   auditId?: string
   /** Working directory (the audit workspace). */

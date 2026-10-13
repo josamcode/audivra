@@ -11,6 +11,9 @@ export type PromptName =
   | 'journey-analyst-system'
   | 'change-analyst-system'
   | 'client-brief-system'
+  | 'security-researcher-system'
+  | 'security-verifier-system'
+  | 'security-planner-system'
 
 export interface PromptFile {
   name: PromptName
@@ -42,4 +45,9 @@ const ALL_PROMPTS: PromptName[] = [
 /** Current version of every role prompt, e.g. { auditor: 'auditor:v5', … } (stored with benchmark runs). */
 export function promptVersions(): Record<string, string> {
   return Object.fromEntries(ALL_PROMPTS.map((name) => [name.replace('-system', ''), loadPrompt(name).version]))
+}
+
+/** Phase 4 security reasoning prompts (kept apart so the Website Audit benchmark's prompt versions are unchanged). */
+export function reasoningPromptVersions(): Record<string, string> {
+  return Object.fromEntries((['security-researcher-system', 'security-verifier-system', 'security-planner-system'] as const).map((name) => [name.replace('-system', ''), loadPrompt(name).version]))
 }

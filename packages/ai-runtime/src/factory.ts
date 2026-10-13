@@ -10,9 +10,21 @@ import { ProviderRouter } from './router.ts'
  * providers and the preferred one are a configuration concern, not scattered through the code.
  */
 
+const additionalProviders: AgentProvider[] = []
+
+/**
+ * Test/E2E seam: a provider registered in addition to the shipped ones (the deterministic reasoning provider
+ * in the E2E backend). Never called in production; it only ever adds providers, it cannot replace one.
+ */
+export function registerAdditionalProvider(provider: AgentProvider): void {
+  if (!additionalProviders.some((p) => p.id === provider.id)) additionalProviders.push(provider)
+}
+
 /** The providers Audivra ships. Today: the Claude Code CLI adapter. A second adapter registers here. */
 export function createProviderRegistry(): ProviderRegistry {
-  return new ProviderRegistry().register(new ClaudeCliProvider())
+  const registry = new ProviderRegistry().register(new ClaudeCliProvider())
+  for (const provider of additionalProviders) registry.register(provider)
+  return registry
 }
 
 export function createProviderRouter(registry: ProviderRegistry = createProviderRegistry()): ProviderRouter {
