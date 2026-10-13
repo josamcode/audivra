@@ -157,6 +157,12 @@ export const BusinessActionSpec = z.strictObject({
   /** Resulting state handle after the action (null: unknown / none). */
   resultingStateRef: Ref.nullable().default(null),
   effectClass: ActionEffectClass.default('unknown'),
+  /** The endpoint the action is invoked through (so function/role/business-rule comparisons can be planned). */
+  endpointUrl: z.string().trim().max(2048).nullable().default(null),
+  /** HTTP method the action uses (default POST for a state change). */
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  /** A URL (in scope) that reads the resource's state, for before/after business-rule comparisons. */
+  stateProbeUrl: z.string().trim().max(2048).nullable().default(null),
   notes: z.string().trim().max(1000).nullable().default(null),
 })
 export type BusinessActionSpec = z.infer<typeof BusinessActionSpec>
@@ -210,9 +216,22 @@ export const CreateDomainDeclarationInput = z.discriminatedUnion('kind', [
 ])
 export type CreateDomainDeclarationInput = z.input<typeof CreateDomainDeclarationInput>
 
-export const DOMAIN_DECLARATION_STATUSES = ['active', 'superseded'] as const
+export const DOMAIN_DECLARATION_STATUSES = ['active', 'superseded', 'retired'] as const
 export const DomainDeclarationStatus = z.enum(DOMAIN_DECLARATION_STATUSES)
 export type DomainDeclarationStatus = z.infer<typeof DomainDeclarationStatus>
+
+/**
+ * Update a declaration's spec (and optionally its label/source). History is preserved: the active version is
+ * superseded and a new active version is created, so earlier assessments' beliefs are never rewritten. The
+ * kind and handle (`ref`) are fixed by the declaration being updated and cannot change here.
+ */
+export const UpdateDomainDeclarationInput = z.strictObject({
+  label: z.string().trim().min(1).max(200).optional(),
+  source: DomainSource.optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  spec: z.record(z.string(), z.unknown()),
+})
+export type UpdateDomainDeclarationInput = z.infer<typeof UpdateDomainDeclarationInput>
 
 /** The stored declaration as the API returns it. `spec` is validated strictly on write; read back loosely. */
 export const SecurityDomainDeclaration = z.object({
@@ -228,6 +247,11 @@ export const SecurityDomainDeclaration = z.object({
   basis: z.enum(['observed', 'declared', 'derived', 'inferred']),
   confidence: z.number().min(0).max(1),
   status: DomainDeclarationStatus,
+  /** Version of this handle (1-based); an update supersedes the prior version and creates a new one. */
+  version: z.number().int().min(1),
+  /** The id of the version that superseded this one (null when active/retired). */
+  supersededBy: z.string().nullable(),
+  retiredAt: z.string().nullable(),
   spec: z.record(z.string(), z.unknown()),
   createdBy: SecurityActor,
   createdAt: z.string(),

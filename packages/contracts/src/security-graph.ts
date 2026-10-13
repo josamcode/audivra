@@ -98,6 +98,8 @@ export const GRAPH_RELATION_TYPES = [
   'TRANSITIONS_TO',
   /** <any entity> → invariant (the entity is governed by the invariant) */
   'GOVERNED_BY',
+  /** identity → resource: an identity was observed to obtain access to a resource (differential comparison, Step 5). */
+  'CAN_ACCESS',
 ] as const
 export const GraphRelationType = z.enum(GRAPH_RELATION_TYPES)
 export type GraphRelationType = z.infer<typeof GraphRelationType>
@@ -139,13 +141,16 @@ export const FACT_STATUSES = ['active', 'stale', 'superseded', 'contradicted'] a
 export const FactStatus = z.enum(FACT_STATUSES)
 export type FactStatus = z.infer<typeof FactStatus>
 
-/** Where a provenance row's support comes from. */
-export const PROVENANCE_SOURCES = ['observation', 'derivation', 'ai-inference', 'user-declaration'] as const
+/** Where a provenance row's support comes from. `comparison-derivation` is a deterministic fact derived from
+ * a controlled differential comparison (Phase 5 Step 5) — distinct from a sensor observation, a declaration,
+ * a rule-based derivation and an AI inference, and never promoted to a universal rule. */
+export const PROVENANCE_SOURCES = ['observation', 'derivation', 'comparison-derivation', 'ai-inference', 'user-declaration'] as const
 export const ProvenanceSource = z.enum(PROVENANCE_SOURCES)
 export type ProvenanceSource = z.infer<typeof ProvenanceSource>
 
-/** Source trust: deterministic sensing is never silently replaced by inference. */
-export const SOURCE_TRUSTS = ['runtime-observation', 'source-analysis', 'deterministic-derivation', 'user-declaration', 'ai-inference'] as const
+/** Source trust: deterministic sensing is never silently replaced by inference. A `differential-comparison`
+ * fact is evidence-backed (executions + controls) but remains distinguishable from direct sensing. */
+export const SOURCE_TRUSTS = ['runtime-observation', 'source-analysis', 'deterministic-derivation', 'differential-comparison', 'user-declaration', 'ai-inference'] as const
 export const SourceTrust = z.enum(SOURCE_TRUSTS)
 export type SourceTrust = z.infer<typeof SourceTrust>
 
@@ -240,6 +245,23 @@ export const GAP_KINDS = [
   'contradiction-unresolved',
   /** An input-accepting endpoint/operation whose authentication requirement is not known. */
   'authentication-requirement-unknown',
+  // ── Phase 5: application-semantics unknowns (feed the comparison planner's ranking) ──────────────────
+  /** A declared identity holds no role (its privileges are unknown). */
+  'identity-role-unknown',
+  /** A declared identity belongs to no tenant (its tenant membership is unknown). */
+  'tenant-membership-unknown',
+  /** A declared resource has no owner (its ownership is unknown). */
+  'resource-ownership-unknown',
+  /** A resource/action boundary has no declared or observed authorization expectation. */
+  'authorization-expectation-unknown',
+  /** A business action's required role/permission is not known. */
+  'function-permission-unknown',
+  /** Which fields an identity should see on a resource is not known. */
+  'field-visibility-unknown',
+  /** Whether a resource enforces a session boundary is not known. */
+  'session-behavior-unknown',
+  /** A business state's transition rule has not been observed. */
+  'state-transition-rule-unknown',
 ] as const
 export const GapKind = z.enum(GAP_KINDS)
 export type GapKind = z.infer<typeof GapKind>
