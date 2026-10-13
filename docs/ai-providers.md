@@ -14,7 +14,9 @@ Security / audit domain
       → Persistent Audivra state
 ```
 
-Phase 3C builds this **platform**; the autonomous reasoning that uses it is a later phase. The existing
+Phase 3C builds this **platform**; Phase 4's hypothesis-driven reasoning uses it — researcher, verifier and
+planner tasks routed exactly as described here, through a `ReasoningAi` port the security domain depends on
+(see [security-reasoning.md](security-reasoning.md#provider-usage)). The existing
 Website Audit AI flows (auditor, reviewer, revision, finalizer, planner, composer, intelligence) are
 unchanged — they still run through the same provider, now obtained from the registry/router instead of a
 hard-coded adapter.

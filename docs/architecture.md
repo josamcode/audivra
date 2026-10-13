@@ -28,7 +28,9 @@ Security engagements are a separate domain on the same infrastructure (`packages
 tables `security_engagements`, `security_authorizations`, `security_events`, `security_executions`, engagement-owned
 `evidence` rows). Allowed capability requests run as durable executions on the worker's `security-execution` queue.
 They do not touch the audit pipeline; see [security-engagements.md](security-engagements.md) and
-[security-executions.md](security-executions.md).
+[security-executions.md](security-executions.md). Phase 4 adds a persistent Security Graph projected from
+observations and a bounded, hypothesis-driven reasoning loop above the Capability Broker; see
+[security-reasoning.md](security-reasoning.md).
 
 ## Pipeline (durable)
 
