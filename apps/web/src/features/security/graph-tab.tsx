@@ -125,6 +125,12 @@ function entitySubtitle(node: SecurityGraphNode): string {
   if (node.kind === 'api-operation') return String(a.concreteUrl ?? a.template ?? '')
   if (node.kind === 'parameter') return `${String(a.location ?? '')} parameter`
   if (node.kind === 'signal') return String(a.templateId ?? a.checkId ?? a.observationType ?? '')
+  if (node.kind === 'identity') return [a.identityType, a.authMethod ? `auth: ${a.authMethod}` : null].filter(Boolean).join(' · ')
+  if (node.kind === 'resource') return [a.resourceType, a.testData].filter(Boolean).join(' · ')
+  if (node.kind === 'tenant') return String(a.tenantType ?? '')
+  if (node.kind === 'business-action') return String(a.verb ?? '')
+  if (node.kind === 'business-state') return String(a.resourceType ?? '')
+  if (node.kind === 'invariant') return [a.category, a.status].filter(Boolean).join(' · ')
   return node.key
 }
 

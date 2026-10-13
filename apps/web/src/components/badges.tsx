@@ -462,6 +462,14 @@ export const ENTITY_KIND_LABEL: Record<GraphEntityKind, string> = {
   technology: 'Technology',
   signal: 'Signal',
   'source-file': 'Source file',
+  identity: 'Identity',
+  role: 'Role',
+  tenant: 'Tenant',
+  session: 'Session',
+  resource: 'Resource',
+  'business-action': 'Business action',
+  'business-state': 'Business state',
+  invariant: 'Invariant',
 }
 
 /** Why Audivra holds a fact. Inferred (AI-only) is never presented like an observed fact. */
