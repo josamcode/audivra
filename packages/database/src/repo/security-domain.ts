@@ -27,6 +27,7 @@ export interface CreateDomainDeclarationRecord {
   confidence: number
   spec: Record<string, unknown>
   createdBy: SecurityActor
+  version?: number
 }
 
 export function toDomainDeclaration(row: DomainDeclarationRow): SecurityDomainDeclaration {
@@ -41,11 +42,34 @@ export function toDomainDeclaration(row: DomainDeclarationRow): SecurityDomainDe
     basis: domainSourceMapping(row.source).basis,
     confidence: row.confidence,
     status: row.status,
+    version: row.version,
+    supersededBy: row.supersededBy ?? null,
+    retiredAt: row.retiredAt ? row.retiredAt.toISOString() : null,
     spec: row.spec,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+export interface DomainDeclarationPatch {
+  status?: SecurityDomainDeclaration['status']
+  supersededBy?: string | null
+  retiredAt?: Date | null
+  label?: string
+  spec?: Record<string, unknown>
+  source?: DomainSource
+  confidence?: number
+}
+
+export async function patchDomainDeclaration(db: Db, id: string, patch: DomainDeclarationPatch): Promise<DomainDeclarationRow | undefined> {
+  const spec = patch.spec ? redactSensitive({ spec: patch.spec }).value.spec : undefined
+  const [row] = await db
+    .update(securityDomainDeclarations)
+    .set({ ...patch, ...(spec ? { spec } : {}), updatedAt: new Date() })
+    .where(eq(securityDomainDeclarations.id, id))
+    .returning()
+  return row
 }
 
 export async function createDomainDeclaration(db: Db, input: CreateDomainDeclarationRecord): Promise<DomainDeclarationRow> {
@@ -59,10 +83,11 @@ export async function createDomainDeclaration(db: Db, input: CreateDomainDeclara
 }
 
 export async function findDomainDeclarationByRef(db: Db, engagementId: string, kind: DomainDeclarationKind, ref: string): Promise<DomainDeclarationRow | undefined> {
+  // The active version of a handle (resolution and uniqueness always use the current version, never history).
   const [row] = await db
     .select()
     .from(securityDomainDeclarations)
-    .where(and(eq(securityDomainDeclarations.engagementId, engagementId), eq(securityDomainDeclarations.kind, kind), eq(securityDomainDeclarations.ref, ref)))
+    .where(and(eq(securityDomainDeclarations.engagementId, engagementId), eq(securityDomainDeclarations.kind, kind), eq(securityDomainDeclarations.ref, ref), eq(securityDomainDeclarations.status, 'active')))
   return row
 }
 
@@ -71,12 +96,13 @@ export async function getDomainDeclarationRow(db: Db, id: string): Promise<Domai
   return row
 }
 
-export async function listDomainDeclarationRows(db: Db, engagementId: string, options: { kind?: DomainDeclarationKind; limit?: number } = {}): Promise<DomainDeclarationRow[]> {
+export async function listDomainDeclarationRows(db: Db, engagementId: string, options: { kind?: DomainDeclarationKind; status?: SecurityDomainDeclaration['status'] | 'all'; limit?: number } = {}): Promise<DomainDeclarationRow[]> {
+  const status = options.status ?? 'active'
   return db
     .select()
     .from(securityDomainDeclarations)
-    .where(and(eq(securityDomainDeclarations.engagementId, engagementId), options.kind ? eq(securityDomainDeclarations.kind, options.kind) : undefined))
-    .orderBy(asc(securityDomainDeclarations.kind), asc(securityDomainDeclarations.ref))
+    .where(and(eq(securityDomainDeclarations.engagementId, engagementId), options.kind ? eq(securityDomainDeclarations.kind, options.kind) : undefined, status === 'all' ? undefined : eq(securityDomainDeclarations.status, status)))
+    .orderBy(asc(securityDomainDeclarations.kind), asc(securityDomainDeclarations.ref), asc(securityDomainDeclarations.version))
     .limit(Math.min(options.limit ?? 1000, 2000))
 }
 

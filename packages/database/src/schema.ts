@@ -920,6 +920,10 @@ export const securityDomainDeclarations = pgTable(
     source: text('source').$type<DomainSource>().notNull().default('declared'),
     confidence: real('confidence').notNull().default(1),
     status: text('status').$type<DomainDeclarationStatus>().notNull().default('active'),
+    /** Version of this (engagement, kind, ref); an update supersedes the prior version and inserts a new one. */
+    version: integer('version').notNull().default(1),
+    supersededBy: text('superseded_by'),
+    retiredAt: ts('retired_at'),
     /** Typed per kind on write (strict); the `credentialRef` here is a pointer, never a secret. */
     spec: jsonb('spec').$type<Record<string, unknown>>().notNull().default({}),
     createdBy: jsonb('created_by').$type<SecurityActor>().notNull(),
@@ -927,7 +931,8 @@ export const securityDomainDeclarations = pgTable(
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('security_domain_declarations_ref_idx').on(t.engagementId, t.kind, t.ref),
+    // Only one ACTIVE version per handle; superseded/retired versions stay for history.
+    uniqueIndex('security_domain_declarations_active_ref_idx').on(t.engagementId, t.kind, t.ref).where(sql`status = 'active'`),
     index('security_domain_declarations_key_idx').on(t.engagementId, t.key),
     index('security_domain_declarations_kind_idx').on(t.engagementId, t.kind),
   ],
