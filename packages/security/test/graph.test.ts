@@ -8,6 +8,7 @@ import {
   hostKey,
   matchesTemplate,
   parseOperation,
+  parseServerHeader,
   parseTechnology,
   projectObservations,
   technologyKey,
@@ -77,6 +78,7 @@ describe('graph identity', () => {
     expect(parseTechnology('Nginx:1.18.0')).toEqual({ name: 'nginx', version: '1.18.0', display: 'Nginx' })
     expect(parseTechnology('nginx/1.20.1 (Ubuntu)')).toMatchObject({ name: 'nginx', version: '1.20.1' })
     expect(parseTechnology('Express')).toMatchObject({ name: 'express', version: null })
+    expect(parseServerHeader('Apache/2.4.41 (Ubuntu) OpenSSL/1.1.1f')).toMatchObject({ name: 'apache', version: '2.4.41' })
     expect(parseOperation('get /widgets/{id}')).toEqual({ method: 'GET', template: '/widgets/{id}' })
     expect(parseOperation('nonsense')).toBeNull()
     expect(matchesTemplate('/api/widgets/7', '/api', '/widgets/{id}')).toBe(true)

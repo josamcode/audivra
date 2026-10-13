@@ -73,6 +73,15 @@ export function parseTechnology(raw: string): { name: string; version: string | 
   return { name, version: match?.[2]?.slice(0, 40) ?? null, display: display.slice(0, 80) }
 }
 
+/**
+ * A Server header is a list of product tokens (`product[/version]`, then comments in parentheses or more
+ * products): the server is the first token. "Apache/2.4.41 (Ubuntu) OpenSSL/1.1" → apache 2.4.41.
+ */
+export function parseServerHeader(raw: string): ReturnType<typeof parseTechnology> {
+  const first = raw.trim().split(/\s+/)[0]
+  return first ? parseTechnology(first) : null
+}
+
 /** "GET /widgets/{id}" (any case) → method + template; null when not an operation label. */
 export function parseOperation(subject: string): { method: string; template: string } | null {
   const match = subject.trim().match(/^([a-z]+)\s+(\/\S*)$/i)

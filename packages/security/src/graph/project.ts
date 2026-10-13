@@ -18,6 +18,7 @@ import {
   matchesTemplate,
   parameterKey,
   parseOperation,
+  parseServerHeader,
   parseTechnology,
   signalKey,
   sourceFileKey,
@@ -210,7 +211,7 @@ class Builder {
   }
 
   technology(o: SecurityObservation, host: string, endpointPath: string | null, raw: string, via: string, derivation?: { rule: string; confidence: number; rationale: string }) {
-    const tech = parseTechnology(raw)
+    const tech = via === 'fingerprint' ? parseTechnology(raw) : parseServerHeader(raw)
     if (!tech) return
     const key = this.node('technology', technologyKey(tech.name), tech.display)
     this.attr(key, 'name', tech.name)
