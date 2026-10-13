@@ -354,6 +354,14 @@ export const SECURITY_EVENT_TYPES = [
   'reasoning.action-executed',
   'reasoning.blocked',
   'reasoning.completed',
+  // Credential/session secret boundary (Phase 5 Step 2). These reference ids only, never secret material.
+  'credential.created',
+  'credential.replaced',
+  'credential.revoked',
+  'credential.deleted',
+  'session.created',
+  'session.revoked',
+  'session.expired',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>

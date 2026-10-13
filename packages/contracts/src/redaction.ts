@@ -79,6 +79,19 @@ export function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
 }
 
+/**
+ * Keys that hold raw secret *material* (not just a sensitive string): their whole subtree is redacted, so a
+ * cookie object's `value` or a token field nested under them cannot slip through. Structural containers that
+ * merely match a suffix — `authorization` (`{ state, authorizationIds }`), `sessionId` — are deliberately
+ * excluded so their non-secret fields survive; a secret *string* directly under them is still redacted.
+ */
+const DEEP_SENSITIVE_KEY_SUFFIXES = ['password', 'passwd', 'passphrase', 'secret', 'secrets', 'secretkey', 'token', 'apikey', 'accesskey', 'privatekey', 'cookie', 'cookies', 'credential', 'credentials', 'bearer', 'otp']
+
+function isDeepSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return DEEP_SENSITIVE_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+}
+
 const VALUE_PATTERNS: { pattern: RegExp; replace: string }[] = [
   { pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g, replace: REDACTED },
   { pattern: /\b(Bearer|Basic|Digest)\s+[A-Za-z0-9\-._~+/]{6,}=*/gi, replace: `$1 ${REDACTED}` },
@@ -148,11 +161,12 @@ export function redactSensitive<T>(input: T): RedactionResult<T> {
     if (value instanceof Error) return { name: value.name, message: visit(value.message, depth + 1) }
     ancestors.add(value)
     try {
-      // Arrays inherit the field's sensitivity (e.g. several Set-Cookie headers); objects are judged per key.
       if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1, secretField))
       const out: Record<string, unknown> = {}
       for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-        out[key] = visit(item, depth + 1, isSensitiveKey(key))
+        // A secret string is redacted under any sensitive key; a whole subtree is redacted only under a
+        // material-bearing key (so `cookies[].value` goes, but `authorization.authorizationIds` survives).
+        out[key] = typeof item === 'string' ? visit(item, depth + 1, secretField || isSensitiveKey(key)) : visit(item, depth + 1, secretField || isDeepSensitiveKey(key))
       }
       return out
     } finally {
