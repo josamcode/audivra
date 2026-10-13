@@ -78,6 +78,13 @@
       "when": 1791931060653,
       "tag": "0010_domain_versioning",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791933915271,
+      "tag": "0011_security_findings",
+      "breakpoints": true
     }
   ]
 }

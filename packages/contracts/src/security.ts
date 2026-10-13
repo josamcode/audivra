@@ -400,6 +400,17 @@ export const SECURITY_EVENT_TYPES = [
   'comparison.cleanup',
   'invariant.supported',
   'invariant.contradicted',
+  // Independent verification and finding synthesis (Phase 6A).
+  'verification.candidate-created',
+  'verification.started',
+  'verification.evidence-added',
+  'verification.supported',
+  'verification.verified',
+  'verification.rejected',
+  'verification.inconclusive',
+  'verification.blocked',
+  'finding.created',
+  'finding.updated',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>

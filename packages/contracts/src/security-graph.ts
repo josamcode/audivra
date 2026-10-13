@@ -53,6 +53,8 @@ export const GRAPH_ENTITY_KINDS = [
   'business-state',
   /** A security/business invariant: an expected rule (never a verified finding). */
   'invariant',
+  /** A verified/supported Security Finding (Phase 6A); minimal attributes, full data in the finding store. */
+  'finding',
 ] as const
 export const GraphEntityKind = z.enum(GRAPH_ENTITY_KINDS)
 export type GraphEntityKind = z.infer<typeof GraphEntityKind>
@@ -100,6 +102,10 @@ export const GRAPH_RELATION_TYPES = [
   'GOVERNED_BY',
   /** identity → resource: an identity was observed to obtain access to a resource (differential comparison, Step 5). */
   'CAN_ACCESS',
+  /** finding → endpoint | resource | host | api-operation | identity (the finding affects this entity; Phase 6A). */
+  'FINDING_AFFECTS',
+  /** finding → invariant (the finding contradicts this invariant; Phase 6A). */
+  'CONTRADICTS',
 ] as const
 export const GraphRelationType = z.enum(GRAPH_RELATION_TYPES)
 export type GraphRelationType = z.infer<typeof GraphRelationType>

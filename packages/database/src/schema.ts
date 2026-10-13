@@ -111,6 +111,19 @@ import type {
   CleanupStatus,
   CleanupAction,
   ComparisonTransition,
+  CandidateSource,
+  CandidateTransition,
+  ConfidenceFactors,
+  FindingAffectedEntity,
+  FindingCategory,
+  FindingStatus,
+  FindingTransition,
+  ReproductionRecord,
+  SeverityInputs,
+  VerificationCheck,
+  VerificationCheckResult,
+  VerificationState,
+  FindingVerifierVerdict,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -1060,5 +1073,90 @@ export const securityComparisons = pgTable(
     index('security_comparisons_hypothesis_idx').on(t.engagementId, t.hypothesisId),
     index('security_comparisons_dimension_idx').on(t.engagementId, t.dimension),
     index('security_comparisons_invariant_idx').on(t.engagementId, t.invariantRef),
+  ],
+)
+
+// ── Phase 6A: independent verification candidates and evidence-backed findings ────────────────────────
+
+/**
+ * A verification candidate: a strong, evidence-backed signal queued for independent verification. It is NOT a
+ * finding — a finding exists only after the deterministic, machine-checkable requirements are satisfied. One
+ * candidate per (engagement, issueKey); additional sources strengthen it rather than duplicate it.
+ */
+export const securityVerificationCandidates = pgTable(
+  'security_verification_candidates',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    issueKey: text('issue_key').notNull(),
+    claim: text('claim').notNull(),
+    category: text('category').$type<FindingCategory>().notNull(),
+    affectedEntityKeys: jsonb('affected_entity_keys').$type<string[]>().notNull().default([]),
+    supportingEvidenceRefs: jsonb('supporting_evidence_refs').$type<string[]>().notNull().default([]),
+    contradictingEvidenceRefs: jsonb('contradicting_evidence_refs').$type<string[]>().notNull().default([]),
+    source: jsonb('source').$type<CandidateSource>().notNull(),
+    requiredChecks: jsonb('required_checks').$type<VerificationCheck[]>().notNull().default([]),
+    checkResults: jsonb('check_results').$type<VerificationCheckResult[]>().notNull().default([]),
+    status: text('status').$type<VerificationState>().notNull().default('unverified'),
+    statusReason: text('status_reason').notNull().default(''),
+    verifier: jsonb('verifier').$type<{ verdict: FindingVerifierVerdict; note: string | null; providerId: string | null }>().notNull().default({ verdict: 'not-run', note: null, providerId: null }),
+    findingId: text('finding_id'),
+    history: jsonb('history').$type<CandidateTransition[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_verification_candidates_issue_idx').on(t.engagementId, t.issueKey),
+    index('security_verification_candidates_status_idx').on(t.engagementId, t.status),
+    index('security_verification_candidates_finding_idx').on(t.engagementId, t.findingId),
+  ],
+)
+
+/**
+ * A synthesized Security Finding. Severity is deterministically constrained (`severityInputs`), confidence
+ * derives from evidence quality (`confidenceFactors`), the reproduction record links to real executions and
+ * evidence, and the prose (`impact`/`remediation`) is AI-authored but fact-checked against stored state.
+ */
+export const securityFindings = pgTable(
+  'security_findings',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    issueKey: text('issue_key').notNull(),
+    title: text('title').notNull(),
+    category: text('category').$type<FindingCategory>().notNull(),
+    severity: text('severity').$type<Severity>().notNull(),
+    severityReason: text('severity_reason').notNull().default(''),
+    confidence: real('confidence').notNull().default(0),
+    verificationState: text('verification_state').$type<VerificationState>().notNull(),
+    status: text('status').$type<FindingStatus>().notNull().default('open'),
+    affectedEntities: jsonb('affected_entities').$type<FindingAffectedEntity[]>().notNull().default([]),
+    claim: text('claim').notNull(),
+    evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+    contradictingEvidenceRefs: jsonb('contradicting_evidence_refs').$type<string[]>().notNull().default([]),
+    impact: text('impact').notNull().default(''),
+    remediation: text('remediation').notNull().default(''),
+    reproduction: jsonb('reproduction').$type<ReproductionRecord | null>(),
+    severityInputs: jsonb('severity_inputs').$type<SeverityInputs>().notNull(),
+    confidenceFactors: jsonb('confidence_factors').$type<ConfidenceFactors>().notNull(),
+    candidateIds: jsonb('candidate_ids').$type<string[]>().notNull().default([]),
+    hypothesisIds: jsonb('hypothesis_ids').$type<string[]>().notNull().default([]),
+    comparisonIds: jsonb('comparison_ids').$type<string[]>().notNull().default([]),
+    invariantRefs: jsonb('invariant_refs').$type<string[]>().notNull().default([]),
+    reviewed: boolean('reviewed').notNull().default(false),
+    reviewNote: text('review_note'),
+    history: jsonb('history').$type<FindingTransition[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_findings_issue_idx').on(t.engagementId, t.issueKey),
+    index('security_findings_engagement_idx').on(t.engagementId, t.createdAt),
+    index('security_findings_severity_idx').on(t.engagementId, t.severity),
+    index('security_findings_category_idx').on(t.engagementId, t.category),
   ],
 )
