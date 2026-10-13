@@ -76,12 +76,16 @@ export function checkNeeds(check: EvidenceCheck, view: KnowledgeView): Observati
       }
       return ['http-response', 'endpoint']
     }
+    case 'comparison-result':
+      // Satisfied by a differential comparison, not a sensor observation.
+      return []
   }
 }
 
-/** The entity a check is about (null for a gap check whose gap is unknown). */
+/** The entity a check is about (null for a gap/comparison check that has no graph entity). */
 export function checkEntity(check: EvidenceCheck, view: KnowledgeView): string | null {
   if (check.check === 'gap-resolved') return view.gaps.get(check.gapId)?.subjectId ?? null
+  if (check.check === 'comparison-result') return null
   return check.entityId
 }
 
@@ -103,8 +107,20 @@ function responseEntities(view: KnowledgeView, node: SecurityGraphNode): Securit
 const toolsOf = (observations: SecurityObservation[]) => [...new Set(observations.flatMap((o) => o.contributions.map((c) => c.tool)))].sort()
 
 /** Evaluates one evidence check against the current graph (pure, deterministic). */
-export function evaluateCheck(check: EvidenceCheck, index: number, view: KnowledgeView): CheckResult {
+export function evaluateCheck(check: EvidenceCheck, index: number, view: KnowledgeView, ownerHypothesisId?: string): CheckResult {
   const base = { index, effect: check.effect }
+  if (check.check === 'comparison-result') {
+    // Met by a completed differential comparison linked to THIS hypothesis with a result in `results`.
+    const matching = view.comparisons.filter(
+      (c) => c.hypothesisId === ownerHypothesisId && c.status === 'completed' && (check.dimension === null || c.dimension === check.dimension) && check.results.includes(c.result),
+    )
+    if (!matching.length) return { ...base, met: false, detail: `No comparison with result ${check.results.join('/')} yet`, observationIds: [], tools: [] }
+    // A strong signal needs adequate controls: a comparison carrying both a positive and a negative control
+    // corroborates itself (two independent control arms); otherwise it is support, not a confirmed signal.
+    const adequate = matching.some((c) => c.controls.positive && c.controls.negative)
+    const tools = adequate ? ['comparison:positive-control', 'comparison:negative-control'] : ['comparison']
+    return { ...base, met: true, detail: `Comparison ${matching.map((c) => c.id).join(', ')} → ${[...new Set(matching.map((c) => c.result))].join('/')}`, observationIds: [], tools }
+  }
   if (check.check === 'gap-resolved') {
     const gap = view.gaps.get(check.gapId)
     if (!gap) return { ...base, met: false, detail: 'The knowledge gap no longer exists', observationIds: [], tools: [] }
@@ -175,8 +191,8 @@ export interface CheckOutcome {
  * evidence from two independent sensors (or a met corroboration check) is a confirmed signal; any met
  * supporting check is support. A confirmed signal is still not a verified vulnerability.
  */
-export function assessChecks(checks: readonly EvidenceCheck[], view: KnowledgeView): CheckOutcome {
-  const results = checks.map((c, i) => evaluateCheck(c, i, view))
+export function assessChecks(checks: readonly EvidenceCheck[], view: KnowledgeView, ownerHypothesisId?: string): CheckOutcome {
+  const results = checks.map((c, i) => evaluateCheck(c, i, view, ownerHypothesisId))
   const contradicting = results.filter((r) => r.effect === 'contradicts' && r.met)
   if (contradicting.length) return { results, status: 'disproved', confidence: 0.05, reason: `Contradicted by evidence: ${contradicting[0]!.detail}` }
   const supports = results.filter((r) => r.effect === 'supports')
@@ -232,6 +248,9 @@ export function validateProposal(proposal: ProposedHypothesis, view: KnowledgeVi
   if (missingGap) return reject('unknown-gap', `${missingGap} is not a recorded knowledge gap`)
   if (!proposal.evidenceChecks.some((c) => c.effect === 'supports')) return reject('invalid-check', 'A hypothesis needs at least one check that would support it')
   for (const check of proposal.evidenceChecks) {
+    // The sensor researcher does not drive authorization comparisons; those hypotheses are created by the
+    // comparison engine. A comparison-result check from a sensor proposal is not investigable here.
+    if (check.check === 'comparison-result') return reject('invalid-check', 'a comparison-result check is set by the differential-comparison engine, not proposed by the researcher')
     if (check.check === 'gap-resolved') {
       if (!view.gaps.has(check.gapId)) return reject('invalid-check', `check references unknown gap ${check.gapId}`)
       continue

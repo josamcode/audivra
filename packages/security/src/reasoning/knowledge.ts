@@ -4,6 +4,7 @@ import type {
   ReasoningAction,
   RiskClass,
   ScopeManifest,
+  SecurityComparison,
   SecurityEnvironment,
   SecurityGraphEdge,
   SecurityGraphNode,
@@ -12,6 +13,7 @@ import type {
 } from '@audivra/contracts'
 import {
   getEngagementRow,
+  listComparisonsForEngagement,
   listHypothesisLinks,
   listHypothesisRows,
   listObservationsForGraph,
@@ -73,6 +75,8 @@ export interface KnowledgeView {
   hypotheses: SecurityHypothesis[]
   actions: ReasoningAction[]
   capabilities: PlanningCapability[]
+  /** Phase 5 Step 4: stored differential comparisons (evidence for authorization/business hypotheses). */
+  comparisons: SecurityComparison[]
 }
 
 /** Inputs a planner can satisfy from graph knowledge (a URL); schema/source content is never invented. */
@@ -82,7 +86,9 @@ export function planningCapabilities(registry: CapabilityRegistry, environment: 
   const env = environment ?? 'production'
   return registry
     .list()
-    .filter((meta) => meta.sensor)
+    // Identity-aware capabilities (Step 3/4) are driven by the comparison engine, not the sensor planner
+    // (which runs anonymously); keep them out of the Phase 4 candidate set.
+    .filter((meta) => meta.sensor && !meta.identity?.supportsIdentity)
     .map((meta) => {
       const sensor = meta.sensor!
       const eligibleHere = meta.supportedEnvironments.includes(env)
@@ -114,11 +120,12 @@ export function planningCapabilities(registry: CapabilityRegistry, environment: 
 export async function loadKnowledge(db: Db, engagementId: string, registry: CapabilityRegistry): Promise<KnowledgeView> {
   const engagement = await getEngagementRow(db, engagementId)
   if (!engagement) throw new Error(`No security engagement ${engagementId}`)
-  const [rows, observations, hypothesisRows, actionRows] = await Promise.all([
+  const [rows, observations, hypothesisRows, actionRows, comparisons] = await Promise.all([
     loadGraphRows(db, engagementId),
     listObservationsForGraph(db, engagementId),
     listHypothesisRows(db, engagementId, { limit: 500 }),
     listReasoningActionRows(db, { engagementId, limit: 1000 }),
+    listComparisonsForEngagement(db, engagementId),
   ])
   const links = await listHypothesisLinks(db, hypothesisRows.map((h) => h.id))
   const keys = new Map(rows.nodes.map((n) => [n.id, n.key]))
@@ -148,6 +155,7 @@ export async function loadKnowledge(db: Db, engagementId: string, registry: Capa
     hypotheses: hypothesisRows.map((h) => toHypothesis(h, links)),
     actions: actionRows.map(toReasoningAction),
     capabilities: planningCapabilities(registry, engagement.environment),
+    comparisons,
   }
 }
 

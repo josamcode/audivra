@@ -1,6 +1,7 @@
 import { egressCheckCapability } from './egress-check.ts'
 import { httpObserveCapability } from './http-observe.ts'
 import { identityHttpCapability } from './identity-http.ts'
+import { identityActionCapability, identityReadCapability } from './comparison-probe.ts'
 import { isolatedCheckCapability } from './isolated-check.ts'
 import { CapabilityRegistry } from './registry.ts'
 import { runtimeCheckCapability } from './runtime-check.ts'
@@ -33,5 +34,12 @@ export function createDefaultRegistry(): CapabilityRegistry {
  * capability catalog shown to people and agents.
  */
 export function createRuntimeRegistry(): CapabilityRegistry {
-  return createDefaultRegistry().register(runtimeCheckCapability).register(isolatedCheckCapability).register(egressCheckCapability)
+  return createDefaultRegistry()
+    .register(runtimeCheckCapability)
+    .register(isolatedCheckCapability)
+    .register(egressCheckCapability)
+    // Phase 5 Step 4 — the differential-comparison engine runs these; they are runnable through the broker
+    // but excluded from the sensor planner (they are identity-aware, not discovery sensors).
+    .register(identityReadCapability)
+    .register(identityActionCapability)
 }

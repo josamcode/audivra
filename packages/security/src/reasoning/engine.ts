@@ -4,6 +4,7 @@ import {
   AI_RELATION_TYPES,
   emptyReasoningUsage,
   INFERRED_CONFIDENCE_CAP,
+  isComparisonHypothesisCategory,
   isTerminalExecutionStatus,
   PlannerOutput,
   ResearcherOutput,
@@ -818,7 +819,10 @@ export class ReasoningEngine {
   // ── Persistence helpers ─────────────────────────────────────────────────────────────────────────────
 
   async #view(run: ReasoningRunRow): Promise<KnowledgeView> {
-    return loadKnowledge(this.#db, run.engagementId, this.#registry)
+    const view = await loadKnowledge(this.#db, run.engagementId, this.#registry)
+    // The sensor-driven reasoning loop does not own authorization/business hypotheses — the differential
+    // comparison engine (Phase 5 Step 4) does. Keep them out of this loop's assess/rank/plan entirely.
+    return { ...view, hypotheses: view.hypotheses.filter((h) => !isComparisonHypothesisCategory(h.category)) }
   }
 
   #agent(run: ReasoningRunRow): SecurityActor {

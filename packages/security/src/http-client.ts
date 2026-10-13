@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import http from 'node:http'
 import https from 'node:https'
 import type { LookupFunction } from 'node:net'
-import { parseIp, type ExecutionLimits, type MutationClass, type ScopeEvaluation, type ScopeManifest } from '@audivra/contracts'
+import { mutationRank, parseIp, type ExecutionLimits, type MutationClass, type ScopeEvaluation, type ScopeManifest } from '@audivra/contracts'
 import type { Resolver } from './dns.ts'
 import { evaluateNetworkDestination, evaluateRedirect, evaluateUrl } from './scope.ts'
 
@@ -53,8 +53,14 @@ export interface NetworkAttempt {
 
 export interface ScopedRequest {
   url: string
-  method?: 'GET' | 'HEAD' | 'OPTIONS'
+  /** Non-safe methods are permitted only for a capability whose mutation class is reversible/irreversible-write. */
+  method?: 'GET' | 'HEAD' | 'OPTIONS' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   followRedirects?: boolean
+  /** Request body for a write method. */
+  body?: string
+  contentType?: string
+  /** Retain up to this many bytes of the response body on the result (0/undefined: none). Bounded for comparison. */
+  captureBody?: number
 }
 
 export interface ScopedResponse {
@@ -64,6 +70,8 @@ export interface ScopedResponse {
   headers: Record<string, string | string[]>
   bodyBytes: number
   bodySha256: string | null
+  /** The retained response body when `captureBody` was requested (bounded), else null. */
+  body: string | null
   truncated: boolean
   redirects: { from: string; to: string; status: number }[]
   /** A redirect the scope engine refused; it was not followed. */
@@ -106,11 +114,14 @@ export class ScopedHttpClient {
 
   async request(request: ScopedRequest): Promise<ScopedResponse> {
     const method = request.method ?? 'GET'
-    // This client only ever sends safe methods, whatever the capability's mutation class: writing
-    // capabilities will need their own reviewed client.
-    if (!SAFE_METHODS.has(method)) {
-      throw new ScopeViolationError(this.#policyDenial(request.url, `HTTP ${method} is not permitted (${this.options.mutation} capability, safe methods only)`))
+    // Safe methods are always allowed. A non-safe (writing) method is permitted ONLY for a capability whose
+    // declared mutation class is a write class — never for a read-only or transient-state capability. Policy
+    // (environment + risk/mutation) has already decided whether such a capability may run at all.
+    if (!SAFE_METHODS.has(method) && mutationRank(this.options.mutation) < mutationRank('reversible-write')) {
+      throw new ScopeViolationError(this.#policyDenial(request.url, `HTTP ${method} is not permitted for a ${this.options.mutation} capability`))
     }
+    const body = SAFE_METHODS.has(method) ? undefined : request.body
+    const capture = Math.max(0, Math.min(request.captureBody ?? 0, this.options.limits.maxResponseBytes))
     const first = evaluateUrl(this.options.manifest, request.url)
     const redirects: ScopedResponse['redirects'] = []
     let current = request.url
@@ -120,7 +131,7 @@ export class ScopedHttpClient {
         this.#log(current, method, evaluation, [], null, null)
         throw new ScopeViolationError(evaluation)
       }
-      const response = await this.#hop(current, method, evaluation)
+      const response = await this.#hop(current, method, evaluation, { body, contentType: request.contentType, capture })
       const location = response.headers.location
       const isRedirect = response.status >= 300 && response.status < 400 && typeof location === 'string'
       if (!isRedirect || request.followRedirects === false) {
@@ -171,7 +182,7 @@ export class ScopedHttpClient {
     this.#waiters.shift()?.()
   }
 
-  async #hop(url: string, method: string, nameEvaluation: ScopeEvaluation): Promise<Omit<ScopedResponse, 'requestedUrl' | 'finalUrl' | 'redirects' | 'blockedRedirect'>> {
+  async #hop(url: string, method: string, nameEvaluation: ScopeEvaluation, send: { body?: string; contentType?: string; capture: number }): Promise<Omit<ScopedResponse, 'requestedUrl' | 'finalUrl' | 'redirects' | 'blockedRedirect'>> {
     await this.#acquire()
     try {
       const host = nameEvaluation.destination.host!
@@ -191,7 +202,7 @@ export class ScopedHttpClient {
       }
       const pinned = network.destination.addresses[0]!.address
       try {
-        const response = await this.#send(url, method, pinned)
+        const response = await this.#send(url, method, pinned, send)
         this.#log(url, method, network, addresses, response.status, null)
         return response
       } catch (error) {
@@ -204,7 +215,7 @@ export class ScopedHttpClient {
     }
   }
 
-  #send(url: string, method: string, address: string): Promise<Omit<ScopedResponse, 'requestedUrl' | 'finalUrl' | 'redirects' | 'blockedRedirect'>> {
+  #send(url: string, method: string, address: string, send: { body?: string; contentType?: string; capture: number }): Promise<Omit<ScopedResponse, 'requestedUrl' | 'finalUrl' | 'redirects' | 'blockedRedirect'>> {
     const target = new URL(url)
     const family = parseIp(address)!.family
     // Connect to the address that was just evaluated instead of resolving the name again.
@@ -216,6 +227,8 @@ export class ScopedHttpClient {
     const { maxResponseBytes, executionTimeoutSeconds } = this.options.limits
     // Auth material is attached only when the request origin matches the session's origin.
     const auth = this.options.auth && this.options.auth.origin === target.origin ? this.options.auth.headers : {}
+    const payload = send.body !== undefined ? Buffer.from(send.body, 'utf8') : null
+    const extraHeaders: Record<string, string> = payload ? { 'content-type': send.contentType ?? 'application/json', 'content-length': String(payload.length) } : {}
     return new Promise((resolve, reject) => {
       const req = transport.request(
         {
@@ -224,7 +237,7 @@ export class ScopedHttpClient {
           port: target.port || undefined,
           path: `${target.pathname}${target.search}`,
           method,
-          headers: { 'user-agent': SECURITY_USER_AGENT, accept: '*/*', ...auth },
+          headers: { 'user-agent': SECURITY_USER_AGENT, accept: '*/*', ...auth, ...extraHeaders },
           lookup,
           signal: this.options.signal,
           timeout: Math.min(executionTimeoutSeconds * 1000, 30_000),
@@ -233,6 +246,8 @@ export class ScopedHttpClient {
           const hash = createHash('sha256')
           let bytes = 0
           let truncated = false
+          const kept: Buffer[] = []
+          let keptBytes = 0
           res.on('data', (chunk: Buffer) => {
             bytes += chunk.length
             if (bytes > maxResponseBytes) {
@@ -241,6 +256,11 @@ export class ScopedHttpClient {
               return
             }
             hash.update(chunk)
+            if (keptBytes < send.capture) {
+              const room = send.capture - keptBytes
+              kept.push(chunk.length <= room ? chunk : chunk.subarray(0, room))
+              keptBytes += Math.min(room, chunk.length)
+            }
           })
           const finish = () =>
             resolve({
@@ -248,6 +268,7 @@ export class ScopedHttpClient {
               headers: Object.fromEntries(Object.entries(res.headers).filter((e): e is [string, string | string[]] => e[1] !== undefined)),
               bodyBytes: bytes,
               bodySha256: bytes && !truncated ? hash.digest('hex') : null,
+              body: send.capture > 0 ? Buffer.concat(kept).toString('utf8') : null,
               truncated,
             })
           res.on('end', finish)
@@ -257,6 +278,7 @@ export class ScopedHttpClient {
       )
       req.on('timeout', () => req.destroy(new Error('Request timed out')))
       req.on('error', reject)
+      if (payload) req.write(payload)
       req.end()
     })
   }
