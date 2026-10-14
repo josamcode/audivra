@@ -29,7 +29,8 @@
     "security:runtime-check": "tsx scripts/security-runtime-check.ts",
     "benchmark": "tsx scripts/benchmark.ts",
     "benchmark:reasoning": "tsx scripts/benchmark-reasoning.ts",
-    "benchmark:authorization": "tsx scripts/benchmark-authorization.ts"
+    "benchmark:authorization": "tsx scripts/benchmark-authorization.ts",
+    "setup:strix": "tsx scripts/setup-strix.ts"
   },
   "devDependencies": {
     "@audivra/config": "workspace:*",
