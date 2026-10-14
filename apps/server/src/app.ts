@@ -39,6 +39,7 @@ import { registerCredentialRoutes } from './routes-credentials.ts'
 import { registerAttackPathRoutes } from './routes-attack-paths.ts'
 import { registerHistoryRoutes } from './routes-history.ts'
 import { registerSpecialistRoutes } from './routes-specialist.ts'
+import { registerResearchRoutes } from './routes-research.ts'
 import { registerDomainRoutes } from './routes-domain.ts'
 import { registerFindingRoutes } from './routes-findings.ts'
 import { registerReasoningRoutes } from './routes-reasoning.ts'
@@ -331,6 +332,7 @@ export async function buildApp(deps: AppDeps) {
   registerAttackPathRoutes(app, { db, boss })
   registerHistoryRoutes(app, { db, boss, log: deps.log })
   registerSpecialistRoutes(app, { db, boss, log: deps.log })
+  registerResearchRoutes(app, { db, boss, log: deps.log })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {
