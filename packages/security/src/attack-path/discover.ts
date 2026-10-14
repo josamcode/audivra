@@ -138,6 +138,13 @@ function connects(a: SecurityFinding, ea: FindingEnablement, b: SecurityFinding,
   return null
 }
 
+/** A graph edge from A's reached entities to one of B's entities that stored evidence CONTRADICTS, if any. */
+function contradictedBridge(ea: FindingEnablement, eb: FindingEnablement, view: AttackPathView): SecurityGraphEdge | null {
+  const bEntities = new Set([...eb.grantedEntityKeys, eb.precondition.entityKey].filter((k): k is string => !!k))
+  for (const from of ea.grantedEntityKeys) for (const edge of view.edgesByFrom.get(from) ?? []) if (bEntities.has(edge.toKey) && graphEdgeVerification(edge) === 'contradicted') return edge
+  return null
+}
+
 function endOf(finding: SecurityFinding, enablement: FindingEnablement): EndImpact {
   const target = finding.affectedEntities.find((e) => e.kind === 'resource' || e.kind === 'business-action') ?? finding.affectedEntities[0]
   return { impactClass: enablement.impact, entityKey: target?.key ?? null, label: enablement.impactLabel }
@@ -179,19 +186,25 @@ export function buildAiChain(orderedFindings: SecurityFinding[], connectingEntit
     const ep = findingEnablement(prev)
     const ec = findingEnablement(cur)
     const connector = connects(prev, ep, cur, ec, view)
-    const connectorStep: CandidateStep = connector
-      ? { fromCondition: ep.impactLabel, relationship: connector.relationship, toCondition: `positioned to exploit "${cur.title}"`, edgeVerification: connector.edgeVerification, findingId: null, boundaryCrossed: null, references: [connector.reference], evidenceRefs: [], rationale: connector.rationale }
-      : {
-          fromCondition: ep.impactLabel,
-          relationship: `claimed reachability to "${cur.title}"${connectingEntityKeys.length ? ` via ${connectingEntityKeys.map((k) => view.nodesByKey.get(k)?.label ?? k).join(', ')}` : ''}`,
-          toCondition: `positioned to exploit "${cur.title}"`,
-          edgeVerification: 'missing',
-          findingId: null,
-          boundaryCrossed: null,
-          references: connectingEntityKeys.map((k) => ({ kind: 'graph-node' as const, ref: k, label: view.nodesByKey.get(k)?.label ?? k })),
-          evidenceRefs: [],
-          rationale: 'No verified graph relationship connects these findings; reachability is unproven.',
-        }
+    let connectorStep: CandidateStep
+    if (connector) {
+      connectorStep = { fromCondition: ep.impactLabel, relationship: connector.relationship, toCondition: `positioned to exploit "${cur.title}"`, edgeVerification: connector.edgeVerification, findingId: null, boundaryCrossed: null, references: [connector.reference], evidenceRefs: [], rationale: connector.rationale }
+    } else {
+      // No real connector. If stored evidence actually CONTRADICTS the claimed reachability, say so (the path
+      // is then rejected); otherwise the reachability is simply unproven (a missing-edge gap).
+      const contradicting = contradictedBridge(ep, ec, view)
+      connectorStep = {
+        fromCondition: ep.impactLabel,
+        relationship: `claimed reachability to "${cur.title}"${connectingEntityKeys.length ? ` via ${connectingEntityKeys.map((k) => view.nodesByKey.get(k)?.label ?? k).join(', ')}` : ''}`,
+        toCondition: `positioned to exploit "${cur.title}"`,
+        edgeVerification: contradicting ? 'contradicted' : 'missing',
+        findingId: null,
+        boundaryCrossed: null,
+        references: contradicting ? [{ kind: 'graph-edge', ref: contradicting.key, label: `${contradicting.type} ${contradicting.fromKey} → ${contradicting.toKey}` }] : connectingEntityKeys.map((k) => ({ kind: 'graph-node' as const, ref: k, label: view.nodesByKey.get(k)?.label ?? k })),
+        evidenceRefs: [],
+        rationale: contradicting ? 'Stored evidence contradicts the claimed reachability.' : 'No verified graph relationship connects these findings; reachability is unproven.',
+      }
+    }
     steps.push(connectorStep, findingStep(cur, ec, connectorStep.toCondition))
   }
   return { ok: true, reason: null, steps }
