@@ -112,7 +112,7 @@ describe('domain declarations → Security Graph', () => {
       scopeClass: 'in-scope',
       value: { status: 200 },
       sourceType: 'tool-reported',
-      contribution: { executionId: 'sx_fixture0000001', capabilityId: 'discovery.http-inspect', tool: 'httpx', toolVersion: 'v', evidenceRef: null, confidence: 1, at: new Date().toISOString() },
+      contribution: { executionId: 'sx_fixture0000001', capabilityId: 'discovery.http-inspect', tool: 'httpx', toolVersion: 'v', evidenceRef: null, confidence: 1, identityRef: null, sessionRef: null, at: new Date().toISOString() },
     })
     await domain.declare(e.id, { kind: 'identity', ref: 'alice', spec: {} }, user)
     await graph.project(e.id)

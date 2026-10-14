@@ -50,7 +50,7 @@ async function observe(engagementId: string, input: { type: SecurityObservation[
     type: 'tool-result',
     title: `${input.tool ?? 'httpx'} output`,
     summary: 'fixture',
-    provenance: { engagementId, executionId: 'sx_fixture0000001', correlationId: 'c', capabilityId: 'discovery.http-inspect', capabilityVersion: 1, implementation: 'x', decisionEventId: null, environment: 'staging', scopeVersion: 1, scopeHash: 'h', configVersion: 1, policyProfile: { key: 'k', version: 1 }, authorizationIds: [], sensitivity: 'normal' },
+    provenance: { engagementId, executionId: 'sx_fixture0000001', correlationId: 'c', capabilityId: 'discovery.http-inspect', capabilityVersion: 1, implementation: 'x', decisionEventId: null, environment: 'staging', scopeVersion: 1, scopeHash: 'h', configVersion: 1, policyProfile: { key: 'k', version: 1 }, authorizationIds: [], sensitivity: 'normal', identityRef: null, sessionRef: null },
   })
   return store.recordObservation({
     engagementId,
@@ -62,7 +62,7 @@ async function observe(engagementId: string, input: { type: SecurityObservation[
     scopeClass: null,
     value: input.value ?? {},
     sourceType: input.sourceType ?? 'tool-reported',
-    contribution: { executionId: 'sx_fixture0000001', capabilityId: 'discovery.http-inspect', tool: input.tool ?? 'httpx', toolVersion: 'httpx@sha256:x', evidenceRef: evidence.ref, confidence: input.confidence ?? 1, at: new Date().toISOString() },
+    contribution: { executionId: 'sx_fixture0000001', capabilityId: 'discovery.http-inspect', tool: input.tool ?? 'httpx', toolVersion: 'httpx@sha256:x', evidenceRef: evidence.ref, confidence: input.confidence ?? 1, identityRef: null, sessionRef: null, at: new Date().toISOString() },
   })
 }
 

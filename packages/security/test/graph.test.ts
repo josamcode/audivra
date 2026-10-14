@@ -56,7 +56,7 @@ function obs(input: {
     sourceType: input.sourceType ?? 'tool-reported',
     confidence: input.confidence ?? 1,
     evidenceRefs: ['EV-1'],
-    contributions: [{ executionId: input.executionId ?? 'sx_aaaaaaaaaaaaa1', capabilityId: input.capabilityId ?? 'discovery.http-inspect', tool, toolVersion: `${tool}@sha256:x`, evidenceRef: 'EV-1', confidence: input.confidence ?? 1, at }],
+    contributions: [{ executionId: input.executionId ?? 'sx_aaaaaaaaaaaaa1', capabilityId: input.capabilityId ?? 'discovery.http-inspect', tool, toolVersion: `${tool}@sha256:x`, evidenceRef: 'EV-1', confidence: input.confidence ?? 1, identityRef: null, sessionRef: null, at }],
     firstSeenAt: at,
     lastSeenAt: at,
   }

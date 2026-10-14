@@ -67,7 +67,7 @@ function edge(n: number, type: SecurityGraphEdge['type'], from: SecurityGraphNod
 }
 
 function observation(n: number, type: SecurityObservation['type'], asset: string, tool: string, value: Record<string, unknown> = {}): SecurityObservation {
-  return { id: id('obs', n), engagementId: 'eng', dedupeKey: `${n}`, type, asset, subject: 's', title: `${type} ${n}`, scopeClass: null, value, sourceType: 'tool-reported', confidence: 1, evidenceRefs: [`EV-${n}`], contributions: [{ executionId: `sx_${n}`, capabilityId: 'c', tool, toolVersion: 'v', evidenceRef: `EV-${n}`, confidence: 1, at: T }], firstSeenAt: T, lastSeenAt: T }
+  return { id: id('obs', n), engagementId: 'eng', dedupeKey: `${n}`, type, asset, subject: 's', title: `${type} ${n}`, scopeClass: null, value, sourceType: 'tool-reported', confidence: 1, evidenceRefs: [`EV-${n}`], contributions: [{ executionId: `sx_${n}`, capabilityId: 'c', tool, toolVersion: 'v', evidenceRef: `EV-${n}`, confidence: 1, identityRef: null, sessionRef: null, at: T }], firstSeenAt: T, lastSeenAt: T }
 }
 
 const host = node(1, 'host', ORIGIN)
@@ -105,6 +105,7 @@ function view(extra: { hypotheses?: SecurityHypothesis[]; actions?: ReasoningAct
     hypotheses: extra.hypotheses ?? [],
     actions: extra.actions ?? [],
     capabilities: planningCapabilities(registry, extra.environment ?? 'staging'),
+    comparisons: [],
   }
 }
 

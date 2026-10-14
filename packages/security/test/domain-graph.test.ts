@@ -35,7 +35,7 @@ function decl(kind: DomainDeclarationKind, ref: string, spec: Record<string, unk
 
 function obs(type: ObservationType, asset: string): SecurityObservation {
   const id = `obs_${String(++seq).padStart(14, '0')}`
-  return { id, engagementId: 'e', dedupeKey: id, type, asset, subject: 'response', title: `HTTP 200`, scopeClass: null, value: { status: 200 }, sourceType: 'tool-reported', confidence: 1, evidenceRefs: ['EV-1'], contributions: [{ executionId: 'sx_1', capabilityId: 'c', tool: 'httpx', toolVersion: 'v', evidenceRef: 'EV-1', confidence: 1, at: T }], firstSeenAt: T, lastSeenAt: T }
+  return { id, engagementId: 'e', dedupeKey: id, type, asset, subject: 'response', title: `HTTP 200`, scopeClass: null, value: { status: 200 }, sourceType: 'tool-reported', confidence: 1, evidenceRefs: ['EV-1'], contributions: [{ executionId: 'sx_1', capabilityId: 'c', tool: 'httpx', toolVersion: 'v', evidenceRef: 'EV-1', confidence: 1, identityRef: null, sessionRef: null, at: T }], firstSeenAt: T, lastSeenAt: T }
 }
 
 /** Pure projection + derivation, so node basis/confidence/status can be asserted (mirrors graph.test.ts). */
