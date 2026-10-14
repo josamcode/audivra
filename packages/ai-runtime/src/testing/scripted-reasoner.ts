@@ -178,11 +178,14 @@ export class ScriptedReasoningProvider implements AgentProvider {
     return { hypotheses: hypotheses.slice(0, 8), relationships, notes: `${hypotheses.length} hypotheses from ${input.openGaps?.length ?? 0} open knowledge gaps.` }
   }
 
-  /** Deterministic output for the Phase 6A finding roles; null for any other role. */
+  /** Deterministic output for the Phase 6A finding and Phase 6B attack-path roles; null for any other role. */
   #finding(role: string): Record<string, unknown> | null {
     if (role === 'security-finding-verifier') return { verdict: 'confirm', rationale: 'The verified evidence (inconsistent comparison with positive and negative controls) supports the finding.', citedEvidenceRefs: [], alternativeExplanation: null, missingEvidence: null, proposedAction: null }
     if (role === 'security-finding-prose') return { title: 'Verified authorization boundary finding', impact: 'An identity can access a resource the boundary should deny.', remediation: 'Enforce the ownership/tenant boundary on the server for this operation.', severityExplanation: '' }
     if (role === 'security-finding-reviewer') return { verdict: 'ok', note: '', suggestedSeverity: null }
+    // Phase 6B: the proposer adds no chains (deterministic discovery is enough); the explainer narrates one.
+    if (role === 'security-attack-path-proposer') return { proposals: [] }
+    if (role === 'security-attack-path-explainer') return { title: 'Evidence-backed attack path', explanation: 'An authenticated identity reaches a greater impact across the demonstrated findings.' }
     return null
   }
 
