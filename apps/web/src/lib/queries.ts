@@ -101,6 +101,8 @@ export const queryKeys = {
   engagementSpecialistAvailability: (id: string) => ['security', 'engagement', id, 'specialist', 'availability'] as const,
   engagementSpecialistRuns: (id: string) => ['security', 'engagement', id, 'specialist', 'runs'] as const,
   specialistRun: (runId: string) => ['security', 'specialist', 'run', runId] as const,
+  engagementResearchRuns: (id: string) => ['security', 'engagement', id, 'research', 'runs'] as const,
+  researchRun: (runId: string) => ['security', 'research', 'run', runId] as const,
   engagementDeclarations: (id: string) => ['security', 'engagement', id, 'declarations'] as const,
 }
 
@@ -340,6 +342,12 @@ export const findingHistoryQuery = (findingId: string) =>
 
 export const engagementAnalystDecisionsQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementAnalystDecisions(id), queryFn: () => api.analystDecisions(id) })
+
+export const engagementResearchRunsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementResearchRuns(id), queryFn: () => api.researchRuns(id), refetchInterval: 4000 })
+
+export const researchRunQuery = (runId: string) =>
+  queryOptions({ queryKey: queryKeys.researchRun(runId), queryFn: () => api.researchRun(runId), refetchInterval: 4000 })
 
 export const engagementSpecialistAvailabilityQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementSpecialistAvailability(id), queryFn: () => api.specialistAvailability(id), refetchInterval: 15_000 })

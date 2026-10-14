@@ -1,6 +1,5 @@
 import type {
   ActionCostClass,
-  ComparisonPlanInput,
   ResearchActionKind,
   ResearchActionOrigin,
   RetestCase,

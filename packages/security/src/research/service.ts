@@ -37,7 +37,6 @@ import {
 import type { CapabilityBroker } from '../broker.ts'
 import { ComparisonEngine } from '../comparison/engine.ts'
 import { ComparisonService } from '../comparison/service.ts'
-import { comparisonCoverage } from '../comparison/coverage.ts'
 import { GraphProjector } from '../graph/projector.ts'
 import { jsonSection, type ReasoningAi } from '../reasoning/ai.ts'
 import { AttackPathService } from '../attack-path/service.ts'
