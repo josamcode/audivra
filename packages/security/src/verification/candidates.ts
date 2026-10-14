@@ -6,8 +6,6 @@ import type {
   DomainDeclarationKind,
   FindingCategory,
   HypothesisCategory,
-  SecurityComparison,
-  SecurityHypothesis,
   SecurityObservation,
   VerificationCheck,
 } from '@audivra/contracts'
@@ -121,9 +119,9 @@ function fromComparisons(view: KnowledgeView, resolve: DomainRefResolver): Gener
     const origin: CandidateOrigin = contradictedInvariant ? 'contradicted-invariant' : 'differential-comparison'
     const category = DIMENSION_TO_FINDING[c.dimension]
     const subjectArms = c.arms.filter((a) => a.role === 'subject')
-    const identityNodes = subjectArms.map((a) => (a.identityRef ? identityKey(a.identityRef) : null)).filter((k): k is string => !!k && view.nodes.has(k))
+    const identityNodes = subjectArms.map((a) => (a.identityRef ? identityKey(a.identityRef) : null)).filter((k): k is string => !!k && view.nodesByKey.has(k))
     const resourceNode = resolve('resource', c.resourceRef)
-    const affectedEntityKeys = [...new Set([...(resourceNode && view.nodes.has(resourceNode) ? [resourceNode] : []), ...identityNodes])]
+    const affectedEntityKeys = [...new Set([...(resourceNode && view.nodesByKey.has(resourceNode) ? [resourceNode] : []), ...identityNodes])]
     if (!affectedEntityKeys.length) continue
     const armEvidence = c.arms.flatMap((a) => a.observation?.evidenceRefs ?? [])
     out.push({

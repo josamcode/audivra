@@ -17,7 +17,6 @@ import type {
   VerificationCheckResult,
   VerificationState,
 } from '@audivra/contracts'
-import type { Db } from '../client.ts'
 import { newId } from '../ids.ts'
 import { securityFindings, securityVerificationCandidates } from '../schema.ts'
 import type { DbOrTx } from './security-graph.ts'

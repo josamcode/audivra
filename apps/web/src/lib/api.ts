@@ -12,9 +12,17 @@ import type {
   ComparisonPlanInput,
   ComparisonResult,
   InvariantEvaluation,
+  FindingCategory,
+  FindingStatus,
+  SecurityAssessmentReport,
   SecurityComparison,
   SecurityComparisonDetail,
   SecurityDomainDeclaration,
+  SecurityFinding,
+  SecurityFindingDetail,
+  SecurityVerificationCandidate,
+  VerificationCoverage,
+  VerificationState,
   SessionEstablishmentResult,
   SessionMetadata,
   UpdateEngagementInput,
@@ -242,6 +250,16 @@ export const api = {
   comparisonInvariants: (id: string) => request<InvariantEvaluation[]>(`${engagementPath(id)}/comparisons/invariants`),
   proposeComparisons: (id: string) => request<{ plan: ComparisonPlanInput; informationGain: number; reason: string }[]>(`${engagementPath(id)}/comparisons/propose`),
   createComparison: (id: string, input: ComparisonPlanInput) => request<SecurityComparison>(`${engagementPath(id)}/comparisons`, post(input)),
+  // Phase 6A: verification candidates and verified findings (all read-only except the verify trigger).
+  verifyFindings: (id: string) => request<{ queued: boolean }>(`${engagementPath(id)}/verify`, { method: 'POST' }),
+  findingsList: (id: string, filters: { category?: FindingCategory; status?: FindingStatus; verificationState?: VerificationState } = {}) => {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString()
+    return request<SecurityFinding[]>(`${engagementPath(id)}/findings${query ? `?${query}` : ''}`)
+  },
+  findingCandidates: (id: string) => request<SecurityVerificationCandidate[]>(`${engagementPath(id)}/findings/candidates`),
+  findingCoverage: (id: string) => request<VerificationCoverage>(`${engagementPath(id)}/findings/coverage`),
+  findingReport: (id: string) => request<SecurityAssessmentReport>(`${engagementPath(id)}/findings/report`),
+  securityFinding: (findingId: string) => request<SecurityFindingDetail>(`/api/security/findings/${encodeURIComponent(findingId)}`),
   establishSession: (id: string, input: EstablishSessionInput) => request<SessionEstablishmentResult>(`${engagementPath(id)}/sessions/establish`, post(input)),
   revokeSession: (sessionId: string) => request<SessionMetadata>(`/api/security/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' }),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
@@ -256,6 +274,11 @@ export const api = {
 /** Download URL of an audit export (generated on demand by the API). */
 export function exportUrl(auditId: string, kind: ExportKind): string {
   return `${auditPath(auditId)}/export/${kind}`
+}
+
+/** Download URL of a security findings export (JSON/CSV; generated on demand from persisted state, no AI). */
+export function findingExportUrl(engagementId: string, kind: 'json' | 'csv-findings' | 'csv-candidates'): string {
+  return `${engagementPath(engagementId)}/findings/export/${kind}`
 }
 
 /** PNG/SVG rendering of a visual artifact (A*). */

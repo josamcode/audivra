@@ -86,6 +86,10 @@ export const queryKeys = {
   engagementComparisonCoverage: (id: string) => ['security', 'engagement', id, 'comparison-coverage'] as const,
   engagementInvariants: (id: string) => ['security', 'engagement', id, 'invariants'] as const,
   securityComparison: (comparisonId: string) => ['security', 'comparison', comparisonId] as const,
+  engagementFindings: (id: string) => ['security', 'engagement', id, 'findings'] as const,
+  engagementFindingCandidates: (id: string) => ['security', 'engagement', id, 'findings', 'candidates'] as const,
+  engagementFindingCoverage: (id: string) => ['security', 'engagement', id, 'findings', 'coverage'] as const,
+  securityFinding: (findingId: string) => ['security', 'finding', findingId] as const,
   engagementDeclarations: (id: string) => ['security', 'engagement', id, 'declarations'] as const,
 }
 
@@ -292,6 +296,18 @@ export const engagementIdentityCoverageQuery = (id: string) =>
 
 export const engagementComparisonsQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementComparisons(id), queryFn: () => api.comparisons(id), refetchInterval: 5000 })
+
+export const engagementFindingsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementFindings(id), queryFn: () => api.findingsList(id), refetchInterval: 5000 })
+
+export const engagementFindingCandidatesQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementFindingCandidates(id), queryFn: () => api.findingCandidates(id), refetchInterval: 5000 })
+
+export const engagementFindingCoverageQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementFindingCoverage(id), queryFn: () => api.findingCoverage(id), refetchInterval: 5000 })
+
+export const securityFindingQuery = (findingId: string) =>
+  queryOptions({ queryKey: queryKeys.securityFinding(findingId), queryFn: () => api.securityFinding(findingId) })
 
 export const engagementComparisonCoverageQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementComparisonCoverage(id), queryFn: () => api.comparisonCoverage(id), refetchInterval: 10_000 })
