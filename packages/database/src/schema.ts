@@ -151,6 +151,21 @@ import type {
   SpecialistCompletion,
   SpecialistTarget,
   SpecialistImport,
+  ResearchMode,
+  ResearchObjective,
+  ResearchRunState,
+  ResearchStage,
+  ResearchTermination,
+  ResearchBudget,
+  ResearchUsage,
+  ResearchCoverageSnapshot,
+  ResidualUncertainty,
+  ResearchActionKind,
+  ResearchActionOrigin,
+  ResearchActionState,
+  ActionUsefulness,
+  ActionCostClass,
+  ActionRejection,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -1408,4 +1423,77 @@ export const securitySpecialistRuns = pgTable(
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [index('security_specialist_runs_engagement_idx').on(t.engagementId, t.createdAt), index('security_specialist_runs_state_idx').on(t.engagementId, t.state)],
+)
+
+/*
+ * Phase 6E — a persistent autonomous research run: one bounded, adaptive investigation session that
+ * orchestrates the existing services (graph, hypotheses, comparisons, broker, verification, attack paths,
+ * retesting, specialist). All loop state lives here (never in an AI conversation), so a worker/provider
+ * restart resumes deterministically. The run references the existing systems; it never duplicates them.
+ */
+export const securityResearchRuns = pgTable(
+  'security_research_runs',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    parentRunId: text('parent_run_id'),
+    mode: text('mode').$type<ResearchMode>().notNull(),
+    objective: text('objective').$type<ResearchObjective>().notNull(),
+    objectiveNote: text('objective_note'),
+    objectiveDetail: jsonb('objective_detail').$type<Record<string, unknown>>().notNull().default({}),
+    state: text('state').$type<ResearchRunState>().notNull().default('created'),
+    stage: text('stage').$type<ResearchStage>().notNull().default('assess'),
+    iteration: integer('iteration').notNull().default(0),
+    budget: jsonb('budget').$type<ResearchBudget>().notNull(),
+    usage: jsonb('usage').$type<ResearchUsage>().notNull(),
+    coverageBefore: jsonb('coverage_before').$type<ResearchCoverageSnapshot>().notNull(),
+    coverageAfter: jsonb('coverage_after').$type<ResearchCoverageSnapshot | null>(),
+    residual: jsonb('residual').$type<ResidualUncertainty>().notNull(),
+    terminationReason: text('termination_reason').$type<ResearchTermination>(),
+    lastDecision: text('last_decision').notNull().default(''),
+    startingGraphRevision: integer('starting_graph_revision'),
+    providerAvailable: boolean('provider_available').notNull().default(true),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    startedAt: ts('started_at'),
+    finishedAt: ts('finished_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_research_runs_engagement_idx').on(t.engagementId, t.createdAt), index('security_research_runs_state_idx').on(t.state)],
+)
+
+/*
+ * One proposed/executed action in a research run. It maps to an EXISTING capability/service; its fingerprint
+ * prevents repetition, its rejection records why deterministic validation declined it, and its producedRefs
+ * point at the ids it created in the authoritative systems (executions, comparisons, findings, runs).
+ */
+export const securityResearchActions = pgTable(
+  'security_research_actions',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => securityResearchRuns.id, { onDelete: 'cascade' }),
+    engagementId: text('engagement_id').notNull(),
+    iteration: integer('iteration').notNull(),
+    kind: text('kind').$type<ResearchActionKind>().notNull(),
+    origin: text('origin').$type<ResearchActionOrigin>().notNull(),
+    state: text('state').$type<ResearchActionState>().notNull(),
+    objectiveRef: text('objective_ref'),
+    capabilityId: text('capability_id'),
+    inputRef: jsonb('input_ref').$type<Record<string, unknown>>().notNull().default({}),
+    fingerprint: text('fingerprint').notNull(),
+    costClass: text('cost_class').$type<ActionCostClass>().notNull(),
+    expectedInformationGain: real('expected_information_gain').notNull().default(0),
+    rank: real('rank').notNull().default(0),
+    reason: text('reason').notNull().default(''),
+    rejection: text('rejection').$type<ActionRejection>(),
+    usefulness: text('usefulness').$type<ActionUsefulness>(),
+    outcome: text('outcome').notNull().default(''),
+    producedRefs: jsonb('produced_refs').$type<string[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_research_actions_run_idx').on(t.runId, t.iteration), index('security_research_actions_fingerprint_idx').on(t.runId, t.fingerprint)],
 )

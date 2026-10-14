@@ -25,6 +25,7 @@ export type ReasoningPrompt =
   | 'security-attack-path-proposer'
   | 'security-attack-path-explainer'
   | 'security-retest-adapter'
+  | 'security-research-planner'
 
 export interface ReasoningAiTask {
   spec: AiTaskSpec

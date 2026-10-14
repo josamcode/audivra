@@ -31,6 +31,7 @@ export interface ReasoningTaskRequest {
     | 'security-attack-path-proposer'
     | 'security-attack-path-explainer'
     | 'security-retest-adapter'
+    | 'security-research-planner'
   context: { trusted: AiContextSection[]; untrusted: AiContextSection[] }
   instruction: string
   jsonSchema: Record<string, unknown>

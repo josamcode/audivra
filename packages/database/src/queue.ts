@@ -27,6 +27,8 @@ export const QUEUES = {
   securityRetest: 'security-retest',
   /** Specialist research run (Phase 6D): one job drives an external engine (e.g. Strix) and ingests artifacts. */
   securitySpecialist: 'security-specialist',
+  /** Autonomous research run (Phase 6E): one job drives the bounded research loop to a stopping condition. */
+  securityResearch: 'security-research',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -86,6 +88,11 @@ export interface SecuritySpecialistJob {
   runId: string
 }
 
+/** A research job names the run; the loop state is loaded from the database and is idempotent/resumable. */
+export interface SecurityResearchJob {
+  runId: string
+}
+
 const HOUR = 3600
 
 interface QueueSettings {
@@ -133,6 +140,9 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // reconciles exact owned process/container state and ingests a completed run's artifacts once (idempotent),
     // never re-running finished external work.
     [QUEUES.securitySpecialist]: { expireInSeconds: 6 * HOUR, retryLimit: 1, retryDelay: 15, policy: 'stately' },
+    // One job per research run (`stately` + singletonKey = run id). The loop persists its state every cycle,
+    // so a retry/restart resumes deterministically from the next stage without duplicating actions.
+    [QUEUES.securityResearch]: { expireInSeconds: 6 * HOUR, retryLimit: 1, retryDelay: 15, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -206,4 +216,9 @@ export async function enqueueSecurityRetest(boss: PgBoss, job: SecurityRetestJob
 /** Queues a specialist run to be driven (no-op while one is already queued for the same run id). */
 export async function enqueueSecuritySpecialist(boss: PgBoss, runId: string): Promise<string | null> {
   return boss.send(QUEUES.securitySpecialist, { runId } satisfies SecuritySpecialistJob, { singletonKey: runId })
+}
+
+/** Queues a research run to be driven (no-op while one is already queued for the same run id). */
+export async function enqueueSecurityResearch(boss: PgBoss, runId: string): Promise<string | null> {
+  return boss.send(QUEUES.securityResearch, { runId } satisfies SecurityResearchJob, { singletonKey: runId })
 }

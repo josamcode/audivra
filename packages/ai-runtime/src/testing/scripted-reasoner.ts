@@ -190,6 +190,9 @@ export class ScriptedReasoningProvider implements AgentProvider {
     // and a bare "fixed" is never fabricated by the adapter. A benchmark injects a scripted adapter when it
     // needs to exercise a (validated) relocation.
     if (role === 'security-retest-adapter') return { adaptable: false, kind: null, newUrl: null, newResourceRef: null, referencedEntityKeys: [], reason: 'No deterministic adaptation proposed.' }
+    // Phase 6E: the research planner proposes nothing by default — Audivra's deterministic ASSESS drives the
+    // loop, and the scripted planner never invents references or forces an expensive engine.
+    if (role === 'security-research-planner') return { proposals: [], note: 'Deterministic plan is sufficient.' }
     return null
   }
 
