@@ -334,7 +334,13 @@ export class VerificationService {
         runId: `verify-${randomUUID().slice(0, 8)}`,
         signal: signal ?? AbortSignal.timeout(task.spec.budget.wallClockMs),
       })
-      if (out.outcome !== 'succeeded') return { kind: 'failed', detail: out.refused ? 'provider refused' : out.outcome }
+      if (out.outcome !== 'succeeded') {
+        // No provider was even selected → verification was never attempted; fall back to the deterministic
+        // floor (a `supported` finding), rather than blocking. A provider that WAS selected and then failed
+        // is a genuine verification failure and blocks the candidate (never verified).
+        if (out.selection.providerId === null) return { kind: 'skipped' }
+        return { kind: 'failed', detail: out.refused ? 'provider refused' : out.outcome }
+      }
       const parsed = FindingVerifierOutput.safeParse(out.output)
       if (!parsed.success) return { kind: 'failed', detail: 'verifier output invalid' }
       // Cited evidence must already exist on the candidate; silently drop anything else (never trust new refs).

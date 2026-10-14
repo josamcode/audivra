@@ -100,6 +100,11 @@ export class ScriptedReasoningProvider implements AgentProvider {
     const failure = task ? this.#options.fail?.[task] : undefined
     if (failure === 'malformed') return { ...base, status: 'completed', output: { unexpected: true }, error: null, terminationReason: 'completed' }
     if (failure) return { ...base, status: failure === 'cancelled' ? 'cancelled' : 'failed', output: null, error: failure, terminationReason: failure }
+    // Phase 6A finding-verification roles (independent verifier, prose author, cautious reviewer). The
+    // scripted verifier confirms — but AUDIVRA only elevates a deterministically COMPLETE candidate to
+    // verified, so this can never fabricate a finding where no evidence exists.
+    const finding = this.#finding(request.role)
+    if (finding) return { ...base, status: 'completed', output: finding, error: null, terminationReason: 'completed' }
     const input = readJson<TaskInput>(request.prompt, 'Task input') ?? {}
     const graph = readJson<GraphData>(request.prompt, 'Graph data') ?? {}
     const output = task === 'researcher' ? this.#research(input, graph) : task === 'verifier' ? this.#verify(input) : task === 'planner' ? this.#plan(input) : {}
@@ -171,6 +176,14 @@ export class ScriptedReasoningProvider implements AgentProvider {
       if (endpoints[0] && techNode && techObs) relationships.push({ type: 'DEPENDS_ON', fromEntityId: endpoints[0].id, toEntityId: techNode.id, confidence: 0.9, supportingObservationIds: [techObs], rationale: 'Wrong kinds on purpose.' })
     }
     return { hypotheses: hypotheses.slice(0, 8), relationships, notes: `${hypotheses.length} hypotheses from ${input.openGaps?.length ?? 0} open knowledge gaps.` }
+  }
+
+  /** Deterministic output for the Phase 6A finding roles; null for any other role. */
+  #finding(role: string): Record<string, unknown> | null {
+    if (role === 'security-finding-verifier') return { verdict: 'confirm', rationale: 'The verified evidence (inconsistent comparison with positive and negative controls) supports the finding.', citedEvidenceRefs: [], alternativeExplanation: null, missingEvidence: null, proposedAction: null }
+    if (role === 'security-finding-prose') return { title: 'Verified authorization boundary finding', impact: 'An identity can access a resource the boundary should deny.', remediation: 'Enforce the ownership/tenant boundary on the server for this operation.', severityExplanation: '' }
+    if (role === 'security-finding-reviewer') return { verdict: 'ok', note: '', suggestedSeverity: null }
+    return null
   }
 
   #verify(input: TaskInput) {
