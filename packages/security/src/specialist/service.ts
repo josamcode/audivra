@@ -63,6 +63,8 @@ export class SpecialistRunService {
   readonly #workspaceRoot: (engagementId: string) => string
   readonly #now: () => Date
   readonly #log: Logger | undefined
+  /** AbortControllers for runs this instance is driving (so a same-process cancel stops them immediately). */
+  readonly #controllers = new Map<string, AbortController>()
 
   constructor(options: SpecialistRunServiceOptions) {
     this.#db = options.db
@@ -160,16 +162,21 @@ export class SpecialistRunService {
 
     const budget = budgetFor(run.mode, environment)
     const timeout = AbortSignal.timeout(budget.wallClockMs)
-    const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout
+    const controller = new AbortController()
+    this.#controllers.set(run.id, controller)
+    const signal = AbortSignal.any([...(options.signal ? [options.signal] : []), controller.signal, timeout])
     let artifact: SpecialistArtifact
     try {
       artifact = await engine.run({ engagementId: run.engagementId, executionId, config: { engine: run.engine, mode: run.mode, targets: run.targets, budget, providerProfileId: run.providerProfileId, executionNetwork: null, stagedSourceRef: run.targets.find((t) => t.kind === 'staged-source')?.value ?? null }, workspaceDir: workspace.area('artifacts'), signal, log: this.#log })
     } catch (error) {
+      this.#controllers.delete(run.id)
       await killOwnedForExecution(executionId).catch(() => undefined)
       await engine.cleanup({ engagementId: run.engagementId, executionId, workspaceDir: workspace.area('artifacts'), config: { engine: run.engine, mode: run.mode, targets: run.targets, budget, providerProfileId: run.providerProfileId, executionNetwork: null, stagedSourceRef: null }, log: this.#log }).catch(() => undefined)
-      const cancelled = signal.aborted && (options.signal?.aborted ?? false)
-      return this.#finalizeTerminal(run, cancelled ? 'cancelled' : 'failed', cancelled ? 'cancelled' : 'failed', configVersion, actor, error instanceof Error ? error.message : 'engine error')
+      const cancelled = controller.signal.aborted || (options.signal?.aborted ?? false)
+      const timedOut = timeout.aborted && !cancelled
+      return this.#finalizeTerminal(run, cancelled ? 'cancelled' : 'failed', cancelled ? 'cancelled' : timedOut ? 'budget-stopped' : 'failed', configVersion, actor, error instanceof Error ? error.message : 'engine error')
     }
+    this.#controllers.delete(run.id)
 
     // 4. Store the structured artifact as bounded evidence (raw external-tool output).
     run = toSpecialistRun((await updateSpecialistRun(this.#db, run.id, { state: 'collecting', stateReason: 'Collecting and ingesting artifacts.', engineVersion: artifact.engineVersion }))!)
@@ -214,6 +221,7 @@ export class SpecialistRunService {
     if (!row) throw new SecurityRequestError(404, `No specialist run ${runId}`)
     const run = toSpecialistRun(row)
     if (TERMINAL_SPECIALIST_STATES.includes(run.state)) return run
+    this.#controllers.get(run.id)?.abort(new Error('Cancelled by request'))
     if (run.executionId) {
       await killOwnedForExecution(run.executionId).catch(() => undefined)
       await this.#engines[run.engine]?.cleanup({ engagementId: run.engagementId, executionId: run.executionId, workspaceDir: new ExecutionWorkspace(this.#workspaceRoot(run.engagementId), run.executionId).area('artifacts'), config: { engine: run.engine, mode: run.mode, targets: run.targets, budget: budgetFor(run.mode, null), providerProfileId: run.providerProfileId, executionNetwork: null, stagedSourceRef: null } }).catch(() => undefined)
