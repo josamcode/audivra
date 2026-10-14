@@ -90,6 +90,9 @@ export const queryKeys = {
   engagementFindingCandidates: (id: string) => ['security', 'engagement', id, 'findings', 'candidates'] as const,
   engagementFindingCoverage: (id: string) => ['security', 'engagement', id, 'findings', 'coverage'] as const,
   securityFinding: (findingId: string) => ['security', 'finding', findingId] as const,
+  engagementAttackPaths: (id: string) => ['security', 'engagement', id, 'attack-paths'] as const,
+  engagementAttackPathCoverage: (id: string) => ['security', 'engagement', id, 'attack-paths', 'coverage'] as const,
+  securityAttackPath: (pathId: string) => ['security', 'attack-path', pathId] as const,
   engagementDeclarations: (id: string) => ['security', 'engagement', id, 'declarations'] as const,
 }
 
@@ -308,6 +311,15 @@ export const engagementFindingCoverageQuery = (id: string) =>
 
 export const securityFindingQuery = (findingId: string) =>
   queryOptions({ queryKey: queryKeys.securityFinding(findingId), queryFn: () => api.securityFinding(findingId) })
+
+export const engagementAttackPathsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementAttackPaths(id), queryFn: () => api.attackPaths(id), refetchInterval: 5000 })
+
+export const engagementAttackPathCoverageQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementAttackPathCoverage(id), queryFn: () => api.attackPathCoverage(id), refetchInterval: 5000 })
+
+export const securityAttackPathQuery = (pathId: string) =>
+  queryOptions({ queryKey: queryKeys.securityAttackPath(pathId), queryFn: () => api.securityAttackPath(pathId) })
 
 export const engagementComparisonCoverageQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementComparisonCoverage(id), queryFn: () => api.comparisonCoverage(id), refetchInterval: 10_000 })

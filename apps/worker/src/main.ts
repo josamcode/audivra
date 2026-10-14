@@ -20,6 +20,7 @@ import { runBenchmark } from './benchmark.ts'
 import { Pipeline } from './pipeline.ts'
 import { createSecurityComparisonWorker } from './security-comparisons.ts'
 import { createSecurityExecutionWorker } from './security-executions.ts'
+import { createSecurityAttackPathWorker } from './security-attack-paths.ts'
 import { createSecurityReasoningWorker } from './security-reasoning.ts'
 import { createSecurityVerificationWorker } from './security-verification.ts'
 
@@ -57,6 +58,7 @@ await ensureQueues(boss)
 const securityReasoning = createSecurityReasoningWorker({ db, boss, log })
 const securityComparisons = createSecurityComparisonWorker({ db, boss, log })
 const securityVerification = createSecurityVerificationWorker({ db, boss, log })
+const securityAttackPaths = createSecurityAttackPathWorker({ db, boss, log })
 const securityExecutions = createSecurityExecutionWorker({ db, boss, log, onSettled: (id) => securityReasoning.executionSettled(id) })
 await securityExecutions.recover()
 
@@ -130,6 +132,7 @@ await securityReasoning.recover()
 await securityReasoning.start()
 await securityComparisons.start()
 await securityVerification.start()
+await securityAttackPaths.start()
 log.info({ queues: [...handlers.map(([q]) => q), QUEUES.enrich, QUEUES.benchmark, QUEUES.securityExecution, QUEUES.securityReasoning, QUEUES.securityComparison], ai: config.AUDIVRA_AI }, 'worker ready')
 
 let shuttingDown = false
@@ -142,6 +145,7 @@ async function shutdown(signal: string) {
   await securityReasoning.stop().catch((error) => log.error({ err: error }, 'security reasoning shutdown failed'))
   await securityComparisons.stop().catch((error) => log.error({ err: error }, 'security comparison shutdown failed'))
   await securityVerification.stop().catch((error) => log.error({ err: error }, 'security verification shutdown failed'))
+  await securityAttackPaths.stop().catch((error) => log.error({ err: error }, 'security attack-path shutdown failed'))
   await securityExecutions.shutdown().catch((error) => log.error({ err: error }, 'security execution shutdown failed'))
   // Only processes this worker started (ownership registry) are terminated.
   const killed = await killAllOwned()

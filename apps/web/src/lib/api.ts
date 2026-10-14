@@ -12,8 +12,13 @@ import type {
   ComparisonPlanInput,
   ComparisonResult,
   InvariantEvaluation,
+  AttackPathCoverage,
+  AttackPathDetail,
+  AttackPathReport,
   FindingCategory,
   FindingStatus,
+  PathState,
+  SecurityAttackPath,
   SecurityAssessmentReport,
   SecurityComparison,
   SecurityComparisonDetail,
@@ -260,6 +265,15 @@ export const api = {
   findingCoverage: (id: string) => request<VerificationCoverage>(`${engagementPath(id)}/findings/coverage`),
   findingReport: (id: string) => request<SecurityAssessmentReport>(`${engagementPath(id)}/findings/report`),
   securityFinding: (findingId: string) => request<SecurityFindingDetail>(`/api/security/findings/${encodeURIComponent(findingId)}`),
+  // Phase 6B: evidence-backed attack paths (read-only except the analyze trigger).
+  analyzeAttackPaths: (id: string) => request<{ queued: boolean }>(`${engagementPath(id)}/attack-paths/analyze`, { method: 'POST' }),
+  attackPaths: (id: string, filters: { state?: PathState; includeDominated?: boolean } = {}) => {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== false).map(([k, v]) => [k, String(v)])).toString()
+    return request<SecurityAttackPath[]>(`${engagementPath(id)}/attack-paths${query ? `?${query}` : ''}`)
+  },
+  attackPathCoverage: (id: string) => request<AttackPathCoverage>(`${engagementPath(id)}/attack-paths/coverage`),
+  attackPathReport: (id: string) => request<AttackPathReport>(`${engagementPath(id)}/attack-paths/report`),
+  securityAttackPath: (pathId: string) => request<AttackPathDetail>(`/api/security/attack-paths/${encodeURIComponent(pathId)}`),
   establishSession: (id: string, input: EstablishSessionInput) => request<SessionEstablishmentResult>(`${engagementPath(id)}/sessions/establish`, post(input)),
   revokeSession: (sessionId: string) => request<SessionMetadata>(`/api/security/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' }),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
@@ -279,6 +293,11 @@ export function exportUrl(auditId: string, kind: ExportKind): string {
 /** Download URL of a security findings export (JSON/CSV; generated on demand from persisted state, no AI). */
 export function findingExportUrl(engagementId: string, kind: 'json' | 'csv-findings' | 'csv-candidates'): string {
   return `${engagementPath(engagementId)}/findings/export/${kind}`
+}
+
+/** Download URL of a security attack-paths export (JSON/CSV; generated on demand from persisted state, no AI). */
+export function attackPathExportUrl(engagementId: string, kind: 'json' | 'csv'): string {
+  return `${engagementPath(engagementId)}/attack-paths/export/${kind}`
 }
 
 /** PNG/SVG rendering of a visual artifact (A*). */

@@ -36,6 +36,7 @@ import type { EventHub } from './events-hub.ts'
 import { registerIntelligenceRoutes } from './routes-intelligence.ts'
 import { registerComparisonRoutes } from './routes-comparisons.ts'
 import { registerCredentialRoutes } from './routes-credentials.ts'
+import { registerAttackPathRoutes } from './routes-attack-paths.ts'
 import { registerDomainRoutes } from './routes-domain.ts'
 import { registerFindingRoutes } from './routes-findings.ts'
 import { registerReasoningRoutes } from './routes-reasoning.ts'
@@ -325,6 +326,7 @@ export async function buildApp(deps: AppDeps) {
   registerCredentialRoutes(app, { db, log: deps.log })
   registerComparisonRoutes(app, { db, boss, log: deps.log })
   registerFindingRoutes(app, { db, boss })
+  registerAttackPathRoutes(app, { db, boss })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {

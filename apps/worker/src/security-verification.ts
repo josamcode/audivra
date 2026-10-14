@@ -1,5 +1,5 @@
 import type { Logger } from '@audivra/config'
-import { QUEUES, type Db, type PgBoss, type SecurityVerificationJob } from '@audivra/database'
+import { enqueueSecurityAttackPath, QUEUES, type Db, type PgBoss, type SecurityVerificationJob } from '@audivra/database'
 import { createProviderRegistry, createProviderRouter, createReasoningAi, type ProviderRegistry } from '@audivra/ai-runtime'
 import { createRuntimeRegistry, GraphProjector, VerificationService, type CapabilityRegistry, type ReasoningAi } from '@audivra/security'
 
@@ -41,6 +41,8 @@ export function createSecurityVerificationWorker(options: {
   async function verify(engagementId: string) {
     const result = await service.drive(engagementId, { signal: controller.signal })
     log.info({ engagementId, ...result }, 'verification pass driven')
+    // Closed loop (Phase 6B): once findings are synthesized, analyse evidence-backed attack paths over them.
+    await enqueueSecurityAttackPath(boss, engagementId)
   }
 
   return {
