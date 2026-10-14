@@ -178,7 +178,7 @@ export class ScriptedReasoningProvider implements AgentProvider {
     return { hypotheses: hypotheses.slice(0, 8), relationships, notes: `${hypotheses.length} hypotheses from ${input.openGaps?.length ?? 0} open knowledge gaps.` }
   }
 
-  /** Deterministic output for the Phase 6A finding and Phase 6B attack-path roles; null for any other role. */
+  /** Deterministic output for the Phase 6A finding, Phase 6B attack-path and Phase 6C retest roles; null otherwise. */
   #finding(role: string): Record<string, unknown> | null {
     if (role === 'security-finding-verifier') return { verdict: 'confirm', rationale: 'The verified evidence (inconsistent comparison with positive and negative controls) supports the finding.', citedEvidenceRefs: [], alternativeExplanation: null, missingEvidence: null, proposedAction: null }
     if (role === 'security-finding-prose') return { title: 'Verified authorization boundary finding', impact: 'An identity can access a resource the boundary should deny.', remediation: 'Enforce the ownership/tenant boundary on the server for this operation.', severityExplanation: '' }
@@ -186,6 +186,10 @@ export class ScriptedReasoningProvider implements AgentProvider {
     // Phase 6B: the proposer adds no chains (deterministic discovery is enough); the explainer narrates one.
     if (role === 'security-attack-path-proposer') return { proposals: [] }
     if (role === 'security-attack-path-explainer') return { title: 'Evidence-backed attack path', explanation: 'An authenticated identity reaches a greater impact across the demonstrated findings.' }
+    // Phase 6C: the retest adapter proposes no adaptation by default — deterministic replay stands on its own,
+    // and a bare "fixed" is never fabricated by the adapter. A benchmark injects a scripted adapter when it
+    // needs to exercise a (validated) relocation.
+    if (role === 'security-retest-adapter') return { adaptable: false, kind: null, newUrl: null, newResourceRef: null, referencedEntityKeys: [], reason: 'No deterministic adaptation proposed.' }
     return null
   }
 

@@ -30,6 +30,7 @@ export interface ReasoningTaskRequest {
     | 'security-finding-prose'
     | 'security-attack-path-proposer'
     | 'security-attack-path-explainer'
+    | 'security-retest-adapter'
   context: { trusted: AiContextSection[]; untrusted: AiContextSection[] }
   instruction: string
   jsonSchema: Record<string, unknown>
