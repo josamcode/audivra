@@ -18,6 +18,14 @@ import type {
   FindingCategory,
   FindingStatus,
   PathState,
+  RetestCase,
+  RetestEligibility,
+  RetestResult,
+  FindingLineage,
+  SecurityAssessmentComparison,
+  SecurityHistoricalReport,
+  AnalystDecision,
+  AnalystDecisionInput,
   SecurityAttackPath,
   SecurityAssessmentReport,
   SecurityComparison,
@@ -274,6 +282,24 @@ export const api = {
   attackPathCoverage: (id: string) => request<AttackPathCoverage>(`${engagementPath(id)}/attack-paths/coverage`),
   attackPathReport: (id: string) => request<AttackPathReport>(`${engagementPath(id)}/attack-paths/report`),
   securityAttackPath: (pathId: string) => request<AttackPathDetail>(`/api/security/attack-paths/${encodeURIComponent(pathId)}`),
+  // Phase 6C: retesting + historical comparison (reads only; running a retest queues a durable worker job).
+  planRetests: (id: string, previousEngagementId: string, eligibleOnly = true) => request<RetestCase[]>(`${engagementPath(id)}/retests/plan`, post({ previousEngagementId, eligibleOnly })),
+  requestRetest: (id: string, input: { findingId: string; targetEngagementId?: string | null; allowAdaptation?: boolean }) =>
+    request<{ retestCaseId: string; eligibility: RetestEligibility; queued: boolean }>(`${engagementPath(id)}/retests`, post(input)),
+  retestCases: (id: string) => request<RetestCase[]>(`${engagementPath(id)}/retests/cases`),
+  retestResults: (id: string, filters: { issueKey?: string; findingId?: string } = {}) => {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString()
+    return request<RetestResult[]>(`${engagementPath(id)}/retests/results${query ? `?${query}` : ''}`)
+  },
+  securityRetestResult: (resultId: string) => request<RetestResult>(`/api/security/retests/${encodeURIComponent(resultId)}`),
+  findingHistory: (findingId: string) => request<FindingLineage>(`/api/security/findings/${encodeURIComponent(findingId)}/history`),
+  compareAssessments: (id: string, previousEngagementId: string, persist = true) =>
+    request<SecurityAssessmentComparison>(`${engagementPath(id)}/history/compare`, post({ previousEngagementId, persist })),
+  assessmentComparison: (id: string, previousEngagementId: string) =>
+    request<SecurityAssessmentComparison>(`${engagementPath(id)}/history/comparison?previous=${encodeURIComponent(previousEngagementId)}`),
+  historyReport: (id: string, previousEngagementId: string) => request<SecurityHistoricalReport>(`${engagementPath(id)}/history/report?previous=${encodeURIComponent(previousEngagementId)}`),
+  analystDecisions: (id: string) => request<AnalystDecision[]>(`${engagementPath(id)}/history/decisions`),
+  recordAnalystDecision: (id: string, input: AnalystDecisionInput) => request<AnalystDecision>(`${engagementPath(id)}/history/decisions`, post(input)),
   establishSession: (id: string, input: EstablishSessionInput) => request<SessionEstablishmentResult>(`${engagementPath(id)}/sessions/establish`, post(input)),
   revokeSession: (sessionId: string) => request<SessionMetadata>(`/api/security/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' }),
   /** Link to a file an execution registered as evidence (artifact paths are engagement-relative). */
@@ -298,6 +324,11 @@ export function findingExportUrl(engagementId: string, kind: 'json' | 'csv-findi
 /** Download URL of a security attack-paths export (JSON/CSV; generated on demand from persisted state, no AI). */
 export function attackPathExportUrl(engagementId: string, kind: 'json' | 'csv'): string {
   return `${engagementPath(engagementId)}/attack-paths/export/${kind}`
+}
+
+/** Download URL of a historical/retest export (JSON/CSV; generated on demand from persisted state, no AI). */
+export function historyExportUrl(currentEngagementId: string, previousEngagementId: string, kind: 'json' | 'csv-changes' | 'csv-retests'): string {
+  return `${engagementPath(currentEngagementId)}/history/export/${kind}?previous=${encodeURIComponent(previousEngagementId)}`
 }
 
 /** PNG/SVG rendering of a visual artifact (A*). */

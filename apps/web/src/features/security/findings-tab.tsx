@@ -17,8 +17,9 @@ import { EmptyState, ErrorState } from '@/components/states'
 import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { api, findingExportUrl } from '@/lib/api'
-import { engagementFindingCandidatesQuery, engagementFindingCoverageQuery, engagementFindingsQuery, queryKeys, securityFindingQuery } from '@/lib/queries'
+import { engagementFindingCandidatesQuery, engagementFindingCoverageQuery, engagementFindingsQuery, findingHistoryQuery, queryKeys, securityFindingQuery } from '@/lib/queries'
 import { formatRelative } from '@/lib/format'
+import { RetestStateBadge } from './retests-tab'
 
 /*
  * Phase 6A: verified security findings and the candidates still under verification. A finding is the end of a
@@ -126,7 +127,34 @@ function FindingDetail({ findingId }: { findingId: string }) {
           </div>
         </Field>
       ) : null}
+      <FindingTimeline findingId={finding.id} />
     </PanelBody>
+  )
+}
+
+/** Phase 6C — a finding's cross-assessment timeline: verification state per assessment, plus retest results. */
+function FindingTimeline({ findingId }: { findingId: string }) {
+  const query = useQuery(findingHistoryQuery(findingId))
+  const lineage = query.data
+  if (!lineage || lineage.entries.length <= 1) return null
+  return (
+    <Field label={`History (${lineage.entries.length})`}>
+      <ol className="flex flex-col gap-1">
+        {lineage.entries.map((e, i) => (
+          <li key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-24 shrink-0 text-2xs text-subtle">{formatRelative(e.assessmentAt)}</span>
+            {e.retestState ? <RetestStateBadge state={e.retestState} /> : e.verificationState ? <VerificationBadge state={e.verificationState} /> : null}
+            {e.severity ? <SeverityBadge severity={e.severity} /> : null}
+            <span className="truncate text-2xs text-muted">{e.reason}</span>
+          </li>
+        ))}
+      </ol>
+      {lineage.originalSeverity !== lineage.currentSeverity ? (
+        <div className="mt-1 text-2xs text-medium">
+          Severity over time: {lineage.originalSeverity} → {lineage.currentSeverity} (original severity is preserved)
+        </div>
+      ) : null}
+    </Field>
   )
 }
 

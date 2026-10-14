@@ -93,6 +93,11 @@ export const queryKeys = {
   engagementAttackPaths: (id: string) => ['security', 'engagement', id, 'attack-paths'] as const,
   engagementAttackPathCoverage: (id: string) => ['security', 'engagement', id, 'attack-paths', 'coverage'] as const,
   securityAttackPath: (pathId: string) => ['security', 'attack-path', pathId] as const,
+  engagementRetestCases: (id: string) => ['security', 'engagement', id, 'retests', 'cases'] as const,
+  engagementRetestResults: (id: string) => ['security', 'engagement', id, 'retests', 'results'] as const,
+  findingHistory: (findingId: string) => ['security', 'finding', findingId, 'history'] as const,
+  engagementComparison: (id: string, previous: string) => ['security', 'engagement', id, 'history', 'comparison', previous] as const,
+  engagementAnalystDecisions: (id: string) => ['security', 'engagement', id, 'history', 'decisions'] as const,
   engagementDeclarations: (id: string) => ['security', 'engagement', id, 'declarations'] as const,
 }
 
@@ -320,6 +325,18 @@ export const engagementAttackPathCoverageQuery = (id: string) =>
 
 export const securityAttackPathQuery = (pathId: string) =>
   queryOptions({ queryKey: queryKeys.securityAttackPath(pathId), queryFn: () => api.securityAttackPath(pathId) })
+
+export const engagementRetestCasesQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementRetestCases(id), queryFn: () => api.retestCases(id), refetchInterval: 5000 })
+
+export const engagementRetestResultsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementRetestResults(id), queryFn: () => api.retestResults(id), refetchInterval: 5000 })
+
+export const findingHistoryQuery = (findingId: string) =>
+  queryOptions({ queryKey: queryKeys.findingHistory(findingId), queryFn: () => api.findingHistory(findingId) })
+
+export const engagementAnalystDecisionsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementAnalystDecisions(id), queryFn: () => api.analystDecisions(id) })
 
 export const engagementComparisonCoverageQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementComparisonCoverage(id), queryFn: () => api.comparisonCoverage(id), refetchInterval: 10_000 })
