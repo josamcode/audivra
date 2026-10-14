@@ -36,6 +36,8 @@ function validateOne(candidate: CandidateAction, ctx: ValidateContext): { reject
   }
 
   if (candidate.kind === 'specialist') {
+    // Broad specialist research only fits a broad objective — a focused objective uses cheaper capabilities.
+    if (ctx.run.objective !== 'investigate-api-surface' && ctx.run.objective !== 'maximize-coverage') return { rejection: 'not-eligible', detail: 'Broad specialist research does not fit this focused objective; a cheaper capability is appropriate.' }
     if (!ctx.specialistAvailable) return { rejection: 'specialist-unavailable', detail: 'The specialist engine is not available/ready.' }
     if (ctx.run.usage.specialistRuns >= ctx.run.budget.maxSpecialistRuns || ctx.run.usage.expensiveActions >= ctx.run.budget.maxExpensiveActions) return { rejection: 'budget-exceeded', detail: 'The specialist/expensive-action budget is exhausted.' }
   }
