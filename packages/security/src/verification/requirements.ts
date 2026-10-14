@@ -16,14 +16,11 @@ export function requirementsFor(origin: CandidateOrigin, category: FindingCatego
   const common: VerificationCheck[] = [{ check: 'affected-entity-known' }, { check: 'no-material-contradiction' }]
   switch (origin) {
     case 'differential-comparison':
-      return [
-        ...common,
-        { check: 'comparison-result', results: ['inconsistent'] },
-        { check: 'semantic-difference' },
-        { check: 'positive-control' },
-        { check: 'negative-control' },
-        { check: 'expectation-provenance' },
-      ]
+      // The inconsistent result is already the classifier's controlled verdict (subject crossed the boundary
+      // the controls prove is enforced); a positive AND a negative control plus a grounded expectation make
+      // it trustworthy. A raw subject/control body diff is not required — an IDOR's subject response matches
+      // the positive control (both granted), so the decisive signal is the result, not a response diff.
+      return [...common, { check: 'comparison-result', results: ['inconsistent'] }, { check: 'positive-control' }, { check: 'negative-control' }, { check: 'expectation-provenance' }]
     case 'contradicted-invariant':
       return [...common, { check: 'invariant-contradicted' }, { check: 'comparison-result', results: ['inconsistent'] }, { check: 'expectation-provenance' }]
     case 'confirmed-signal-hypothesis':
