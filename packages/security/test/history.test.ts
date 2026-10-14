@@ -36,8 +36,8 @@ import {
 const T = '2026-10-14T00:00:00.000Z'
 
 function comparison(overrides: Partial<SecurityComparison> & { result: ComparisonResult; controls: ComparisonControls; subjectStatus?: 'executed' | 'blocked' | 'failed' }): SecurityComparison {
-  const subjectStatus = overrides.subjectStatus ?? 'executed'
-  return {
+  const { subjectStatus = 'executed', ...rest } = overrides
+  const base: SecurityComparison = {
     id: 'cmp_x',
     engagementId: 'e',
     hypothesisId: null,
@@ -48,19 +48,19 @@ function comparison(overrides: Partial<SecurityComparison> & { result: Compariso
     action: 'read',
     resourceRelationship: 'different-owner',
     invariantRef: null,
-    status: overrides.status ?? 'completed',
+    status: 'completed',
     arms: [
       { role: 'subject', identityRef: 'bob', sessionRef: 's', resourceRef: 'doc1', url: 'http://x/doc1', method: 'GET', body: null, expected: { outcome: 'deny', basis: 'declared', invariantRef: null, sourceRef: null, rationale: '' }, status: subjectStatus, statusReason: subjectStatus === 'blocked' ? 'no session' : null, executionId: 'sx_1', observation: null },
       { role: 'positive-control', identityRef: 'alice', sessionRef: 's2', resourceRef: 'doc1', url: 'http://x/doc1', method: 'GET', body: null, expected: { outcome: 'allow', basis: 'observed', invariantRef: null, sourceRef: null, rationale: '' }, status: 'executed', statusReason: null, executionId: 'sx_2', observation: null },
     ],
-    controls: overrides.controls,
+    controls: rest.controls,
     semanticDifferences: [],
     state: null,
-    result: overrides.result,
-    resultReason: overrides.resultReason ?? 'reason',
+    result: rest.result,
+    resultReason: 'reason',
     confidence: 0.8,
     invariantEvaluation: null,
-    evidenceRefs: overrides.evidenceRefs ?? ['ev_1'],
+    evidenceRefs: ['ev_1'],
     cleanupAction: null,
     stateProbe: null,
     cleanup: { required: false, attempted: false, succeeded: null, detail: null },
@@ -70,8 +70,8 @@ function comparison(overrides: Partial<SecurityComparison> & { result: Compariso
     history: [],
     createdAt: T,
     updatedAt: T,
-    ...overrides,
   }
+  return { ...base, ...rest }
 }
 
 const withPositive: ComparisonControls = { positive: true, negative: true }
@@ -253,35 +253,37 @@ describe('classifyFindings — absence is never a fix', () => {
 })
 
 describe('diffAttackPaths — a vanished path is "disappeared", never silently fixed', () => {
-  const path = (over: Partial<SecurityAttackPath> & { pathKey: string }): SecurityAttackPath => ({
-    id: `ap_${over.pathKey}`,
-    engagementId: 'e',
-    pathKey: over.pathKey,
-    title: 'route',
-    purpose: '',
-    start: { kind: 'authenticated-identity', identityRef: 'bob', entityKey: 'identity:bob', label: 'bob' },
-    end: { impactClass: 'unauthorized-data-access', entityKey: 'resource:doc1', label: 'doc1' },
-    steps: [{ index: 0, fromCondition: 'bob', relationship: 'reads doc1', toCondition: 'doc1 data', edgeVerification: 'verified', findingId: 'fnd_1', boundaryCrossed: null, references: [], evidenceRefs: [], rationale: '' }],
-    affectedEntityKeys: ['identity:bob'],
-    findingIds: ['fnd_1'],
-    comparisonIds: [],
-    invariantRefs: [],
-    confidence: 0.9,
-    state: 'verified',
-    stateReason: '',
-    missingEvidence: [],
-    impactClass: 'unauthorized-data-access',
-    impactPriority: 'high',
-    boundariesCrossed: [],
-    origin: 'deterministic',
-    providerId: null,
-    explanation: '',
-    dominatedBy: null,
-    history: [],
-    createdAt: T,
-    updatedAt: T,
-    ...over,
-  })
+  const path = (over: Partial<SecurityAttackPath> & { pathKey: string }): SecurityAttackPath => {
+    const base: SecurityAttackPath = {
+      id: `ap_${over.pathKey}`,
+      engagementId: 'e',
+      pathKey: over.pathKey,
+      title: 'route',
+      purpose: '',
+      start: { kind: 'authenticated-identity', identityRef: 'bob', entityKey: 'identity:bob', label: 'bob' },
+      end: { impactClass: 'unauthorized-data-access', entityKey: 'resource:doc1', label: 'doc1' },
+      steps: [{ index: 0, fromCondition: 'bob', relationship: 'reads doc1', toCondition: 'doc1 data', edgeVerification: 'verified', findingId: 'fnd_1', boundaryCrossed: null, references: [], evidenceRefs: [], rationale: '' }],
+      affectedEntityKeys: ['identity:bob'],
+      findingIds: ['fnd_1'],
+      comparisonIds: [],
+      invariantRefs: [],
+      confidence: 0.9,
+      state: 'verified',
+      stateReason: '',
+      missingEvidence: [],
+      impactClass: 'unauthorized-data-access',
+      impactPriority: 'high',
+      boundariesCrossed: [],
+      origin: 'deterministic',
+      providerId: null,
+      explanation: '',
+      dominatedBy: null,
+      history: [],
+      createdAt: T,
+      updatedAt: T,
+    }
+    return { ...base, ...over }
+  }
 
   it('classifies a path present only before as disappeared', () => {
     const diff = diffAttackPaths([path({ pathKey: 'p1' })], [])

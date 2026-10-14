@@ -33,7 +33,7 @@ describe('history benchmark', () => {
     const result = await runHistoryBenchmark({ db: handle.db })
     const failures = result.scenarios.flatMap((s) => Object.entries(s.metrics).filter(([, m]) => !m.pass).map(([k, m]) => `${s.name}.${k}: ${m.value} (want ${m.target}) — ${m.detail}`))
     expect(failures).toEqual([])
-    expect(result.summary.falseFixedRate.pass).toBe(true)
+    expect(result.summary.falseFixedRate?.pass).toBe(true)
     expect(result.scenarios.map((s) => s.name)).toEqual(['fix-and-still-present', 'regression', 'cannot-reproduce', 'path-history', 'coverage-awareness', 'absence-not-fixed'])
     expect(result.pass).toBe(true)
   }, 240_000)
