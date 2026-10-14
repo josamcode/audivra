@@ -92,6 +92,13 @@
       "when": 1791938548349,
       "tag": "0012_security_attack_paths",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791969611908,
+      "tag": "0013_security_history",
+      "breakpoints": true
     }
   ]
 }

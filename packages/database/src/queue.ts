@@ -23,6 +23,8 @@ export const QUEUES = {
   securityVerification: 'security-verification',
   /** Attack-path analysis (Phase 6B): one job discovers, validates and synthesizes evidence-backed paths. */
   securityAttackPath: 'security-attack-path',
+  /** Retest execution (Phase 6C): one job replays a retest case through the broker and records the result. */
+  securityRetest: 'security-retest',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -66,6 +68,17 @@ export interface SecurityAttackPathJob {
   engagementId: string
 }
 
+/**
+ * A retest job names the retest case, the target (current) assessment it runs in, and whether a bounded AI
+ * adaptation is allowed. The case (its frozen reproduction, checks and controls) is loaded from the database;
+ * the job carries no plan, capability or command.
+ */
+export interface SecurityRetestJob {
+  retestCaseId: string
+  targetEngagementId: string
+  allowAdaptation: boolean
+}
+
 const HOUR = 3600
 
 interface QueueSettings {
@@ -105,6 +118,10 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // One job per engagement (`stately` + singletonKey = engagement id). Deterministic + idempotent: a retry
     // re-discovers and advances paths by pathKey, never duplicating.
     [QUEUES.securityAttackPath]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
+    // One job per retest case + target (`stately` + singletonKey = `${targetEngagementId}:${retestCaseId}`). A
+    // retest reuses the durable comparison runtime (its own executions survive a crash); a retry re-runs the
+    // replay, which re-validates policy and cleans up, and never reports a fix without a fresh passing control.
+    [QUEUES.securityRetest]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -168,4 +185,9 @@ export async function enqueueSecurityVerification(boss: PgBoss, engagementId: st
 /** Queues an attack-path analysis for an engagement (no-op while one is already queued for it). */
 export async function enqueueSecurityAttackPath(boss: PgBoss, engagementId: string): Promise<string | null> {
   return boss.send(QUEUES.securityAttackPath, { engagementId } satisfies SecurityAttackPathJob, { singletonKey: engagementId })
+}
+
+/** Queues a retest replay (no-op while one for the same case + target is already queued). */
+export async function enqueueSecurityRetest(boss: PgBoss, job: SecurityRetestJob): Promise<string | null> {
+  return boss.send(QUEUES.securityRetest, job, { singletonKey: `${job.targetEngagementId}:${job.retestCaseId}` })
 }

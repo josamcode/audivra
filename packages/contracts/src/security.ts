@@ -417,6 +417,19 @@ export const SECURITY_EVENT_TYPES = [
   'attack-path.updated',
   'attack-path.rejected',
   'attack-path.evidence-gap',
+  // Phase 6C — retesting and historical security comparison.
+  'retest.case-created',
+  'retest.requested',
+  'retest.blocked',
+  'retest.adapted',
+  'retest.still-present',
+  'retest.fixed',
+  'retest.regressed',
+  'retest.changed',
+  'retest.cannot-reproduce',
+  'retest.inconclusive',
+  'history.comparison-created',
+  'history.analyst-decision',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>

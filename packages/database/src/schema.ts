@@ -133,6 +133,18 @@ import type {
   PathState,
   StartCondition,
   TrustBoundaryKind,
+  RetestState,
+  ReproductionFormat,
+  RetestEligibility,
+  RetestAdaptation,
+  CapabilityVersionRef,
+  AssessmentComparisonSummary,
+  FindingComparisonEntry,
+  AttackPathDiffEntry,
+  GraphChangeEntry,
+  CoverageComparison,
+  AnalystDecisionKind,
+  ComparisonPlanInput,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -1214,4 +1226,141 @@ export const securityAttackPaths = pgTable(
     index('security_attack_paths_engagement_idx').on(t.engagementId, t.createdAt),
     index('security_attack_paths_state_idx').on(t.engagementId, t.state),
   ],
+)
+
+/*
+ * Phase 6C — retesting & historical security comparison.
+ *
+ * A retest case is the structured, replayable form of a verified finding: the frozen (validated) comparison
+ * plan, the 6A verification requirements the fresh evidence must still satisfy, the controls, preconditions
+ * and capability ids. It is self-contained (no conversational dependence) so a later assessment can replay it.
+ * One case per (engagement, finding).
+ */
+export const securityRetestCases = pgTable(
+  'security_retest_cases',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    findingId: text('finding_id').notNull(),
+    issueKey: text('issue_key').notNull(),
+    category: text('category').$type<FindingCategory>().notNull(),
+    title: text('title').notNull(),
+    reproductionFormat: text('reproduction_format').$type<ReproductionFormat>().notNull(),
+    affectedEntityKeys: jsonb('affected_entity_keys').$type<string[]>().notNull().default([]),
+    identityRefs: jsonb('identity_refs').$type<string[]>().notNull().default([]),
+    resourceRef: text('resource_ref'),
+    action: text('action'),
+    invariantRef: text('invariant_ref'),
+    sourceComparisonId: text('source_comparison_id'),
+    reproduction: jsonb('reproduction').$type<ComparisonPlanInput | null>(),
+    requiredChecks: jsonb('required_checks').$type<VerificationCheck[]>().notNull().default([]),
+    controlsRequired: jsonb('controls_required').$type<{ positive: boolean; negative: boolean }>().notNull().default({ positive: false, negative: false }),
+    preconditions: jsonb('preconditions').$type<string[]>().notNull().default([]),
+    capabilityIds: jsonb('capability_ids').$type<string[]>().notNull().default([]),
+    cleanupRequired: boolean('cleanup_required').notNull().default(false),
+    originalEvidenceRefs: jsonb('original_evidence_refs').$type<string[]>().notNull().default([]),
+    originalSeverity: text('original_severity').$type<Severity>().notNull(),
+    eligibility: jsonb('eligibility').$type<RetestEligibility>().notNull(),
+    planned: boolean('planned').notNull().default(false),
+    plannedReason: text('planned_reason'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_retest_cases_finding_idx').on(t.engagementId, t.findingId),
+    index('security_retest_cases_issue_idx').on(t.issueKey),
+  ],
+)
+
+/*
+ * A retest result is the historical outcome of replaying a retest case in a (current) assessment: the state
+ * (still-present / fixed / regressed / changed / cannot-reproduce / blocked / not-tested / inconclusive), the
+ * fresh comparison it produced, whether the control still proved the test meaningful, the re-evaluated 6A
+ * checks, and full provenance (executions, identities, capability versions, any adaptation). `fixed` is only
+ * ever written when the retest actually ran, its control held and the vulnerable behaviour was absent.
+ */
+export const securityRetestResults = pgTable(
+  'security_retest_results',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    retestCaseId: text('retest_case_id').notNull(),
+    findingId: text('finding_id').notNull(),
+    issueKey: text('issue_key').notNull(),
+    sourceEngagementId: text('source_engagement_id').notNull(),
+    state: text('state').$type<RetestState>().notNull(),
+    reason: text('reason').notNull().default(''),
+    freshComparisonId: text('fresh_comparison_id'),
+    freshResult: text('fresh_result').$type<ComparisonResult>(),
+    controlValid: boolean('control_valid').notNull().default(false),
+    checkResults: jsonb('check_results').$type<VerificationCheckResult[]>().notNull().default([]),
+    executionIds: jsonb('execution_ids').$type<string[]>().notNull().default([]),
+    identityRefs: jsonb('identity_refs').$type<string[]>().notNull().default([]),
+    evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+    capabilityVersions: jsonb('capability_versions').$type<CapabilityVersionRef[]>().notNull().default([]),
+    adaptation: jsonb('adaptation').$type<RetestAdaptation | null>(),
+    severityNow: text('severity_now').$type<Severity>(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('security_retest_results_engagement_idx').on(t.engagementId, t.createdAt),
+    index('security_retest_results_issue_idx').on(t.issueKey),
+    index('security_retest_results_source_idx').on(t.sourceEngagementId),
+    index('security_retest_results_case_idx').on(t.retestCaseId),
+  ],
+)
+
+/*
+ * A persisted comparison of two authorized assessments (previous → current): the finding classification
+ * (new / still-present / fixed / changed / regressed / cannot-reproduce / not-tested / unmatched), the
+ * attack-path diff, the important graph changes and the coverage comparison. Persisted so it is not
+ * recomputed on every read (and so a reduction in coverage stays visible alongside the finding counts).
+ */
+export const securityAssessmentComparisons = pgTable(
+  'security_assessment_comparisons',
+  {
+    id: text('id').primaryKey(),
+    previousEngagementId: text('previous_engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    currentEngagementId: text('current_engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    summary: jsonb('summary').$type<AssessmentComparisonSummary>().notNull(),
+    findingChanges: jsonb('finding_changes').$type<FindingComparisonEntry[]>().notNull().default([]),
+    pathChanges: jsonb('path_changes').$type<AttackPathDiffEntry[]>().notNull().default([]),
+    graphChanges: jsonb('graph_changes').$type<GraphChangeEntry[]>().notNull().default([]),
+    coverage: jsonb('coverage').$type<CoverageComparison>().notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_assessment_comparisons_pair_idx').on(t.previousEngagementId, t.currentEngagementId),
+    index('security_assessment_comparisons_current_idx').on(t.currentEngagementId, t.createdAt),
+  ],
+)
+
+/*
+ * An analyst decision: a manual override with a full audit trail (link/unlink historical issues, mark a
+ * comparison incorrect, accept a risk, or record a note). It references subjects (issue keys, finding ids,
+ * path keys) and never changes the underlying evidence.
+ */
+export const securityAnalystDecisions = pgTable(
+  'security_analyst_decisions',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<AnalystDecisionKind>().notNull(),
+    subjectRef: text('subject_ref').notNull(),
+    relatedRef: text('related_ref'),
+    note: text('note').notNull().default(''),
+    actorId: text('actor_id'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_analyst_decisions_engagement_idx').on(t.engagementId, t.createdAt)],
 )
