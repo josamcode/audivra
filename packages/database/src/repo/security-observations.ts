@@ -140,7 +140,7 @@ export async function listSecurityObservations(db: Db, engagementId: string, opt
       ),
     )
     .orderBy(asc(securityObservations.type), asc(securityObservations.asset), desc(securityObservations.lastSeenAt))
-    .limit(options.limit ?? 2000)
+    .limit(Math.min(options.limit ?? 2000, 5000))
   return rows.map(toObservation)
 }
 

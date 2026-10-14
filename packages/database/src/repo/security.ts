@@ -233,7 +233,7 @@ export async function listSecurityEvents(
       ),
     )
     .orderBy(asc(securityEvents.id))
-    .limit(options.limit ?? 2000)
+    .limit(Math.min(options.limit ?? 2000, 5000))
   return rows.map(toSecurityEventItem)
 }
 
@@ -312,11 +312,12 @@ export async function createSecurityEvidence(db: Db, input: CreateSecurityEviden
   })
 }
 
-export async function listSecurityEvidence(db: Db, engagementId: string, executionId?: string): Promise<SecurityEvidenceItem[]> {
+export async function listSecurityEvidence(db: Db, engagementId: string, executionId?: string, limit = 10_000): Promise<SecurityEvidenceItem[]> {
   const rows = await db
     .select()
     .from(evidence)
     .where(and(eq(evidence.engagementId, engagementId), executionId ? eq(evidence.securityExecutionId, executionId) : undefined))
     .orderBy(asc(evidence.createdAt), asc(evidence.id))
+    .limit(Math.min(limit, 10_000))
   return rows.map(toSecurityEvidenceItem)
 }

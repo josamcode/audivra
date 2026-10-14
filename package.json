@@ -1,7 +1,7 @@
 {
   "name": "audivra",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Local-first AI website auditing workstation",
   "type": "module",
   "packageManager": "pnpm@11.17.0",
@@ -30,7 +30,9 @@
     "benchmark": "tsx scripts/benchmark.ts",
     "benchmark:reasoning": "tsx scripts/benchmark-reasoning.ts",
     "benchmark:authorization": "tsx scripts/benchmark-authorization.ts",
-    "setup:strix": "tsx scripts/setup-strix.ts"
+    "setup:strix": "tsx scripts/setup-strix.ts",
+    "doctor": "tsx scripts/doctor.ts",
+    "demo": "tsx scripts/demo.ts"
   },
   "devDependencies": {
     "@audivra/config": "workspace:*",

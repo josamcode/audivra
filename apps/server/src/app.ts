@@ -31,7 +31,7 @@ import {
 import { getSystemStatus } from '@audivra/tool-runtime'
 import { createProviderRegistry } from '@audivra/ai-runtime'
 import { loadAuditData, loadDashboard } from '@audivra/insights'
-import { sensorRuntimeStatuses, type SecurityService } from '@audivra/security'
+import { collectDiagnostics, sensorRuntimeStatuses, type SecurityService } from '@audivra/security'
 import type { EventHub } from './events-hub.ts'
 import { registerIntelligenceRoutes } from './routes-intelligence.ts'
 import { registerComparisonRoutes } from './routes-comparisons.ts'
@@ -40,6 +40,7 @@ import { registerAttackPathRoutes } from './routes-attack-paths.ts'
 import { registerHistoryRoutes } from './routes-history.ts'
 import { registerSpecialistRoutes } from './routes-specialist.ts'
 import { registerResearchRoutes } from './routes-research.ts'
+import { registerReportRoutes } from './routes-report.ts'
 import { registerDomainRoutes } from './routes-domain.ts'
 import { registerFindingRoutes } from './routes-findings.ts'
 import { registerReasoningRoutes } from './routes-reasoning.ts'
@@ -97,6 +98,9 @@ export async function buildApp(deps: AppDeps) {
     const sensors = await sensorRuntimeStatuses()
     return { ...status, tools: [...status.tools, ...sensors] }
   })
+
+  /** Phase 6F — deterministic security-platform diagnostics (the System → Health view + `pnpm doctor`). */
+  app.get('/api/security/health', async () => collectDiagnostics({ db }))
 
   /** Read-only AI provider status: preferred provider, health and capability profiles. No secrets. */
   app.get('/api/system/ai', async (): Promise<AiSystemStatus> => {
@@ -333,6 +337,7 @@ export async function buildApp(deps: AppDeps) {
   registerHistoryRoutes(app, { db, boss, log: deps.log })
   registerSpecialistRoutes(app, { db, boss, log: deps.log })
   registerResearchRoutes(app, { db, boss, log: deps.log })
+  registerReportRoutes(app, { db })
 
   if (deps.serveWeb && existsSync(path.join(REPO_ROOT, 'apps', 'web', 'dist', 'index.html'))) {
     app.get('/*', async (request, reply) => {
