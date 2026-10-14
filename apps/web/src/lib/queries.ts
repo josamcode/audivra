@@ -98,6 +98,9 @@ export const queryKeys = {
   findingHistory: (findingId: string) => ['security', 'finding', findingId, 'history'] as const,
   engagementComparison: (id: string, previous: string) => ['security', 'engagement', id, 'history', 'comparison', previous] as const,
   engagementAnalystDecisions: (id: string) => ['security', 'engagement', id, 'history', 'decisions'] as const,
+  engagementSpecialistAvailability: (id: string) => ['security', 'engagement', id, 'specialist', 'availability'] as const,
+  engagementSpecialistRuns: (id: string) => ['security', 'engagement', id, 'specialist', 'runs'] as const,
+  specialistRun: (runId: string) => ['security', 'specialist', 'run', runId] as const,
   engagementDeclarations: (id: string) => ['security', 'engagement', id, 'declarations'] as const,
 }
 
@@ -337,6 +340,15 @@ export const findingHistoryQuery = (findingId: string) =>
 
 export const engagementAnalystDecisionsQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementAnalystDecisions(id), queryFn: () => api.analystDecisions(id) })
+
+export const engagementSpecialistAvailabilityQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementSpecialistAvailability(id), queryFn: () => api.specialistAvailability(id), refetchInterval: 15_000 })
+
+export const engagementSpecialistRunsQuery = (id: string) =>
+  queryOptions({ queryKey: queryKeys.engagementSpecialistRuns(id), queryFn: () => api.specialistRuns(id), refetchInterval: 5000 })
+
+export const specialistRunQuery = (runId: string) =>
+  queryOptions({ queryKey: queryKeys.specialistRun(runId), queryFn: () => api.specialistRun(runId) })
 
 export const engagementComparisonCoverageQuery = (id: string) =>
   queryOptions({ queryKey: queryKeys.engagementComparisonCoverage(id), queryFn: () => api.comparisonCoverage(id), refetchInterval: 10_000 })

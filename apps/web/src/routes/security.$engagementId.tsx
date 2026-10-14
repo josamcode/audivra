@@ -14,6 +14,7 @@ import { AccessTab } from '@/features/security/access-tab'
 import { AttackPathsTab } from '@/features/security/attack-paths-tab'
 import { RetestsTab } from '@/features/security/retests-tab'
 import { ComparisonTab } from '@/features/security/comparison-tab'
+import { SpecialistTab } from '@/features/security/specialist-tab'
 import { DomainTab } from '@/features/security/domain-tab'
 import { FindingsTab } from '@/features/security/findings-tab'
 import { GraphTab } from '@/features/security/graph-tab'
@@ -26,7 +27,7 @@ import { ScopeTab } from '@/features/security/scope-tab'
 import { ApiError } from '@/lib/api'
 import { engagementQuery } from '@/lib/queries'
 
-const TABS = ['overview', 'scope', 'authorization', 'identities', 'domain', 'access', 'policy', 'executions', 'observations', 'graph', 'hypotheses', 'findings', 'attack-paths', 'retests', 'comparison', 'activity'] as const
+const TABS = ['overview', 'scope', 'authorization', 'identities', 'domain', 'access', 'policy', 'executions', 'observations', 'graph', 'hypotheses', 'findings', 'attack-paths', 'retests', 'comparison', 'specialist', 'activity'] as const
 type EngagementTab = (typeof TABS)[number]
 const ENTITY_ID = /^gn_[0-9a-z]{14}$/
 const HYPOTHESIS_ID = /^hy_[0-9a-z]{14}$/
@@ -107,6 +108,7 @@ function EngagementPage() {
           { value: 'attack-paths', label: 'Attack paths' },
           { value: 'retests', label: 'Retesting' },
           { value: 'comparison', label: 'Comparison' },
+          { value: 'specialist', label: 'Specialist' },
           { value: 'activity', label: 'Audit trail' },
         ]}
       >
@@ -155,6 +157,9 @@ function EngagementPage() {
           </TabPanel>
           <TabPanel value="comparison">
             <ComparisonTab engagement={engagement} />
+          </TabPanel>
+          <TabPanel value="specialist">
+            <SpecialistTab engagement={engagement} />
           </TabPanel>
           <TabPanel value="activity">
             <ActivityTab engagement={engagement} />
