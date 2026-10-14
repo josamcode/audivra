@@ -42,10 +42,46 @@ Honest boundaries of the current version.
   execution-private gateway that enforces the trusted scope. **Only HTTP is mediated** (HTTPS `CONNECT` is refused,
   not tunnelled), and containment is proven for this project's Windows + WSL2 + Docker Desktop setup, not asserted as
   universal. Details: [security-executions.md](security-executions.md#phase-2c-limitations).
+- Knowledge (Phases 4–5) is a deterministic Security Graph: it records only observed/declared facts and their
+  provenance, AI inference never rises above `inferred`, and a relationship no sensor recorded is absent, not guessed.
+  Credentials and sessions live in an encrypted vault whose key is separate from the database; the secret itself
+  never reaches an event, the graph, an observation, an export or AI context (enforced by canary tests). Differential
+  comparisons need positive **and** negative controls to call an access boundary broken — without them the verdict is
+  `inconclusive`, never a finding.
+- Findings (Phase 6A) are only ever **supported** unless an *independent* check confirms complete evidence; a lone
+  scanner or a lone model is never enough, and a provider failure **blocks** rather than guesses. Attack paths
+  (Phase 6B) chain only verified findings over real graph edges; a missing connector is kept as an explicit evidence
+  gap, never bridged. Retesting (Phase 6C) treats absence as *not-tested*, never as *fixed* — a fix must be proven by
+  a working control.
+- The specialist engine (Phase 6D, Strix) is **optional and off by default**; its live-target modes are fail-closed
+  (disabled until containment is proven for the host), and a specialist signal can only reach a finding through the
+  same 6A verification boundary — there is no Strix→finding bypass. The autonomous researcher (Phase 6E) is bounded
+  by explicit budgets, prefers cheap deterministic actions, and only ever reaches the specialist as a last resort.
+- The combined client report and all exports (Phase 6F) are generated from stored state with **no AI re-run**; they
+  are deterministic in content (only generation timestamps vary) and never claim a complete penetration test — every
+  report carries its residual-uncertainty / untested-areas section.
 
 ## Platform and safety
 
 - On Windows the auditor's shell is not OS-sandboxed (see [security.md](security.md)).
 - ZAP and testssl.sh require Docker and large images (pulled only on request by `pnpm run setup -- --with-scanners`); without them those capabilities show as unavailable.
 - Client reports are English; Arabic content renders correctly inside them, but the report UI itself is not localized.
-- No authentication: Audivra is a single-user local tool bound to 127.0.0.1.
+
+## V1 product boundaries
+
+- **Single-user, local-first, no authentication — by design.** Audivra V1 binds to `127.0.0.1` and has no login,
+  users, roles or multi-tenancy. Its trust boundary is the local machine and the OS account that runs it: anyone who
+  can reach the port is the operator. This is a deliberate, documented V1 decision, not an oversight — the deployment
+  model is a trusted single operator on their own machine. The consequences and the conditions under which this must
+  change (any shared, hosted or multi-user deployment) are set out in [operations.md](operations.md#deployment-model)
+  and the [threat model](security-threat-model.md).
+- **The vault key is the one secret you must manage.** It is kept out of the database and out of backups; losing it
+  makes stored credentials unrecoverable, and leaking it compromises them. V1 ships a persisted local dev key for
+  convenience and tells you (via `pnpm run doctor`) to set `AUDIVRA_SECRET_KEY` for anything beyond local development.
+- **No built-in disaster recovery or HA.** Backup/restore is the operator's PostgreSQL responsibility plus the vault
+  key; there is no clustering, failover or point-in-time service. The procedure is in [operations.md](operations.md).
+- **Resource management is Audivra-owned only.** Disk/cleanup operations act only on containers, networks, workspaces
+  and artifacts Audivra created (name-prefixed `audivra-`); Audivra never runs a global Docker prune and never touches
+  resources it did not create.
+- **No V1.1 feature expansion is implied.** V1 is a complete, validated platform; broader auth, hosted/multi-user
+  deployment, HTTPS egress mediation and a load-test harness are explicitly future work, not partially-built V1 code.
