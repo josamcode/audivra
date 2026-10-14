@@ -10,7 +10,6 @@ import {
   DomainService,
   FakeSpecialistEngine,
   GraphProjector,
-  ResearchReadService,
   ResearchService,
   SecurityService,
   SecretVault,
