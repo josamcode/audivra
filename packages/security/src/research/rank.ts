@@ -20,7 +20,9 @@ export function rankCandidates(candidates: readonly CandidateAction[], history: 
   const penalized = new Map<string, number>()
   for (const a of history) {
     if (a.usefulness === 'failed' || a.usefulness === 'no-new-information' || a.usefulness === 'blocked' || a.state === 'blocked' || a.state === 'rejected') {
-      penalized.set(a.fingerprint, (penalized.get(a.fingerprint) ?? 0) + 2)
+      // A fingerprint that previously failed / produced nothing is strongly deprioritized so the loop does
+      // not keep selecting equivalent unproductive work.
+      penalized.set(a.fingerprint, (penalized.get(a.fingerprint) ?? 0) + 5)
     }
   }
   const bonus = { low: 0, medium: 0.3, high: 0.6 } as const
