@@ -26,7 +26,7 @@ export const strixResearchCapability: SecurityCapability<Input, { refused: true 
     version: 1,
     family: 'specialist',
     name: 'Specialist research (Strix)',
-    description: 'Authorizes an optional external specialist research engine (Strix) over an Audivra-constructed, in-scope target set. The engine produces structured artifacts that Audivra normalizes into observations and verifies; it never decides scope, findings or paths.',
+    description: 'Authorizes an optional external specialist research engine (Strix) over an in-scope target set that Audivra constructs. The engine produces structured artifacts that Audivra normalizes into observations and verifies; it never decides scope, findings or paths.',
     // Strix runs a full offensive sandbox — treat it as high impact; production is disabled by policy/service.
     riskClass: 'high-impact',
     sideEffect: 'transient-state',

@@ -160,6 +160,7 @@ describe('capability execution modes', () => {
       ['discovery.http-observe', 'in-process', 'none'],
       ['discovery.identity-http', 'in-process', 'none'],
       ['source.static-analysis', 'isolated-container', 'none'],
+      ['specialist.strix-research', 'in-process', 'none'],
       ['web.signal-scan', 'isolated-container', 'scoped-egress'],
     ])
     expect(runtime.get('diagnostic.isolated-check')!.implementation.execute).toBeUndefined()
