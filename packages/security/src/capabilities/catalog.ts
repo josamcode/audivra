@@ -10,6 +10,7 @@ import { katanaSensorCapability } from '../sensors/katana-sensor.ts'
 import { nucleiSensorCapability } from '../sensors/nuclei-sensor.ts'
 import { schemathesisSensorCapability } from '../sensors/schemathesis-sensor.ts'
 import { semgrepSensorCapability } from '../sensors/semgrep-sensor.ts'
+import { strixResearchCapability } from '../specialist/capability.ts'
 
 /**
  * The security capabilities Audivra ships. The Phase 1 passive HTTP observation, plus the Phase 3A
@@ -42,4 +43,8 @@ export function createRuntimeRegistry(): CapabilityRegistry {
     // but excluded from the sensor planner (they are identity-aware, not discovery sensors).
     .register(identityReadCapability)
     .register(identityActionCapability)
+    // Phase 6D — the optional specialist research engine (Strix). Registered so its runs are authorized
+    // through the broker (scope/policy/authorization); it is driven by the SpecialistRunService, not executed
+    // through the generic runtime, and it is inert unless explicitly enabled and set up.
+    .register(strixResearchCapability)
 }

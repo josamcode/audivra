@@ -25,6 +25,8 @@ export const QUEUES = {
   securityAttackPath: 'security-attack-path',
   /** Retest execution (Phase 6C): one job replays a retest case through the broker and records the result. */
   securityRetest: 'security-retest',
+  /** Specialist research run (Phase 6D): one job drives an external engine (e.g. Strix) and ingests artifacts. */
+  securitySpecialist: 'security-specialist',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -79,6 +81,11 @@ export interface SecurityRetestJob {
   allowAdaptation: boolean
 }
 
+/** A specialist job names the run; its config (engine, mode, Audivra-built targets) is loaded from the database. */
+export interface SecuritySpecialistJob {
+  runId: string
+}
+
 const HOUR = 3600
 
 interface QueueSettings {
@@ -122,6 +129,10 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // retest reuses the durable comparison runtime (its own executions survive a crash); a retry re-runs the
     // replay, which re-validates policy and cleans up, and never reports a fix without a fresh passing control.
     [QUEUES.securityRetest]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
+    // One job per specialist run (`stately` + singletonKey = run id). A specialist run can be long; a retry
+    // reconciles exact owned process/container state and ingests a completed run's artifacts once (idempotent),
+    // never re-running finished external work.
+    [QUEUES.securitySpecialist]: { expireInSeconds: 6 * HOUR, retryLimit: 1, retryDelay: 15, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -190,4 +201,9 @@ export async function enqueueSecurityAttackPath(boss: PgBoss, engagementId: stri
 /** Queues a retest replay (no-op while one for the same case + target is already queued). */
 export async function enqueueSecurityRetest(boss: PgBoss, job: SecurityRetestJob): Promise<string | null> {
   return boss.send(QUEUES.securityRetest, job, { singletonKey: `${job.targetEngagementId}:${job.retestCaseId}` })
+}
+
+/** Queues a specialist run to be driven (no-op while one is already queued for the same run id). */
+export async function enqueueSecuritySpecialist(boss: PgBoss, runId: string): Promise<string | null> {
+  return boss.send(QUEUES.securitySpecialist, { runId } satisfies SecuritySpecialistJob, { singletonKey: runId })
 }

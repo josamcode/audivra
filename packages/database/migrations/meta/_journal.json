@@ -99,6 +99,13 @@
       "when": 1791969611908,
       "tag": "0013_security_history",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791974309491,
+      "tag": "0014_security_specialist",
+      "breakpoints": true
     }
   ]
 }

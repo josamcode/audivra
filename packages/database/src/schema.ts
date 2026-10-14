@@ -145,6 +145,12 @@ import type {
   CoverageComparison,
   AnalystDecisionKind,
   ComparisonPlanInput,
+  SpecialistEngineId,
+  SpecialistMode,
+  SpecialistRunState,
+  SpecialistCompletion,
+  SpecialistTarget,
+  SpecialistImport,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -1363,4 +1369,43 @@ export const securityAnalystDecisions = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [index('security_analyst_decisions_engagement_idx').on(t.engagementId, t.createdAt)],
+)
+
+/*
+ * Phase 6D — a durable specialist research run (an external engine, e.g. Strix). The run is reference-only:
+ * engine + pinned version, the Audivra-constructed mode/targets, the owning durable execution, the provider
+ * PROFILE id + model (never a secret), the lifecycle state/completion, bounded artifact refs, and the imports
+ * that record how each native result mapped into Audivra (observation / merged candidate / knowledge gap /
+ * out-of-scope-dropped). A specialist run never writes a verified finding; ingestion only creates signals.
+ */
+export const securitySpecialistRuns = pgTable(
+  'security_specialist_runs',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    engine: text('engine').$type<SpecialistEngineId>().notNull(),
+    engineVersion: text('engine_version'),
+    adapterVersion: text('adapter_version').notNull(),
+    mode: text('mode').$type<SpecialistMode>().notNull(),
+    executionId: text('execution_id'),
+    targets: jsonb('targets').$type<SpecialistTarget[]>().notNull().default([]),
+    providerProfileId: text('provider_profile_id'),
+    providerModel: text('provider_model'),
+    state: text('state').$type<SpecialistRunState>().notNull().default('requested'),
+    completion: text('completion').$type<SpecialistCompletion>(),
+    stateReason: text('state_reason').notNull().default(''),
+    startedAt: ts('started_at'),
+    finishedAt: ts('finished_at'),
+    terminationReason: text('termination_reason'),
+    artifactRefs: jsonb('artifact_refs').$type<string[]>().notNull().default([]),
+    costUsd: real('cost_usd'),
+    turns: integer('turns'),
+    imported: jsonb('imported').$type<{ vulnerabilities: number; observations: number; merged: number; gaps: number; outOfScope: number }>().notNull().default({ vulnerabilities: 0, observations: 0, merged: 0, gaps: 0, outOfScope: 0 }),
+    imports: jsonb('imports').$type<SpecialistImport[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('security_specialist_runs_engagement_idx').on(t.engagementId, t.createdAt), index('security_specialist_runs_state_idx').on(t.engagementId, t.state)],
 )
