@@ -53,15 +53,17 @@ const IMPACT_BASE: Record<ImpactClass, Severity> = {
  * anonymous).
  */
 export function pathImpactPriority(path: CandidatePath, verdict: PathVerdict): Severity {
+  if (verdict.state === 'rejected') return 'info'
+  // Impact subtotal: final impact, raised by extra boundaries and a no-privilege start. Clamped before the
+  // verification penalty so a strong impact can never absorb the penalty by going arbitrarily negative.
   let rank = SEVERITY_RANK[IMPACT_BASE[path.impactClass]]
-  const boundaries = new Set<TrustBoundaryKind>(path.boundariesCrossed)
-  if (boundaries.size >= 2) rank -= 1
+  if (new Set<TrustBoundaryKind>(path.boundariesCrossed).size >= 2) rank -= 1
   if (path.start.kind === 'anonymous') rank -= 1
   if (path.start.kind === 'tenant-admin') rank += 1
-  // Unverified paths are a lower priority than demonstrated ones.
+  rank = Math.max(0, Math.min(4, rank))
+  // A path that is not fully verified is a lower priority than a demonstrated one.
   if (verdict.state === 'partially-verified' || verdict.state === 'supported') rank += 1
   if (verdict.state === 'speculative') rank += 2
-  if (verdict.state === 'rejected') return 'info'
   return clampRank(rank)
 }
 
