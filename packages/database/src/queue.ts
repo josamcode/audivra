@@ -21,6 +21,8 @@ export const QUEUES = {
   securityComparison: 'security-comparison',
   /** Verification pass (Phase 6A): one job drives candidate generation, verification and finding synthesis. */
   securityVerification: 'security-verification',
+  /** Attack-path analysis (Phase 6B): one job discovers, validates and synthesizes evidence-backed paths. */
+  securityAttackPath: 'security-attack-path',
 } as const
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES]
 
@@ -56,6 +58,11 @@ export interface SecurityComparisonJob {
 
 /** A verification job names the engagement; the pass loads all stored knowledge and is idempotent. */
 export interface SecurityVerificationJob {
+  engagementId: string
+}
+
+/** An attack-path job names the engagement; the analysis loads findings + graph and is idempotent. */
+export interface SecurityAttackPathJob {
   engagementId: string
 }
 
@@ -95,6 +102,9 @@ const QUEUE_OPTIONS: Record<QueueName, QueueSettings> =
     // One job per engagement (`stately` + singletonKey = engagement id). The pass is deterministic and
     // idempotent: a retry re-generates candidates and advances them by issueKey, never duplicating.
     [QUEUES.securityVerification]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
+    // One job per engagement (`stately` + singletonKey = engagement id). Deterministic + idempotent: a retry
+    // re-discovers and advances paths by pathKey, never duplicating.
+    [QUEUES.securityAttackPath]: { expireInSeconds: 2 * HOUR, retryLimit: 1, retryDelay: 10, policy: 'stately' },
   }
 
 export const HEARTBEAT_SECONDS = 60
@@ -153,4 +163,9 @@ export async function enqueueSecurityComparison(boss: PgBoss, comparisonId: stri
 /** Queues a verification pass for an engagement (no-op while one is already queued for it). */
 export async function enqueueSecurityVerification(boss: PgBoss, engagementId: string): Promise<string | null> {
   return boss.send(QUEUES.securityVerification, { engagementId } satisfies SecurityVerificationJob, { singletonKey: engagementId })
+}
+
+/** Queues an attack-path analysis for an engagement (no-op while one is already queued for it). */
+export async function enqueueSecurityAttackPath(boss: PgBoss, engagementId: string): Promise<string | null> {
+  return boss.send(QUEUES.securityAttackPath, { engagementId } satisfies SecurityAttackPathJob, { singletonKey: engagementId })
 }

@@ -124,6 +124,15 @@ import type {
   VerificationCheckResult,
   VerificationState,
   FindingVerifierVerdict,
+  AttackStep,
+  AttackPathTransition,
+  EndImpact,
+  ImpactClass,
+  MissingEvidenceRequirement,
+  PathOrigin,
+  PathState,
+  StartCondition,
+  TrustBoundaryKind,
 } from '@audivra/contracts'
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
@@ -1158,5 +1167,51 @@ export const securityFindings = pgTable(
     index('security_findings_engagement_idx').on(t.engagementId, t.createdAt),
     index('security_findings_severity_idx').on(t.engagementId, t.severity),
     index('security_findings_category_idx').on(t.engagementId, t.category),
+  ],
+)
+
+/**
+ * A Phase 6B evidence-backed attack path: an ordered route from a known start condition to a structured
+ * impact, built only from stored state (findings, graph relationships, comparisons, invariants). Steps are a
+ * jsonb array (like comparison arms); each step carries its own edge verification state, so a path's own
+ * state can never be stronger than its weakest meaningful edge. One row per (engagement, pathKey): the same
+ * route is advanced, never duplicated.
+ */
+export const securityAttackPaths = pgTable(
+  'security_attack_paths',
+  {
+    id: text('id').primaryKey(),
+    engagementId: text('engagement_id')
+      .notNull()
+      .references(() => securityEngagements.id, { onDelete: 'cascade' }),
+    pathKey: text('path_key').notNull(),
+    title: text('title').notNull(),
+    purpose: text('purpose').notNull().default(''),
+    start: jsonb('start').$type<StartCondition>().notNull(),
+    endImpact: jsonb('end_impact').$type<EndImpact>().notNull(),
+    steps: jsonb('steps').$type<AttackStep[]>().notNull().default([]),
+    affectedEntityKeys: jsonb('affected_entity_keys').$type<string[]>().notNull().default([]),
+    findingIds: jsonb('finding_ids').$type<string[]>().notNull().default([]),
+    comparisonIds: jsonb('comparison_ids').$type<string[]>().notNull().default([]),
+    invariantRefs: jsonb('invariant_refs').$type<string[]>().notNull().default([]),
+    confidence: real('confidence').notNull().default(0),
+    state: text('state').$type<PathState>().notNull(),
+    stateReason: text('state_reason').notNull().default(''),
+    missingEvidence: jsonb('missing_evidence').$type<MissingEvidenceRequirement[]>().notNull().default([]),
+    impactClass: text('impact_class').$type<ImpactClass>().notNull(),
+    impactPriority: text('impact_priority').$type<Severity>().notNull(),
+    boundariesCrossed: jsonb('boundaries_crossed').$type<TrustBoundaryKind[]>().notNull().default([]),
+    origin: text('origin').$type<PathOrigin>().notNull().default('deterministic'),
+    providerId: text('provider_id'),
+    explanation: text('explanation').notNull().default(''),
+    dominatedBy: text('dominated_by'),
+    history: jsonb('history').$type<AttackPathTransition[]>().notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('security_attack_paths_key_idx').on(t.engagementId, t.pathKey),
+    index('security_attack_paths_engagement_idx').on(t.engagementId, t.createdAt),
+    index('security_attack_paths_state_idx').on(t.engagementId, t.state),
   ],
 )

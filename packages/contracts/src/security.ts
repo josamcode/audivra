@@ -411,6 +411,12 @@ export const SECURITY_EVENT_TYPES = [
   'verification.blocked',
   'finding.created',
   'finding.updated',
+  // Phase 6B — evidence-backed attack paths.
+  'attack-path.candidate-created',
+  'attack-path.validated',
+  'attack-path.updated',
+  'attack-path.rejected',
+  'attack-path.evidence-gap',
 ] as const
 export const SecurityEventType = z.enum(SECURITY_EVENT_TYPES)
 export type SecurityEventType = z.infer<typeof SecurityEventType>
