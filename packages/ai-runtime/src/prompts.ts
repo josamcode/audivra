@@ -18,6 +18,8 @@ export type PromptName =
   | 'security-finding-verifier-system'
   | 'security-finding-reviewer-system'
   | 'security-finding-prose-system'
+  | 'security-attack-path-proposer-system'
+  | 'security-attack-path-explainer-system'
 
 export interface PromptFile {
   name: PromptName
@@ -63,6 +65,8 @@ export function reasoningPromptVersions(): Record<string, string> {
         'security-finding-verifier-system',
         'security-finding-reviewer-system',
         'security-finding-prose-system',
+        'security-attack-path-proposer-system',
+        'security-attack-path-explainer-system',
       ] as const
     ).map((name) => [name.replace('-system', ''), loadPrompt(name).version]),
   )

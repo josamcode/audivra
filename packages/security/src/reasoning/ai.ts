@@ -22,6 +22,8 @@ export type ReasoningPrompt =
   | 'security-finding-verifier'
   | 'security-finding-reviewer'
   | 'security-finding-prose'
+  | 'security-attack-path-proposer'
+  | 'security-attack-path-explainer'
 
 export interface ReasoningAiTask {
   spec: AiTaskSpec
