@@ -435,6 +435,7 @@ export const SECURITY_EVENT_TYPES = [
   'research.started',
   'research.assessed',
   'research.plan-created',
+  'research.ai-unavailable',
   'research.action-selected',
   'research.action-blocked',
   'research.action-completed',

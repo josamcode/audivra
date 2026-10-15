@@ -229,8 +229,12 @@ export class ResearchService {
       if (this.#ai && usage.aiCalls < run.budget.maxAiCalls) {
         usage.aiCalls++
         const planned = await this.#plan(run, ctx, deterministic, options.signal)
-        if (planned === 'unavailable') providerAvailable = false
-        else {
+        if ('unavailable' in planned) {
+          // G2: do not silently degrade — record WHY the provider call failed, in the log and the timeline.
+          providerAvailable = false
+          this.#log?.warn({ runId, iteration: run.iteration, reason: planned.unavailable }, 'research AI planner unavailable; continuing deterministically')
+          await this.#event(run.engagementId, configVersion, 'research.ai-unavailable', `AI planner unavailable (continuing deterministically): ${planned.unavailable}`.slice(0, 220), actor, { runId, iteration: run.iteration, reason: planned.unavailable.slice(0, 300) }, 'warn')
+        } else {
           aiCandidates = planned.candidates
           for (const [fp, p] of planned.priority) aiPriority.set(fp, p)
         }
@@ -338,7 +342,7 @@ export class ResearchService {
   }
 
   /** Call the AI planner for advisory proposals, mapped to typed candidates (resolvable ones only). */
-  async #plan(run: SecurityResearchRun, ctx: AssessContext, deterministic: CandidateAction[], signal: AbortSignal | undefined): Promise<'unavailable' | { candidates: CandidateAction[]; priority: Map<string, 'low' | 'medium' | 'high'> }> {
+  async #plan(run: SecurityResearchRun, ctx: AssessContext, deterministic: CandidateAction[], signal: AbortSignal | undefined): Promise<{ unavailable: string } | { candidates: CandidateAction[]; priority: Map<string, 'low' | 'medium' | 'high'> }> {
     if (!this.#ai) return { candidates: [], priority: new Map() }
     const task = RESEARCH_TASKS.planner
     const trusted = [
@@ -351,12 +355,18 @@ export class ResearchService {
     let out
     try {
       out = await this.#ai.run({ spec: task.spec, prompt: task.prompt, context: { trusted, untrusted: [] }, instruction: 'Propose a small number of typed next actions referencing only existing ids/resources, cheapest useful first. An empty list is valid. Never propose an expensive specialist run when a cheaper capability can answer the question.', jsonSchema: researchJsonSchema('planner'), engagementId: run.engagementId, runId: `research-${randomUUID().slice(0, 8)}`, signal: signal ?? AbortSignal.timeout(task.spec.budget.wallClockMs) })
-    } catch {
-      return 'unavailable'
+    } catch (error) {
+      // Never swallow the provider error: capture it so the loop can log + surface WHY AI degraded.
+      return { unavailable: error instanceof Error ? error.message : String(error) }
     }
-    if (out.outcome !== 'succeeded') return 'unavailable'
+    if (out.outcome !== 'succeeded') {
+      return { unavailable: out.refused ? 'provider refused under its own policy' : out.outcome }
+    }
     const parsed = ResearchPlannerOutput.safeParse(out.output)
-    if (!parsed.success) return { candidates: [], priority: new Map() }
+    if (!parsed.success) {
+      this.#log?.warn({ runId: run.id, issues: parsed.error.issues.slice(0, 3) }, 'research AI planner returned malformed output; ignoring (deterministic planning continues)')
+      return { candidates: [], priority: new Map() }
+    }
     const priority = new Map<string, 'low' | 'medium' | 'high'>()
     const candidates: CandidateAction[] = []
     for (const proposal of parsed.data.proposals) {

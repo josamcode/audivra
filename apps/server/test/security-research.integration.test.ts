@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createLogger, resetConfig } from '@audivra/config'
 import type { AiTaskOutcome, SessionEstablishmentResult } from '@audivra/contracts'
-import { createBoss, ensureQueues, listFindingsForEngagement, listResearchActions, type PgBoss } from '@audivra/database'
+import { createBoss, ensureQueues, listFindingsForEngagement, listResearchActions, listSecurityEvents, type PgBoss } from '@audivra/database'
 import {
   CapabilityBroker,
   createDbSecurityStore,
@@ -171,6 +171,12 @@ describe('Phase 6E — autonomous research orchestration', () => {
     expect(done.providerAvailable).toBe(false)
     expect(done.terminationReason).not.toBe('ai-unavailable') // it did not falsely complete nor crash
     expect(await listFindingsForEngagement(db, eid)).not.toHaveLength(0) // deterministic verification still produced a finding
+    // G2 regression: the provider failure reason must be surfaced on the timeline, never silently swallowed.
+    const events = await listSecurityEvents(db, eid, { limit: 500 })
+    const aiDown = events.filter((e) => e.type === 'research.ai-unavailable')
+    expect(aiDown.length).toBeGreaterThan(0)
+    expect(aiDown[0]!.level).toBe('warn')
+    expect(`${aiDown[0]!.message} ${JSON.stringify(aiDown[0]!.metadata ?? {})}`).toMatch(/provider-unavailable/)
   }, 120_000)
 
   it('rejects adversarial AI proposals (duplicate / invented ref / unjustified specialist)', async () => {
