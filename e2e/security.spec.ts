@@ -70,7 +70,7 @@ test('a security engagement goes from draft to ready through the UI, with no way
 })
 
 test('Website Audits stay available alongside security engagements', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/audits')
   await expect(page.getByRole('heading', { name: 'Audits' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Security' })).toBeVisible()
   await page.goto('/audits/new')

@@ -84,7 +84,7 @@ export const Route = createFileRoute('/audits/$auditId')({
       title="Audit not found"
       description="It may have been deleted, or the link is wrong."
       action={
-        <Link to="/" className={buttonVariants({ size: 'sm' })}>
+        <Link to="/audits" className={buttonVariants({ size: 'sm' })}>
           Back to audits
         </Link>
       }

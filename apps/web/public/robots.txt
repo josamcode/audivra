@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+# The workspace is the local app itself, not public content.
+Disallow: /audits
+Disallow: /security
+Disallow: /system

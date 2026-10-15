@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useMatches } from '@tanstack/react-router'
 import { LayoutList, Monitor, Moon, Plus, Server, ShieldCheck, Sun, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { BrandMark } from '@/components/brand-mark'
 import { Dot } from '@/components/ui/badge'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { systemQuery } from '@/lib/queries'
@@ -15,8 +16,8 @@ declare module '@tanstack/react-router' {
   }
 }
 
-const NAV: { to: '/' | '/audits/new' | '/security' | '/system'; label: string; icon: LucideIcon; exact?: boolean }[] = [
-  { to: '/', label: 'Audits', icon: LayoutList, exact: true },
+const NAV: { to: '/audits' | '/audits/new' | '/security' | '/system'; label: string; icon: LucideIcon; exact?: boolean }[] = [
+  { to: '/audits', label: 'Audits', icon: LayoutList, exact: true },
   { to: '/audits/new', label: 'New audit', icon: Plus },
   { to: '/security', label: 'Security', icon: ShieldCheck },
   { to: '/system', label: 'System', icon: Server },
@@ -25,17 +26,7 @@ const NAV: { to: '/' | '/audits/new' | '/security' | '/system'; label: string; i
 function Logo({ className }: { className?: string }) {
   return (
     <span className={cn('flex items-center gap-2', className)}>
-      <svg viewBox="0 0 32 32" className="size-5 text-foreground" aria-hidden>
-        <rect width="32" height="32" rx="7" className="fill-foreground" />
-        <path
-          d="M9 23 16 8l7 15M11.6 18h8.8"
-          fill="none"
-          className="stroke-background"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <BrandMark className="size-5 text-foreground" />
       <span className="text-sm font-semibold tracking-tight text-foreground">Audivra</span>
     </span>
   )
@@ -124,7 +115,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-dvh flex-col md:flex-row">
       <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-surface-muted md:flex print:hidden">
         <div className="flex h-12 items-center px-4">
-          <Link to="/" aria-label="Audivra home">
+          <Link to="/audits" aria-label="Audivra home">
             <Logo />
           </Link>
         </div>
@@ -143,7 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-surface-muted px-3 md:hidden print:hidden">
-        <Link to="/" aria-label="Audivra home" className="mr-1">
+        <Link to="/audits" aria-label="Audivra home" className="mr-1">
           <Logo />
         </Link>
         <nav className="flex flex-1 items-center justify-end gap-0.5" aria-label="Main">

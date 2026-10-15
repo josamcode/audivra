@@ -3,7 +3,7 @@ import { FIXTURE_URL } from './env.ts'
 
 test('create an audit of the fixture site and inspect baseline evidence through the UI', async ({ page }) => {
   // First run (the E2E database starts empty): an empty state instead of empty panels, with System health.
-  await page.goto('/')
+  await page.goto('/audits')
   await expect(page.getByText('No audits yet')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Start first audit' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'System health' })).toBeVisible()
@@ -29,7 +29,7 @@ test('create an audit of the fixture site and inspect baseline evidence through 
   await expect(page.getByText(/Running|Queued/).first()).toBeVisible()
 
   // While it runs, the home screen leads with it under "Running now", with real stages (no percentage).
-  await page.goto('/')
+  await page.goto('/audits')
   const runningNow = page.locator('section', { has: page.getByRole('heading', { name: 'Running now' }) })
   await expect(runningNow).toBeVisible()
   await expect(runningNow.getByText('127.0.0.1:4331')).toBeVisible()
@@ -68,7 +68,7 @@ test('create an audit of the fixture site and inspect baseline evidence through 
   await expect(page.getByText(/lighthouse completed/i).first()).toBeVisible()
 
   // Persisted: the audit is listed after a fresh load.
-  await page.goto('/')
+  await page.goto('/audits')
   const row = page.getByRole('row', { name: /127\.0\.0\.1:4331/ }).first()
   await expect(row).toBeVisible()
   await expect(row.getByText('Completed')).toBeVisible()
@@ -135,7 +135,7 @@ test('audits home: real summary, recent audits, system health and the benchmark 
   const dashboard = (await (await page.request.get('/api/dashboard')).json()) as Dashboard
   expect(dashboard.summary.totalAudits).toBeGreaterThanOrEqual(2)
 
-  await page.goto('/')
+  await page.goto('/audits')
   await expect(page.getByText('Track recent audits, site health, activity, and follow-up opportunities.')).toBeVisible()
   // Every number comes from the API; the fixture runs on 127.0.0.1, a local target, so no website is counted.
   const summary = page.getByRole('region', { name: 'Summary' })
@@ -170,7 +170,7 @@ test('audits home: real summary, recent audits, system health and the benchmark 
   await expect(health.getByText('Healthy', { exact: true })).toBeVisible()
 
   // Benchmark audits are opt-in and the choice lives in the URL. With none recorded, turning it off hides it.
-  await page.goto('/?benchmark=true')
+  await page.goto('/audits?benchmark=true')
   const toggle = page.getByRole('switch', { name: 'Show benchmark audits' })
   await expect(toggle).toBeChecked()
   await toggle.click()

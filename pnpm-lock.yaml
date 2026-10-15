@@ -147,6 +147,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.8.0
         version: 1.8.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@fontsource-variable/ibm-plex-sans':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource-variable/inter':
         specifier: ^5.3.0
         version: 5.3.0
@@ -1330,6 +1333,9 @@ packages:
 
   '@floating-ui/vue@1.1.11':
     resolution: {integrity: sha512-HzHKCNVxnGS35r9fCHBc3+uCnjw9IWIlCPL683cGgM9Kgj2BiAl8x1mS7vtvP6F9S/e/q4O6MApwSHj8hNLGfw==}
+
+  '@fontsource-variable/ibm-plex-sans@5.3.0':
+    resolution: {integrity: sha512-agG8tXFEo0hD9+J7npa4vbbWult52eMLVaQ6WQRlhs/iCAojrMAoejru85W9HTVXHfyUj96KM7gp/KGAS87XaQ==}
 
   '@fontsource-variable/inter@5.3.0':
     resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
@@ -4163,8 +4169,8 @@ packages:
   launch-editor@2.14.2:
     resolution: {integrity: sha512-NHJEb30MGBCkmZXLZwz25t37QR4aY03ZzPYUJXOJaOa92uWwExI9SBQUuIznBYc1xkD7cJNGX7oc3Nl3sq2kQQ==}
 
-  legacy-javascript@0.0.2:
-    resolution: {integrity: sha512-6cMw8OPPX9VOgnWwL6Y7vbNCpd45/RmGMrcSJGaOF4FZfTdEbtlSDUs2ZvHleTUsqSDuKthzHvD6C//jW8ETBA==}
+  legacy-javascript@0.0.3:
+    resolution: {integrity: sha512-1r6MT4dVaJyXt4G07Cm2cQ0AUaLJdefiEp4SmIAylA++gnEQ82YvmzE58RkM5EP0fk5hROLCslUPGnwIYdZQVA==}
 
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
@@ -6635,6 +6641,8 @@ snapshots:
       - '@vue/composition-api'
       - vue
 
+  '@fontsource-variable/ibm-plex-sans@5.3.0': {}
+
   '@fontsource-variable/inter@5.3.0': {}
 
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
@@ -7237,12 +7245,12 @@ snapshots:
 
   '@paulirish/trace_engine@0.0.53':
     dependencies:
-      legacy-javascript: 0.0.2
+      legacy-javascript: 0.0.3
       third-party-web: 0.30.0
 
   '@paulirish/trace_engine@0.0.65':
     dependencies:
-      legacy-javascript: 0.0.2
+      legacy-javascript: 0.0.3
       third-party-web: 0.30.0
 
   '@pinojs/redact@0.4.0': {}
@@ -9987,7 +9995,7 @@ snapshots:
       picocolors: 1.1.1
       shell-quote: 1.12.0
 
-  legacy-javascript@0.0.2: {}
+  legacy-javascript@0.0.3: {}
 
   levn@0.4.1:
     dependencies:

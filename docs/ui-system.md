@@ -126,7 +126,17 @@ preview cannot drift from the exported files.
 
 ## Screens
 
-- **Audits (home)** — answers “what needs my attention?”: a five-cell summary strip (audits, active work,
+- **Landing page** (`/`) — the public front door, rendered without the app chrome (`staticData.chrome: 'none'`).
+  It is deliberately *not* the workbench style: an editorial marketing page with its own tokens, scoped
+  under `.lp` in `apps/web/src/features/landing/landing.css` (always light, IBM Plex Sans Variable), so
+  nothing here leaks into the app. Its hero URL field validates with the API's `CreateAuditInput` rule and
+  hands the URL to *New audit* (`/audits/new?url=…`); the audit still starts only from that page. Product
+  imagery is real app screenshots (a completed audit of books.toscrape.com, the fixture site's history),
+  captured at 2x and shipped as 1x/2x WebP with `sizes`. Motion follows the reference it was modelled on:
+  header turns solid on scroll, slow background drift, a tooling marquee, a pausable product tour and a
+  sticky stage section whose screenshot crossfades with the reading position — all off under
+  `prefers-reduced-motion`.
+- **Audits (home)** (`/audits`) — answers “what needs my attention?”: a five-cell summary strip (audits, active work,
   websites, findings in the latest audits, average duration), *Running now* only while work is in flight
   (real stages), recent audits (site mark, status, start/duration, severity summary, severity-history trend,
   search and filters), priority follow-ups; rail: system health (worker, database, Claude, tools), recent

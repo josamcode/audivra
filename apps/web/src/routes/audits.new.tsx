@@ -16,6 +16,10 @@ import { api } from '@/lib/api'
 import { queryKeys, systemQuery } from '@/lib/queries'
 
 export const Route = createFileRoute('/audits/new')({
+  // A website URL handed over from the landing page pre-fills the form; the audit still starts here.
+  validateSearch: (search: Record<string, unknown>): { url?: string } => ({
+    url: typeof search.url === 'string' && search.url.trim() ? search.url.trim().slice(0, 2048) : undefined,
+  }),
   component: NewAuditPage,
 })
 
@@ -79,9 +83,10 @@ function Readiness() {
 function NewAuditPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { url: prefilledUrl } = Route.useSearch()
   const form = useForm<CreateAuditInput>({
     resolver: zodResolver(CreateAuditInput),
-    defaultValues: { url: '', clientName: '', template: DEFAULT_TEMPLATE_KEY },
+    defaultValues: { url: prefilledUrl ?? '', clientName: '', template: DEFAULT_TEMPLATE_KEY },
     mode: 'onSubmit',
   })
   const mutation = useMutation({

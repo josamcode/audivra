@@ -72,7 +72,7 @@ export function AuditHeader({
     <header className="bg-surface">
       <div className={cn(pageFrame, 'pt-5')}>
         <div className="mb-1 text-xs text-muted">
-          <Link to="/" className="hover:text-foreground">
+          <Link to="/audits" className="hover:text-foreground">
             Audits
           </Link>
           <span className="px-1.5 text-subtle">/</span>
