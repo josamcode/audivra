@@ -101,6 +101,27 @@ describe('classification', () => {
     expect(c.result).toBe('blocked')
   })
 
+  // G1 regression: a field-boundary "limited view expected" is only a finding when a field-level policy is
+  // DECLARED (invariant-backed). Two roles that both legitimately read the resource and see the SAME fields
+  // must NOT be flagged as a vulnerability without evidence that a limited view was required.
+  it('does NOT flag identical field views as inconsistent without a declared field-level policy (G1)', () => {
+    const c = classifyComparison([arm('subject', 'limited', probe()), arm('positive-control', 'allow', probe())], 'field-boundary', null)
+    expect(c.result).toBe('inconclusive')
+    expect(c.resultReason).toMatch(/no field-level policy/i)
+  })
+
+  it('flags identical field views as inconsistent ONLY when a field-level policy is declared (G1)', () => {
+    const c = classifyComparison([arm('subject', 'limited', probe()), arm('positive-control', 'allow', probe())], 'field-boundary', 'inv-field')
+    expect(c.result).toBe('inconsistent')
+    expect(c.invariantEvaluation).toBe('contradicted')
+  })
+
+  it('is consistent when a declared field-level policy is met (subject sees a different, limited view) (G1)', () => {
+    const c = classifyComparison([arm('subject', 'limited', probe({ bodySample: '{"id":"doc1"}', bodyBytes: 12 })), arm('positive-control', 'allow', probe())], 'field-boundary', 'inv-field')
+    expect(c.result).toBe('consistent')
+    expect(c.invariantEvaluation).toBe('supported')
+  })
+
   it('classifies the resource relationship from ownership/tenant', () => {
     expect(classifyRelationship({ dimension: 'object-boundary', subjectIdentityRef: 'bob', resourceOwnerRef: 'alice', subjectTenantRef: 't1', resourceTenantRef: 't1' })).toBe('different-owner')
     expect(classifyRelationship({ dimension: 'object-boundary', subjectIdentityRef: 'alice', resourceOwnerRef: 'alice', subjectTenantRef: 't1', resourceTenantRef: 't1' })).toBe('same-owner')
@@ -159,6 +180,23 @@ describe('planner', () => {
     const key = comparisonDedupeKey(first!.plan.dimension, first!.plan.action, first!.plan.arms)
     const after = proposeComparisons({ ...base, existingDedupeKeys: new Set([key]) }, 6)
     expect(after.plans.some((p) => comparisonDedupeKey(p.plan.dimension, p.plan.action, p.plan.arms) === key)).toBe(false)
+  })
+
+  // G1 regression: the planner must NOT manufacture a field-boundary comparison from a bare assumption that a
+  // non-owner should see fewer fields. It proposes one only when a field-access invariant is declared.
+  it('does not propose a field-boundary comparison without a declared field-access policy (G1)', () => {
+    const { plans, stats } = proposeComparisons(base, 8)
+    expect(plans.some((p) => p.plan.dimension === 'field-boundary')).toBe(false)
+    expect(stats.discarded['field-no-declared-policy']).toBeGreaterThanOrEqual(1)
+  })
+
+  it('proposes a field-boundary comparison (invariant-backed) when a field-access policy is declared (G1)', () => {
+    const withPolicy: PlannerInput = { ...base, invariants: [...base.invariants, { ref: 'inv-field', category: 'field-access', rule: 'viewers see a limited view of doc1', resourceRefs: ['doc1'] }] }
+    const { plans } = proposeComparisons(withPolicy, 8)
+    const fb = plans.find((p) => p.plan.dimension === 'field-boundary')
+    expect(fb).toBeDefined()
+    expect(fb!.plan.invariantRef).toBe('inv-field')
+    expect(fb!.plan.arms.find((a) => a.role === 'subject')!.expected).toMatchObject({ outcome: 'limited', basis: 'declared', invariantRef: 'inv-field' })
   })
 
   it('rejects adversarial proposals (invented refs, no session, ownership mismatch, no controls)', () => {

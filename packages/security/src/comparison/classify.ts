@@ -77,18 +77,29 @@ export function classifyComparison(arms: ComparisonArm[], _dimension: Comparison
         confidence = 0.5
       }
       break
-    case 'limited':
-      if (pos && pos.observation) {
+    case 'limited': {
+      // A "limited view expected" is only a real authorization boundary when a field-level policy is
+      // DECLARED for the resource (invariant-backed). Without that evidence, two roles seeing the SAME
+      // fields is not a violation — they may legitimately share full read access — so we never flag it.
+      const policyDeclared = invariantRef !== null
+      if (pos && pos.observation && policyDeclared) {
         const identicalToPrivileged = sObs.normalizedHash !== null && sObs.normalizedHash === pos.observation.normalizedHash
         result = identicalToPrivileged ? 'inconsistent' : 'consistent'
-        resultReason = identicalToPrivileged ? 'Subject saw the same content as the privileged identity (not the limited view expected)' : 'Subject saw a limited/different view as expected'
+        resultReason = identicalToPrivileged
+          ? 'Subject saw the same content as the privileged identity (not the limited view the declared field-level policy requires)'
+          : 'Subject saw the limited/different view the declared field-level policy requires'
         confidence = 0.6
+      } else if (pos && pos.observation) {
+        result = 'inconclusive'
+        resultReason = 'Subject and the privileged identity returned the same fields, but no field-level policy is declared for this resource, so an equal view is not a violation'
+        confidence = 0.3
       } else {
         result = 'inconclusive'
         resultReason = 'No privileged (positive-control) arm to compare the limited view against'
         confidence = 0.3
       }
       break
+    }
     default:
       result = 'inconclusive'
       resultReason = 'The expected outcome is unknown; no basis to compare against'

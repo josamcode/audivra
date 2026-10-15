@@ -166,17 +166,23 @@ export function proposeComparisons(input: PlannerInput, limit = 6): { plans: Ran
       } else c.discard('tenant-no-cross-tenant-identity')
     }
 
-    // Field boundary: a non-owner that can read should see a limited view vs the owner (full view).
-    if (owner && nonOwner) {
+    // Field boundary: ONLY when a field-level policy is declared for the resource. Absent a declared
+    // field-access invariant, a non-owner seeing the same fields as the owner is not a violation — two
+    // roles may legitimately share full read access — so we never manufacture a finding from a bare
+    // assumption. The open `field-visibility-unknown` gap still surfaces the question for a human.
+    const fieldInv = owner && nonOwner ? invariantFor(resource.ref, ['field-access']) : undefined
+    if (owner && nonOwner && fieldInv) {
       c.add(
-        base('field-boundary', resource, 'read', null, [
-          arm('subject', nonOwner.ref, resource.ref, url, expected('limited', 'ai-inferred', null, `${nonOwner.ref} should see fewer fields than the owner`)),
-          arm('positive-control', owner.ref, resource.ref, url, expected('allow', 'observed', null, `${owner.ref} sees the full resource`)),
+        base('field-boundary', resource, 'read', fieldInv.ref, [
+          arm('subject', nonOwner.ref, resource.ref, url, expected('limited', 'declared', fieldInv.ref, fieldInv.rule)),
+          arm('positive-control', owner.ref, resource.ref, url, expected('allow', 'observed', fieldInv.ref, `${owner.ref} sees the full resource`)),
         ]),
         resource.key,
         baseGain(resource, true, false) - 0.1,
-        `Field boundary: does ${nonOwner.ref} see the same fields as ${owner.ref} on ${resource.ref}?`,
+        `Field boundary: does ${nonOwner.ref} see the limited view required by ${fieldInv.ref} on ${resource.ref}?`,
       )
+    } else if (owner && nonOwner) {
+      c.discard('field-no-declared-policy')
     }
 
     // Session boundary: an anonymous request should be denied; an authenticated identity allowed.
